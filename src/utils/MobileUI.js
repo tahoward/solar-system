@@ -148,10 +148,10 @@ class MobileUI {
                     this.focusSun();
                     break;
                 case 'prevPlanet':
-                    this.navigateToPreviousPlanet();
+                    this.navigateToPreviousBody();
                     break;
                 case 'nextPlanet':
-                    this.navigateToNextPlanet();
+                    this.navigateToNextBody();
                     break;
                 case 'resetCamera':
                     this.resetCamera();
@@ -210,7 +210,7 @@ class MobileUI {
         }
     }
 
-    navigateToPreviousPlanet() {
+    navigateToPreviousBody() {
         if (typeof window !== 'undefined' && window.SceneManager) {
             // Press left arrow programmatically
             const event = new KeyboardEvent('keydown', { code: 'ArrowLeft', key: 'ArrowLeft' });
@@ -218,7 +218,7 @@ class MobileUI {
         }
     }
 
-    navigateToNextPlanet() {
+    navigateToNextBody() {
         if (typeof window !== 'undefined' && window.SceneManager) {
             // Press right arrow programmatically
             const event = new KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight' });
