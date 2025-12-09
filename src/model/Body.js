@@ -5,6 +5,7 @@ import ConfigValidator from '../utils/ConfigValidator.js';
 import { log } from '../utils/Logger.js';
 import { GEOMETRY } from '../constants.js';
 import AtmosphereShaderMaterial from '../shaders/AtmosphereShaderMaterial.js';
+import RingShaderMaterial from '../shaders/RingShaderMaterial.js';
 import VectorUtils from '../utils/VectorUtils.js';
 import OrbitTrail from './OrbitTrail.js';
 
@@ -170,7 +171,10 @@ class Body {
      * @private
      */
     createMesh() {
-        return new THREE.Mesh(this.geometry, this.material);
+        const mesh = new THREE.Mesh(this.geometry, this.material);
+        mesh.castShadow = true; // Allow planet to cast shadows on rings
+        mesh.receiveShadow = true; // Allow planet to receive shadows from rings
+        return mesh;
     }
 
     /**
@@ -398,7 +402,14 @@ class Body {
             materialProps.map = ringTexture;
         }
 
-        const ringMaterial = new THREE.MeshBasicMaterial(materialProps);
+        // Use custom ring shader material with planet shadow support
+        const ringMaterial = new RingShaderMaterial({
+            ringTexture: ringTexture,
+            opacity: opacity,
+            ringColor: ringConfig.color || 0xffffff,
+            planetRadius: this.radius,
+            hasPlanetShadow: true
+        });
 
         // Create ring group to hold both sides
         const ringGroup = new THREE.Group();
@@ -406,11 +417,13 @@ class Body {
         // Create top side ring mesh
         const topRingMesh = new THREE.Mesh(ringGeometry, ringMaterial);
         topRingMesh.rotation.x = Math.PI / 2;
+        topRingMesh.receiveShadow = true; // Enable shadow receiving
         ringGroup.add(topRingMesh);
 
         // Create bottom side ring mesh (flipped)
         const bottomRingMesh = new THREE.Mesh(ringGeometry, ringMaterial.clone());
         bottomRingMesh.rotation.x = -Math.PI / 2; // Flip to face the other direction
+        bottomRingMesh.receiveShadow = true; // Enable shadow receiving
         ringGroup.add(bottomRingMesh);
 
 
@@ -577,6 +590,52 @@ class Body {
             if (lightColor !== undefined) {
                 this.atmosphere.userData.shaderMaterial.setLightColor(lightColor);
             }
+        }
+
+        // Also update ring shadow material if this body has rings and uses ring shadow material
+        this.updateRingShadowLighting(lightPosition, lightColor);
+
+        // Update ring material lighting for planet shadows on rings
+        this.updateRingLighting(lightPosition, lightColor);
+    }
+
+    /**
+     * Update ring shadow material lighting based on light source
+     * @param {THREE.Vector3} lightPosition - Position of the light source (usually the sun)
+     * @param {THREE.Color|number} lightColor - Color of the light source
+     */
+    updateRingShadowLighting(lightPosition, lightColor) {
+        // Check if this body's material is a ring shadow material
+        if (this.material && typeof this.material.updateLighting === 'function') {
+            // Get the ring rotation from the tilt container
+            const ringRotation = this.tiltContainer ? this.tiltContainer.rotation : null;
+            this.material.updateLighting(lightPosition, this.group.position, ringRotation);
+
+            // Update light color if provided
+            if (lightColor !== undefined) {
+                this.material.setLightColor(lightColor);
+            }
+        }
+    }
+
+    /**
+     * Update ring material lighting for planet shadows on rings
+     * @param {THREE.Vector3} lightPosition - Position of the light source (usually the sun)
+     * @param {THREE.Color|number} lightColor - Color of the light source
+     */
+    updateRingLighting(lightPosition, lightColor) {
+        if (this.rings) {
+            // Update lighting for both top and bottom ring meshes
+            this.rings.traverse((child) => {
+                if (child.material && typeof child.material.updateLighting === 'function') {
+                    child.material.updateLighting(lightPosition, this.group.position);
+
+                    // Update light color if provided
+                    if (lightColor !== undefined) {
+                        child.material.setLightColor(lightColor);
+                    }
+                }
+            });
         }
     }
 

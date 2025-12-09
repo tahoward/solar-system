@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import SunShaderMaterial from '../shaders/SunShaderMaterial.js';
+import RingShadowShaderMaterial from '../shaders/RingShadowShaderMaterial.js';
 import { temperatureToColor, temperatureToGlareBrightness } from '../constants.js';
 import TextureFactory from './TextureFactory.js';
 
@@ -21,14 +22,15 @@ export class MaterialFactory {
     /**
      * Create material for a celestial body
      * @param {Object} bodyData - The celestial body data
+     * @param {number} [bodyRadius] - The actual body radius (for ring shadow calculations)
      * @returns {THREE.Material} The created material
      */
-    static createBodyMaterial(bodyData) {
+    static createBodyMaterial(bodyData, bodyRadius = null) {
 
         if (bodyData.star) {
             return this.createStarMaterial(bodyData);
         } else {
-            return this.createPlanetMaterial(bodyData);
+            return this.createPlanetMaterial(bodyData, bodyRadius);
         }
     }
 
@@ -76,10 +78,11 @@ export class MaterialFactory {
     /**
      * Create material for a planet
      * @param {Object} bodyData - The celestial body data
-     * @returns {THREE.MeshLambertMaterial} The created planet material
+     * @param {number} [bodyRadius] - The actual body radius (for ring shadow calculations)
+     * @returns {THREE.Material} The created planet material
      * @private
      */
-    static createPlanetMaterial(bodyData) {
+    static createPlanetMaterial(bodyData, bodyRadius = null) {
         let planetTexture;
 
         // Use real textures if specified, procedural for others
@@ -104,10 +107,59 @@ export class MaterialFactory {
             planetTexture = TextureFactory.createPlanetTexture(bodyData);
         }
 
+        // Check if this planet has rings and should use ring shadow material
+        if (bodyData.rings && bodyData.rings.texture) {
+            return this.createRingShadowMaterial(bodyData, planetTexture, bodyRadius);
+        }
+
         return new THREE.MeshLambertMaterial({
             map: planetTexture,
             color: bodyData.surfaceTexture ? 0xffffff : bodyData.color, // Use white for textured planets to show true colors
             emissive: new THREE.Color(0x000000) // No emissive glow for realistic lighting
+        });
+    }
+
+    /**
+     * Create ring shadow material for planets with rings
+     * @param {Object} bodyData - The celestial body data
+     * @param {THREE.Texture} surfaceTexture - The planet's surface texture
+     * @param {number} [bodyRadius] - The actual body radius (for ring shadow calculations)
+     * @returns {RingShadowShaderMaterial} The created ring shadow material
+     * @private
+     */
+    static createRingShadowMaterial(bodyData, surfaceTexture, bodyRadius = null) {
+        const rings = bodyData.rings;
+        let ringTexture = null;
+
+        // Load ring alpha texture
+        if (rings.texture) {
+            if (this.preloadedTextures && this.preloadedTextures.has(rings.texture)) {
+                ringTexture = this.preloadedTextures.get(rings.texture);
+                console.log(`MaterialFactory: Using preloaded ring texture for ${bodyData.name || 'celestial body'} ring shadows`);
+            } else {
+                console.warn(`MaterialFactory: Preloaded ring texture not found for ${rings.texture}, loading directly...`);
+                const loader = new THREE.TextureLoader();
+                ringTexture = loader.load(rings.texture);
+                ringTexture.wrapS = THREE.ClampToEdgeWrapping;
+                ringTexture.wrapT = THREE.RepeatWrapping;
+                ringTexture.generateMipmaps = true;
+                ringTexture.minFilter = THREE.LinearMipmapLinearFilter;
+                ringTexture.magFilter = THREE.LinearFilter;
+            }
+        }
+
+        // Calculate ring radii in world units using actual body radius
+        const planetRadius = bodyRadius || (bodyData.radiusScale || 1.0); // Use actual radius if available
+        const innerRadius = planetRadius * rings.innerRadius;
+        const outerRadius = planetRadius * rings.outerRadius;
+
+        return new RingShadowShaderMaterial({
+            surfaceTexture: surfaceTexture,
+            ringAlphaTexture: ringTexture,
+            ringInnerRadius: innerRadius,
+            ringOuterRadius: outerRadius,
+            lightRadius: 0.05, // Sun's apparent radius for soft shadows
+            hasRings: true
         });
     }
 }

@@ -339,6 +339,14 @@ export class AnimationManager {
         this.orbits.forEach(orbit => {
             if (orbit && orbit.body && orbit.body.updateAtmosphereLighting) {
                 orbit.body.updateAtmosphereLighting(starPosition, starLightColor);
+
+                // Update shadow light for Saturn (for ring shadows)
+                if (orbit.body.name === 'Saturn' && starPosition) {
+                    const sceneManager = SceneManager.getInstance ? SceneManager.getInstance() : SceneManager.instance;
+                    if (sceneManager && sceneManager.updateShadowLight) {
+                        sceneManager.updateShadowLight(starPosition, orbit.body.group.position);
+                    }
+                }
             }
         });
     }
