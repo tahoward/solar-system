@@ -7,6 +7,17 @@ import TextureFactory from './TextureFactory.js';
  * Factory class responsible for creating materials for celestial bodies
  */
 export class MaterialFactory {
+    // Static property to store preloaded textures
+    static preloadedTextures = null;
+
+    /**
+     * Set preloaded textures for use in material creation
+     * @param {Map<string, THREE.Texture>} textures - Map of preloaded textures
+     */
+    static setPreloadedTextures(textures) {
+        this.preloadedTextures = textures;
+    }
+
     /**
      * Create material for a celestial body
      * @param {Object} bodyData - The celestial body data
@@ -73,17 +84,22 @@ export class MaterialFactory {
 
         // Use real textures if specified, procedural for others
         if (bodyData.surfaceTexture) {
-            const loader = new THREE.TextureLoader();
-            planetTexture = loader.load(bodyData.surfaceTexture);
-            planetTexture.wrapS = THREE.RepeatWrapping;
-            planetTexture.wrapT = THREE.RepeatWrapping;
-            planetTexture.generateMipmaps = true;
-            planetTexture.minFilter = THREE.LinearMipmapLinearFilter;
-            planetTexture.magFilter = THREE.LinearFilter;
-
-            // Add anisotropic filtering to reduce artifacts on large stars
-            // This will be set when the renderer is available
-            planetTexture.anisotropy = 16; // Will be clamped to max supported by GPU
+            // Try to get preloaded texture first
+            if (this.preloadedTextures && this.preloadedTextures.has(bodyData.surfaceTexture)) {
+                planetTexture = this.preloadedTextures.get(bodyData.surfaceTexture);
+                console.log(`MaterialFactory: Using preloaded texture for ${bodyData.name || 'celestial body'}`);
+            } else {
+                // Fallback to loading texture (for compatibility)
+                console.warn(`MaterialFactory: Preloaded texture not found for ${bodyData.surfaceTexture}, loading directly...`);
+                const loader = new THREE.TextureLoader();
+                planetTexture = loader.load(bodyData.surfaceTexture);
+                planetTexture.wrapS = THREE.RepeatWrapping;
+                planetTexture.wrapT = THREE.RepeatWrapping;
+                planetTexture.generateMipmaps = true;
+                planetTexture.minFilter = THREE.LinearMipmapLinearFilter;
+                planetTexture.magFilter = THREE.LinearFilter;
+                planetTexture.anisotropy = 16; // Will be clamped to max supported by GPU
+            }
         } else {
             planetTexture = TextureFactory.createPlanetTexture(bodyData);
         }

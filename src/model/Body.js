@@ -24,6 +24,17 @@ import OrbitTrail from './OrbitTrail.js';
  */
 
 class Body {
+    // Static property to store preloaded textures
+    static preloadedTextures = null;
+
+    /**
+     * Set preloaded textures for use in body creation
+     * @param {Map<string, THREE.Texture>} textures - Map of preloaded textures
+     */
+    static setPreloadedTextures(textures) {
+        this.preloadedTextures = textures;
+    }
+
     /**
      * Creates a new celestial body with specified properties.
      * @param {string} name - The body name (must be non-empty)
@@ -350,19 +361,28 @@ class Body {
         );
 
         // Load ring texture if specified in config
-        const textureLoader = new THREE.TextureLoader();
-        const ringTexture = ringConfig.texture ?
-            textureLoader.load(ringConfig.texture) :
-            null;
+        let ringTexture = null;
+        if (ringConfig.texture) {
+            // Try to get preloaded texture first
+            if (Body.preloadedTextures && Body.preloadedTextures.has(ringConfig.texture)) {
+                ringTexture = Body.preloadedTextures.get(ringConfig.texture);
+                console.log(`Body: Using preloaded ring texture for ${this.name}`);
+            } else {
+                // Fallback to loading texture (for compatibility)
+                console.warn(`Body: Preloaded ring texture not found for ${ringConfig.texture}, loading directly...`);
+                const textureLoader = new THREE.TextureLoader();
+                ringTexture = textureLoader.load(ringConfig.texture);
 
-        // Configure texture for ring appearance (if texture exists)
-        if (ringTexture) {
-            ringTexture.wrapS = THREE.ClampToEdgeWrapping; // Don't repeat in U direction
-            ringTexture.wrapT = THREE.RepeatWrapping; // Repeat around the ring
-            ringTexture.generateMipmaps = true;
-            ringTexture.minFilter = THREE.LinearMipmapLinearFilter;
-            ringTexture.magFilter = THREE.LinearFilter;
+                // Configure texture for ring appearance
+                ringTexture.wrapS = THREE.ClampToEdgeWrapping; // Don't repeat in U direction
+                ringTexture.wrapT = THREE.RepeatWrapping; // Repeat around the ring
+                ringTexture.generateMipmaps = true;
+                ringTexture.minFilter = THREE.LinearMipmapLinearFilter;
+                ringTexture.magFilter = THREE.LinearFilter;
+            }
         }
+
+        // Note: Preloaded textures already have their configuration set
 
         // Create ring material with or without texture
         const materialProps = {

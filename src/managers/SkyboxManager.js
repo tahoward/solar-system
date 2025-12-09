@@ -9,6 +9,15 @@ class SkyboxManager {
   constructor() {
     this.skybox = null;
     this.textureLoader = new THREE.TextureLoader();
+    this.preloadedTextures = null;
+  }
+
+  /**
+   * Set preloaded textures for use in skybox creation
+   * @param {Map<string, THREE.Texture>} textures - Map of preloaded textures
+   */
+  setPreloadedTextures(textures) {
+    this.preloadedTextures = textures;
   }
 
   /**
@@ -21,8 +30,16 @@ class SkyboxManager {
     try {
       console.log('🌌 Loading skybox texture from:', imageUrl);
 
-      // Load the texture
-      const texture = await this.loadTexture(imageUrl);
+      // Try to get preloaded texture first
+      let texture;
+      if (this.preloadedTextures && this.preloadedTextures.has(imageUrl)) {
+        texture = this.preloadedTextures.get(imageUrl);
+        console.log('🌌 Using preloaded skybox texture');
+      } else {
+        // Fallback to loading texture (for compatibility)
+        console.warn('🌌 Preloaded skybox texture not found, loading directly...');
+        texture = await this.loadTexture(imageUrl);
+      }
 
       // Create a large sphere geometry for the skybox
       const geometry = new THREE.SphereGeometry(SKYBOX.RADIUS, SKYBOX.SEGMENTS, SKYBOX.SEGMENTS / 2);
