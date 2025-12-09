@@ -434,6 +434,7 @@ export const CELESTIAL_DATA = [{
           e: 0.0041,    // Low eccentricity
           i: 0.05,      // Low inclination
           omega: 43.977, w: 84.129, M0: 0.0,
+          surfaceTexture: TEXTURES.io,
           children: []
         },
         // Europa - second Galilean moon
@@ -446,6 +447,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 85.23,  // Tidally locked (3.55 Earth days)
           axialTilt: 0.1,   // Nearly no tilt
           lightIntensity: null,
+          surfaceTexture: TEXTURES.europa,
           parent: 'Jupiter',
           a: 0.004486,  // Semi-major axis in AU (671,034 km)
           e: 0.009,     // Low eccentricity
@@ -463,6 +465,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 171.71,  // Tidally locked (7.15 Earth days)
           axialTilt: 0.33,  // Small tilt
           lightIntensity: null,
+          surfaceTexture: TEXTURES.ganymede,
           parent: 'Jupiter',
           a: 0.007155,  // Semi-major axis in AU (1,070,412 km)
           e: 0.0013,    // Very low eccentricity
@@ -480,6 +483,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 400.54,  // Tidally locked (16.69 Earth days)
           axialTilt: 0.51,  // Small tilt
           lightIntensity: null,
+          surfaceTexture: TEXTURES.callisto,
           parent: 'Jupiter',
           a: 0.01258,   // Semi-major axis in AU (1,882,709 km)
           e: 0.0074,    // Low eccentricity
@@ -528,6 +532,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 22.62, // Tidally locked (0.942 Earth days)
           axialTilt: 0.02, // Nearly aligned with Saturn's equator
           lightIntensity: null,
+          surfaceTexture: TEXTURES.mimas,
           parent: 'Saturn',
           a: 0.001241, // Semi-major axis in AU (185,539 km)
           e: 0.0196, // Eccentricity
@@ -545,6 +550,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 32.88, // Tidally locked (1.37 Earth days)
           axialTilt: 0.0, // No significant tilt
           lightIntensity: null,
+          surfaceTexture: TEXTURES.enceladus,
           parent: 'Saturn',
           a: 0.001593, // Semi-major axis in AU (238,020 km)
           e: 0.0047, // Low eccentricity
@@ -562,6 +568,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 45.31, // Tidally locked (1.89 Earth days)
           axialTilt: 0.02, // Nearly aligned with Saturn's equator
           lightIntensity: null,
+          surfaceTexture: TEXTURES.tethys,
           parent: 'Saturn',
           a: 0.001975, // Semi-major axis in AU (294,619 km)
           e: 0.0001, // Nearly circular
@@ -579,6 +586,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 65.69, // Tidally locked (2.74 Earth days)
           axialTilt: 0.02, // Nearly no tilt
           lightIntensity: null,
+          surfaceTexture: TEXTURES.dione,
           parent: 'Saturn',
           a: 0.002523, // Semi-major axis in AU (377,396 km)
           e: 0.0022, // Low eccentricity
@@ -596,6 +604,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 382.69, // Tidally locked (15.95 Earth days)
           axialTilt: 0.02, // Nearly aligned with Saturn's equator
           lightIntensity: null,
+          surfaceTexture: TEXTURES.titan,
           // Titan's thick methane atmosphere
           atmosphere: {
             color: 0xDEB887,  // Burlywood (orange haze)
@@ -622,6 +631,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 1903.8, // Tidally locked (79.33 Earth days)
           axialTilt: 8.13, // Significant tilt relative to Saturn's equator
           lightIntensity: null,
+          surfaceTexture: TEXTURES.iapetus,
           parent: 'Saturn',
           a: 0.0238, // Semi-major axis in AU (3,561,300 km)
           e: 0.0286, // Low eccentricity
