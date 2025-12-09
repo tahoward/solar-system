@@ -171,9 +171,8 @@ class Marker {
             // Use smooth transition for all bodies including Sun
             SceneManager.setTargetSmooth(this.body.group);
 
-            // Handle marker selection and fading through SceneManager
-            SceneManager.onMarkerSelected(this);
-            this.fadeOut();
+            // Handle body selection through SceneManager (this will properly manage marker fading)
+            SceneManager.onBodySelected(this.body);
 
             // Trigger custom event to update the keyboard control system
             window.dispatchEvent(new CustomEvent('planetSelected', {

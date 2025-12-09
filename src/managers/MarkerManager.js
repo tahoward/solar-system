@@ -95,16 +95,6 @@ export class MarkerManager {
             return;
         }
 
-
-        // Restore previous marker if there was one
-        if (this.currentSelectedMarker && this.currentSelectedMarker !== selectedMarker) {
-            if (typeof this.currentSelectedMarker.fadeIn === 'function') {
-                this.currentSelectedMarker.fadeIn();
-            } else {
-                console.warn('MarkerManager: Previous selected marker does not have fadeIn method');
-            }
-        }
-
         // Set new selected marker and update hierarchy
         this.currentSelectedMarker = selectedMarker;
         this.hierarchyManager.setSelectedBody(selectedMarker.body);
