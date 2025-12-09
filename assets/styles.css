@@ -80,7 +80,7 @@ body, html {
     backdrop-filter: blur(15px);
     min-width: 280px;
     max-width: 320px;
-    max-height: calc(100vh - 120px);
+    max-height: calc(100vh - 140px);
     overflow-y: auto;
     transform: translateX(-100%);
     opacity: 0;
@@ -204,6 +204,8 @@ body, html {
         min-width: calc(100vw - 50px);
         max-width: calc(100vw - 50px);
         top: 50px;
+        max-height: calc(100vh - 80px);
+        max-height: calc(100dvh - 80px); /* Use dynamic viewport height on supported browsers */
     }
 
     .menu-section {
