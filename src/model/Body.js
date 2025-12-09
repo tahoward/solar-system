@@ -592,7 +592,7 @@ class Body {
             }
         }
 
-        // Also update ring shadow material if this body has rings and uses ring shadow material
+        // Also update planet material lighting if this body uses planet material
         this.updateRingShadowLighting(lightPosition, lightColor);
 
         // Update ring material lighting for planet shadows on rings
@@ -600,12 +600,12 @@ class Body {
     }
 
     /**
-     * Update ring shadow material lighting based on light source
+     * Update planet material lighting based on light source
      * @param {THREE.Vector3} lightPosition - Position of the light source (usually the sun)
      * @param {THREE.Color|number} lightColor - Color of the light source
      */
     updateRingShadowLighting(lightPosition, lightColor) {
-        // Check if this body's material is a ring shadow material
+        // Check if this body's material is a planet material
         if (this.material && typeof this.material.updateLighting === 'function') {
             // Get the ring rotation from the tilt container
             const ringRotation = this.tiltContainer ? this.tiltContainer.rotation : null;
@@ -614,6 +614,31 @@ class Body {
             // Update light color if provided
             if (lightColor !== undefined) {
                 this.material.setLightColor(lightColor);
+            }
+        }
+    }
+
+    /**
+     * Update celestial body shadows on this body's surface
+     * @param {Array<Body>} shadowBodies - Array of Body objects that can cast shadows (moons, planets, etc.)
+     */
+    updateMoonShadows(shadowBodies) {
+        // Check if this body's material supports celestial body shadows
+        if (this.material && typeof this.material.updateMoons === 'function') {
+            if (shadowBodies && shadowBodies.length > 0) {
+                const positions = [];
+                const radii = [];
+
+                shadowBodies.forEach(body => {
+                    if (body && body.group && body.group.position && body.radius) {
+                        positions.push(body.group.position.clone());
+                        radii.push(body.radius);
+                    }
+                });
+
+                this.material.updateMoons(positions, radii);
+            } else {
+                this.material.clearMoons();
             }
         }
     }

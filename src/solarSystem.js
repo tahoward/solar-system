@@ -112,6 +112,13 @@ async function initializeScene(loadedTextures) {
     // Initialize animation manager
     const animationManager = new AnimationManager(orbits, stats);
 
+    // Connect hierarchy manager to animation manager for moon shadows
+    if (hierarchy) {
+        if (SceneManager && SceneManager.hierarchyManager) {
+            animationManager.setHierarchyManager(SceneManager.hierarchyManager);
+        }
+    }
+
     // Set up input controls
     const targetableBodies = SceneManager.getTargetableBodies(orbits);
     const inputController = new InputController(targetableBodies, animationManager);

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import SunShaderMaterial from '../shaders/SunShaderMaterial.js';
-import RingShadowShaderMaterial from '../shaders/RingShadowShaderMaterial.js';
+import PlanetShaderMaterial from '../shaders/PlanetShaderMaterial.js';
 import { temperatureToColor, temperatureToGlareBrightness } from '../constants.js';
 import TextureFactory from './TextureFactory.js';
 
@@ -107,24 +107,30 @@ export class MaterialFactory {
             planetTexture = TextureFactory.createPlanetTexture(bodyData);
         }
 
-        // Check if this planet has rings and should use ring shadow material
+        // Use RingShadowShaderMaterial for all planets for consistent lighting
+        // This provides better control over shadow darkness than MeshLambertMaterial
         if (bodyData.rings && bodyData.rings.texture) {
             return this.createRingShadowMaterial(bodyData, planetTexture, bodyRadius);
+        } else {
+            // Create PlanetShaderMaterial without rings for better lighting control
+            return new PlanetShaderMaterial({
+                surfaceTexture: planetTexture,
+                ringAlphaTexture: null,
+                ringInnerRadius: 0,
+                ringOuterRadius: 0,
+                lightRadius: 0.05,
+                hasRings: false, // No rings, just better lighting
+                lightColor: bodyData.surfaceTexture ? 0xffffff : bodyData.color
+            });
         }
-
-        return new THREE.MeshLambertMaterial({
-            map: planetTexture,
-            color: bodyData.surfaceTexture ? 0xffffff : bodyData.color, // Use white for textured planets to show true colors
-            emissive: new THREE.Color(0x000000) // No emissive glow for realistic lighting
-        });
     }
 
     /**
-     * Create ring shadow material for planets with rings
+     * Create planet material for planets with rings
      * @param {Object} bodyData - The celestial body data
      * @param {THREE.Texture} surfaceTexture - The planet's surface texture
      * @param {number} [bodyRadius] - The actual body radius (for ring shadow calculations)
-     * @returns {RingShadowShaderMaterial} The created ring shadow material
+     * @returns {PlanetShaderMaterial} The created planet material
      * @private
      */
     static createRingShadowMaterial(bodyData, surfaceTexture, bodyRadius = null) {
@@ -153,7 +159,7 @@ export class MaterialFactory {
         const innerRadius = planetRadius * rings.innerRadius;
         const outerRadius = planetRadius * rings.outerRadius;
 
-        return new RingShadowShaderMaterial({
+        return new PlanetShaderMaterial({
             surfaceTexture: surfaceTexture,
             ringAlphaTexture: ringTexture,
             ringInnerRadius: innerRadius,

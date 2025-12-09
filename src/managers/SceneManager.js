@@ -40,23 +40,6 @@ class SceneManager {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Limit to 2x for performance
 
-    // Enable shadow mapping for planet shadows on rings
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft shadows
-
-    // Add a directional light for casting shadows (will be positioned to match sun)
-    this.shadowLight = new THREE.DirectionalLight(0xffffff, 0.1); // Low intensity, just for shadows
-    this.shadowLight.castShadow = true;
-    this.shadowLight.shadow.mapSize.width = 4096;
-    this.shadowLight.shadow.mapSize.height = 4096;
-    this.shadowLight.shadow.camera.near = 0.1;
-    this.shadowLight.shadow.camera.far = 1200;
-    this.shadowLight.shadow.camera.left = -50;
-    this.shadowLight.shadow.camera.right = 50;
-    this.shadowLight.shadow.camera.top = 50;
-    this.shadowLight.shadow.camera.bottom = -50;
-    this.scene.add(this.shadowLight);
-
     this.interactionManager = new InteractionManager(
       this.renderer,
       this.camera,
@@ -420,6 +403,7 @@ class SceneManager {
    * @param {Object} hierarchy - The hierarchy data from SolarSystemFactory
    */
   registerHierarchy(hierarchy) {
+    this.hierarchyManager.registerHierarchy(hierarchy);
     this.markerManager.registerHierarchy(hierarchy);
     this.orbitManager.setHierarchy(hierarchy);
 

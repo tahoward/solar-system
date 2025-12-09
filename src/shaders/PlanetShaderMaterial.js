@@ -38,6 +38,9 @@ uniform float ringInnerRadius;
 uniform float ringOuterRadius;
 uniform float lightRadius;
 uniform bool hasRings;
+uniform vec3 bodyPositions[8];
+uniform float bodyRadii[8];
+uniform int numBodies;
 
 varying vec2 vUv;
 varying vec3 vNormal;
@@ -99,6 +102,50 @@ float eclipseByRings(vec3 surfacePosition, vec3 sunRadiusPerp) {
     return 0.0;
 }
 
+float eclipseByBodies(vec3 surfacePosition) {
+    if (numBodies == 0) return 0.0;
+
+    vec3 sunRay = normalize(lightDirection);
+    float totalShadow = 0.0;
+
+    for (int i = 0; i < 8; i++) {
+        if (i >= numBodies) break;
+
+        vec3 bodyCenter = bodyPositions[i];
+        float bodyRadius = bodyRadii[i];
+
+        // Calculate vector from surface point to body center
+        vec3 surfaceToBody = bodyCenter - surfacePosition;
+
+        // Project body center onto the sun ray from surface point
+        float projectionLength = dot(surfaceToBody, sunRay);
+
+        // Only consider bodies that are between the surface and the sun
+        if (projectionLength > 0.0) {
+            // Find closest point on sun ray to body center
+            vec3 closestPointOnRay = surfacePosition + sunRay * projectionLength;
+
+            // Calculate distance from body center to sun ray
+            float distanceToRay = length(bodyCenter - closestPointOnRay);
+
+            // Calculate shadow based on body's angular size and distance
+            float shadowRadius = bodyRadius * (1.0 + lightRadius); // Add sun's angular size for soft shadows
+
+            if (distanceToRay < shadowRadius) {
+                // Calculate shadow intensity based on how much of the body blocks the sun
+                float shadowIntensity = 1.0 - smoothstep(bodyRadius * 0.8, shadowRadius, distanceToRay);
+
+                // Attenuate shadow based on distance (closer bodies cast stronger shadows)
+                float distanceAttenuation = 1.0 / (1.0 + projectionLength * 0.01);
+
+                totalShadow += shadowIntensity * distanceAttenuation;
+            }
+        }
+    }
+
+    return min(totalShadow, 1.0); // Clamp to maximum shadow intensity
+}
+
 void main() {
     // Sample base surface texture
     vec4 baseColor = texture2D(surfaceTexture, vUv);
@@ -119,26 +166,33 @@ void main() {
         ringShadow = eclipseByRings(vWorldPosition, sunRadiusPerp);
     }
 
-    // Calculate full lighting first, then apply ring shadow to entire result
+    // Calculate body shadows (from moons, planets, etc.)
+    float bodyShadow = eclipseByBodies(vWorldPosition);
+
+    // Calculate full lighting first, then apply shadows to entire result
     vec3 ambient = baseColor.rgb * lightColor * 0.005; // Very low ambient for high contrast planet shadows
     vec3 diffuse = baseColor.rgb * lightColor * hemisphereLight;
 
     vec3 litColor = ambient + diffuse;
 
-    // Apply ring shadow with minimum intensity to prevent over-darkening near terminator
+    // Apply both ring and body shadows
     float shadowIntensity = max(0.8, hemisphereLight); // Clamp to minimum 0.8 for higher shadow contrast
-    float shadowFactor = 1.0 - (0.999 * ringShadow * shadowIntensity);
-    vec3 finalColor = litColor * shadowFactor;
+    float ringShadowFactor = 1.0 - (0.999 * ringShadow * shadowIntensity);
+    float bodyShadowFactor = 1.0 - (0.999 * bodyShadow); // Maximum darkness body shadows (99.9% light blocked)
+
+    // Combine shadows multiplicatively for realistic overlapping
+    vec3 finalColor = litColor * ringShadowFactor * bodyShadowFactor;
 
     gl_FragColor = vec4(finalColor, baseColor.a);
 }
 `;
 
 /**
- * RingShadowShaderMaterial - A custom Three.js material for rendering planets with ring shadows
+ * PlanetShaderMaterial - A comprehensive Three.js material for rendering planets
+ * Supports ring shadows, celestial body shadows (moons/planets), and realistic lighting
  * Based on the realistic Saturn shader technique from sangillee.com
  */
-class RingShadowShaderMaterial extends THREE.ShaderMaterial {
+class PlanetShaderMaterial extends THREE.ShaderMaterial {
     constructor(options = {}) {
         const uniforms = {
             surfaceTexture: { value: options.surfaceTexture || null },
@@ -150,7 +204,10 @@ class RingShadowShaderMaterial extends THREE.ShaderMaterial {
             ringInnerRadius: { value: options.ringInnerRadius || 1.0 },
             ringOuterRadius: { value: options.ringOuterRadius || 2.0 },
             lightRadius: { value: options.lightRadius || 0.1 },
-            hasRings: { value: options.hasRings || false }
+            hasRings: { value: options.hasRings || false },
+            bodyPositions: { value: Array(8).fill(null).map(() => new THREE.Vector3()) },
+            bodyRadii: { value: new Float32Array(8) },
+            numBodies: { value: 0 }
         };
 
         super({
@@ -231,6 +288,37 @@ class RingShadowShaderMaterial extends THREE.ShaderMaterial {
     setRingShadowsEnabled(enabled) {
         this.uniforms.hasRings.value = enabled;
     }
+
+    /**
+     * Update celestial body positions and radii for shadow calculations
+     * @param {Array<THREE.Vector3>} positions - Array of body world positions
+     * @param {Array<number>} radii - Array of body radii in world units
+     */
+    updateMoons(positions, radii) {
+        const maxBodies = 8;
+        const numBodies = Math.min(positions.length, maxBodies);
+
+        this.uniforms.numBodies.value = numBodies;
+
+        // Clear all body data first
+        for (let i = 0; i < maxBodies; i++) {
+            this.uniforms.bodyPositions.value[i].set(0, 0, 0);
+            this.uniforms.bodyRadii.value[i] = 0;
+        }
+
+        // Set actual body data
+        for (let i = 0; i < numBodies; i++) {
+            this.uniforms.bodyPositions.value[i].copy(positions[i]);
+            this.uniforms.bodyRadii.value[i] = radii[i];
+        }
+    }
+
+    /**
+     * Clear all body shadows
+     */
+    clearMoons() {
+        this.uniforms.numBodies.value = 0;
+    }
 }
 
-export default RingShadowShaderMaterial;
+export default PlanetShaderMaterial;

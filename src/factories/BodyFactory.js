@@ -104,13 +104,6 @@ export class BodyFactory {
         const light = new THREE.PointLight(lightColor, lightIntensity);
         light.decay = 0; // Disable distance decay - light doesn't reduce over distance
 
-        // Enable PointLight shadows for realistic lighting
-        light.castShadow = true;
-        light.shadow.mapSize.width = 2048;
-        light.shadow.mapSize.height = 2048;
-        light.shadow.camera.near = 0.1;
-        light.shadow.camera.far = 1000;
-
         return light;
     }
 

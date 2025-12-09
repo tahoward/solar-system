@@ -349,6 +349,85 @@ export class AnimationManager {
                 }
             }
         });
+
+        // Update bidirectional shadows for all planets and moons
+        this.updateBidirectionalShadows();
+    }
+
+    /**
+     * Update bidirectional shadows: moons cast shadows on planets AND planets cast shadows on moons
+     */
+    updateBidirectionalShadows() {
+        // Try to get HierarchyManager instance
+        const hierarchyManager = this.hierarchyManager;
+
+        if (!hierarchyManager || !hierarchyManager.hierarchyMap) {
+            return; // No hierarchy data available
+        }
+
+        // Create a map of body names to body objects for quick lookup
+        const bodyMap = new Map();
+        this.orbits.forEach(orbit => {
+            if (orbit && orbit.body && orbit.body.name) {
+                bodyMap.set(orbit.body.name, orbit.body);
+            }
+        });
+
+        // Collect all shadow casters for each body
+        const shadowCastersMap = new Map();
+
+        // Initialize shadow casters map for all bodies
+        hierarchyManager.hierarchyMap.forEach((hierarchyData, bodyName) => {
+            shadowCastersMap.set(bodyName, []);
+        });
+
+        // Build shadow relationships
+        hierarchyManager.hierarchyMap.forEach((hierarchyData, bodyName) => {
+            const currentBody = bodyMap.get(bodyName);
+            if (!currentBody) return;
+
+            // 1. MOONS CAST SHADOWS ON PLANETS
+            // If this body has children (moons), add them as shadow casters for this body (planet)
+            if (hierarchyData.children && hierarchyData.children.length > 0) {
+                const currentShadowCasters = shadowCastersMap.get(bodyName) || [];
+
+                hierarchyData.children.forEach(childName => {
+                    const moonBody = bodyMap.get(childName);
+                    if (moonBody) {
+                        currentShadowCasters.push(moonBody);
+                    }
+                });
+
+                shadowCastersMap.set(bodyName, currentShadowCasters);
+            }
+
+            // 2. PLANETS CAST SHADOWS ON MOONS
+            // If this body has a parent (this is a moon), add parent as shadow caster for this body
+            if (hierarchyData.parent) {
+                const parentBody = bodyMap.get(hierarchyData.parent);
+                if (parentBody) {
+                    const currentShadowCasters = shadowCastersMap.get(bodyName) || [];
+                    currentShadowCasters.push(parentBody);
+                    shadowCastersMap.set(bodyName, currentShadowCasters);
+                }
+            }
+        });
+
+        // Apply all shadows at once for each body
+        shadowCastersMap.forEach((shadowCasters, bodyName) => {
+            const targetBody = bodyMap.get(bodyName);
+            if (targetBody && shadowCasters.length > 0) {
+                targetBody.updateMoonShadows(shadowCasters);
+            }
+        });
+    }
+
+    /**
+     * Set hierarchy manager reference for moon shadow calculations
+     * @param {HierarchyManager} hierarchyManager - The hierarchy manager instance
+     */
+    setHierarchyManager(hierarchyManager) {
+        this.hierarchyManager = hierarchyManager;
     }
 
     /**
