@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>3D Solar System</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div id="markers"></div>
+
+<!-- Mobile hamburger menu -->
+<div id="mobile-menu-container">
+  <button id="hamburger-btn" class="hamburger-btn" aria-label="Menu">
+    <span class="hamburger-line"></span>
+    <span class="hamburger-line"></span>
+    <span class="hamburger-line"></span>
+  </button>
+
+  <div id="mobile-menu" class="mobile-menu">
+    <div class="menu-section">
+      <h3>Current Status</h3>
+      <div id="mobile-status" class="status-display">
+        <div class="status-item">Target: <span id="current-target">Sun</span></div>
+        <div class="status-item">Speed: <span id="current-speed">1.0x</span></div>
+        <div class="status-item">Physics: <span id="current-physics">N-Body</span></div>
+      </div>
+    </div>
+
+    <div class="menu-section">
+      <h3>Navigation</h3>
+      <button class="menu-btn" data-action="focusSun">☀️ Focus Sun</button>
+      <button class="menu-btn" data-action="prevPlanet">← Previous Planet</button>
+      <button class="menu-btn" data-action="nextPlanet">Next Planet →</button>
+      <button class="menu-btn" data-action="resetCamera">🎯 Reset Camera</button>
+    </div>
+
+    <div class="menu-section">
+      <h3>Simulation</h3>
+      <button class="menu-btn" data-action="togglePhysics">⚛️ Toggle Physics</button>
+      <button class="menu-btn" data-action="increaseSpeed">⏩ Faster</button>
+      <button class="menu-btn" data-action="decreaseSpeed">⏪ Slower</button>
+      <button class="menu-btn" data-action="resetSpeed">⏸️ Reset Speed</button>
+    </div>
+
+    <div class="menu-section">
+      <h3>Display</h3>
+      <button class="menu-btn" data-action="toggleTrails">🌌 Toggle Trails</button>
+      <button class="menu-btn" data-action="toggleOrbitLines">⭕ Toggle Orbits</button>
+      <button class="menu-btn" data-action="toggleMarkers">📍 Toggle Markers</button>
+      <button class="menu-btn" data-action="increaseMarkers">➕ Larger Markers</button>
+      <button class="menu-btn" data-action="decreaseMarkers">➖ Smaller Markers</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="src/solarSystem.js"></script>
+</body>
+</html>

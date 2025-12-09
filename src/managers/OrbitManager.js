@@ -1,0 +1,253 @@
+import * as THREE from 'three';
+import clockManager from './ClockManager.js';
+import { updateHierarchyPositions } from '../physics/kepler.js';
+import { updateHierarchyNBodyPhysics, initializeHierarchyPhysics } from '../physics/NBodySystem.js';
+import { SIMULATION } from '../constants.js';
+
+/**
+ * Manages orbit line visibility and body position updates based on hierarchical relationships
+ */
+export class OrbitManager {
+    constructor(hierarchyManager) {
+        this.hierarchyManager = hierarchyManager;
+        this.orbits = new Set();
+        this.hierarchy = null; // Will store the hierarchy for position updates
+
+        console.log('OrbitManager: Initialized');
+    }
+
+    /**
+     * Set the hierarchy data for position updates
+     * @param {Object} hierarchy - The hierarchical solar system data
+     */
+    setHierarchy(hierarchy) {
+        this.hierarchy = hierarchy;
+        console.log('OrbitManager: Hierarchy set for position updates');
+    }
+
+    /**
+     * Initialize physics on all bodies in the hierarchy
+     * @param {number} sceneScale - Scene scale factor for visual scaling
+     */
+    initializePhysics(sceneScale) {
+        if (!this.hierarchy) {
+            console.warn('OrbitManager: No hierarchy set, cannot initialize physics');
+            return;
+        }
+
+        // Use appropriate physics initialization based on SIMULATION.USE_N_BODY_PHYSICS
+        if (SIMULATION.USE_N_BODY_PHYSICS) {
+            // Initialize n-body physics
+            initializeHierarchyPhysics(this.hierarchy, sceneScale);
+            console.log('OrbitManager: Initialized n-body physics for hierarchy');
+        } else {
+            // For Kepler physics, initialize physics conditions for orbit trails
+            this.initializeKeplerPhysics(this.hierarchy, sceneScale);
+            console.log('OrbitManager: Initialized Kepler physics conditions for hierarchy');
+        }
+
+        // Initialize orbit trails for all bodies (both physics systems)
+        this.initializeOrbitTrails(this.hierarchy);
+    }
+
+    /**
+     * Register an orbit for visibility management
+     * @param {Object} orbit - The orbit to register
+     */
+    registerOrbit(orbit) {
+        if (!orbit) {
+            console.warn('OrbitManager: Cannot register null or undefined orbit');
+            return;
+        }
+
+        this.orbits.add(orbit);
+    }
+
+    /**
+     * Unregister an orbit from visibility management
+     * @param {Object} orbit - The orbit to unregister
+     */
+    unregisterOrbit(orbit) {
+        if (!orbit) {
+            console.warn('OrbitManager: Cannot unregister null or undefined orbit');
+            return;
+        }
+
+        const wasRemoved = this.orbits.delete(orbit);
+        if (wasRemoved) {
+            console.log(`OrbitManager: Unregistered orbit for ${orbit.body?.name || 'unknown'} (total: ${this.orbits.size})`);
+        } else {
+            console.warn('OrbitManager: Attempted to unregister orbit that was not registered');
+        }
+    }
+
+    // Orbit visibility logic moved to VisibilityManager
+    // OrbitManager now focuses on orbit drawing and position updates
+
+    // Show/hide methods moved to VisibilityManager
+
+    /**
+     * Get the total number of registered orbits
+     * @returns {number} Number of registered orbits
+     */
+    getOrbitCount() {
+        return this.orbits.size;
+    }
+
+    /**
+     * Check if an orbit is registered
+     * @param {Object} orbit - The orbit to check
+     * @returns {boolean} True if the orbit is registered
+     */
+    isOrbitRegistered(orbit) {
+        return this.orbits.has(orbit);
+    }
+
+    /**
+     * Get all registered orbits
+     * @returns {Array} Array of all registered orbits
+     */
+    getAllOrbits() {
+        return Array.from(this.orbits);
+    }
+
+    /**
+     * Clear all orbit registrations
+     */
+    clearAllOrbits() {
+        const count = this.orbits.size;
+        this.orbits.clear();
+        console.log(`OrbitManager: Cleared all orbit registrations (${count} orbits removed)`);
+    }
+
+    /**
+     * Get orbit statistics for debugging
+     * @returns {Object} Object containing orbit statistics
+     */
+    getStatistics() {
+        const stats = {
+            totalOrbits: this.orbits.size,
+            orbitsWithShow: 0,
+            orbitsWithHide: 0,
+            visibleOrbits: 0
+        };
+
+        // Count orbits with show/hide methods and visible orbits
+        this.orbits.forEach(orbit => {
+            if (orbit && typeof orbit.show === 'function') {
+                stats.orbitsWithShow++;
+            }
+            if (orbit && typeof orbit.hide === 'function') {
+                stats.orbitsWithHide++;
+            }
+            if (orbit && orbit.getVisibility && orbit.getVisibility()) {
+                stats.visibleOrbits++;
+            }
+        });
+
+        return stats;
+    }
+
+    // Global visibility check moved to VisibilityManager
+
+    /**
+     * Update all body positions using either Kepler or n-body physics
+     * @param {number} timestamp - Current timestamp for orbital calculations
+     * @param {number} sceneScale - Scene scale factor (required)
+     */
+    updateBodyPositions(timestamp, sceneScale) {
+        if (!this.hierarchy) {
+            console.warn('OrbitManager: No hierarchy set, cannot update positions');
+            return;
+        }
+
+        // Use appropriate physics system based on SIMULATION.USE_N_BODY_PHYSICS
+        if (SIMULATION.USE_N_BODY_PHYSICS) {
+            // Use functional n-body physics with current speed multiplier from ClockManager
+            const speedMultiplier = clockManager.getSpeedMultiplier() * 100.0; // Convert to n-body scale
+            const options = { speedMultiplier };
+            updateHierarchyNBodyPhysics(this.hierarchy, timestamp, sceneScale, options);
+        } else {
+            // Use Kepler system to update all body positions in the hierarchy
+            updateHierarchyPositions(this.hierarchy, timestamp, sceneScale);
+
+            // Update body rotations for all bodies (n-body handles this internally)
+            this.updateBodyRotations();
+        }
+    }
+
+    /**
+     * Update rotations for all bodies in registered orbits
+     * @private
+     */
+    updateBodyRotations() {
+        const rotationDeltaTime = clockManager.getRotationDeltaTime();
+
+        this.orbits.forEach(orbit => {
+            if (orbit && orbit.body && orbit.body.updateRotation) {
+                try {
+                    orbit.body.updateRotation(rotationDeltaTime, 1);
+                } catch (error) {
+                    console.error(`OrbitManager: Error updating rotation for ${orbit.body?.name || 'unknown'}:`, error);
+                }
+            }
+        });
+    }
+
+    /**
+     * Initialize physics conditions for Kepler mode bodies
+     * @param {Object} hierarchy - The hierarchical solar system data
+     * @param {number} sceneScale - Scene scale factor for visual scaling
+     */
+    initializeKeplerPhysics(hierarchy, sceneScale) {
+        if (!hierarchy) return;
+
+        // Initialize physics conditions for the current body
+        if (hierarchy.body && hierarchy.body.setInitialPhysicsConditions) {
+            // Set initial physics state (position will be updated by Kepler calculations)
+            hierarchy.body.setInitialPhysicsConditions(
+                new THREE.Vector3(0, 0, 0), // Initial position (will be overridden)
+                new THREE.Vector3(0, 0, 0)  // Initial velocity (will be overridden)
+            );
+        }
+
+        // Recursively initialize physics for children
+        if (hierarchy.children && hierarchy.children.length > 0) {
+            hierarchy.children.forEach(child => {
+                this.initializeKeplerPhysics(child, sceneScale);
+            });
+        }
+    }
+
+    /**
+     * Initialize orbit trails for all bodies in the hierarchy
+     * @param {Object} hierarchy - The hierarchical solar system data
+     */
+    initializeOrbitTrails(hierarchy) {
+        if (!hierarchy) return;
+
+        // Initialize orbit trail for the current body (if it's not the root)
+        if (hierarchy.body && hierarchy.body.initializeOrbitTrail && typeof hierarchy.body.initializeOrbitTrail === 'function') {
+            // Ensure orbit trail exists (won't recreate if already exists)
+            hierarchy.body.initializeOrbitTrail();
+
+        }
+
+        // Recursively initialize orbit trails for children
+        if (hierarchy.children && hierarchy.children.length > 0) {
+            hierarchy.children.forEach(child => {
+                this.initializeOrbitTrails(child);
+            });
+        }
+    }
+
+    /**
+     * Dispose and clean up resources
+     */
+    dispose() {
+        console.log('OrbitManager: Disposing resources');
+        this.clearAllOrbits();
+    }
+}
+
+export default OrbitManager;

@@ -1,0 +1,238 @@
+/**
+ * Manages hierarchical relationships between celestial bodies
+ */
+export class HierarchyManager {
+    constructor() {
+        this.hierarchyMap = new Map(); // Maps body names to their hierarchy data
+        this.currentSelectedBody = null; // Track currently selected body
+
+        console.log('HierarchyManager: Initialized');
+    }
+
+    /**
+     * Register the hierarchy map for hierarchical visibility management
+     * @param {Object} hierarchy - The hierarchy data from SolarSystemFactory
+     */
+    registerHierarchy(hierarchy) {
+        this.hierarchyMap.clear();
+        this._buildHierarchyMap(hierarchy, null);
+        console.log(`HierarchyManager: Registered hierarchy with ${this.hierarchyMap.size} bodies`);
+
+        // Debug: Log the hierarchy structure
+        console.log('HierarchyManager: Hierarchy structure:');
+        this.hierarchyMap.forEach((data, name) => {
+            const parentText = data.parent ? `parent: ${data.parent}` : 'parent: none (root)';
+            const childrenText = data.children.length > 0 ? `children: [${data.children.join(', ')}]` : 'children: none';
+            console.log(`  ${name} -> ${parentText}, ${childrenText}`);
+        });
+    }
+
+    /**
+     * Recursively build the hierarchy map
+     * @param {Object} node - Current node in the hierarchy
+     * @param {string|null} parentName - Name of the parent body
+     * @private
+     */
+    _buildHierarchyMap(node, parentName) {
+        // Edge case: Invalid node
+        if (!node) {
+            console.warn('HierarchyManager: Skipping null/undefined node in hierarchy');
+            return;
+        }
+
+        // Edge case: Node without body
+        if (!node.body) {
+            console.warn('HierarchyManager: Skipping node without body property');
+            return;
+        }
+
+        // Edge case: Body without name
+        const bodyName = node.body.name;
+        if (!bodyName) {
+            console.warn('HierarchyManager: Skipping body without name property');
+            return;
+        }
+
+        const children = [];
+
+        // Collect direct children with validation
+        if (node.children && Array.isArray(node.children)) {
+            node.children.forEach((child, index) => {
+                // Edge case: Invalid child
+                if (!child || !child.body || !child.body.name) {
+                    console.warn(`HierarchyManager: Skipping invalid child ${index} of ${bodyName}`);
+                    return;
+                }
+
+                const childName = child.body.name;
+
+                // Edge case: Duplicate child names
+                if (children.includes(childName)) {
+                    console.warn(`HierarchyManager: Duplicate child name '${childName}' for parent '${bodyName}'`);
+                    return;
+                }
+
+                // Edge case: Circular reference prevention
+                if (childName === bodyName) {
+                    console.error(`HierarchyManager: Circular reference detected: ${bodyName} cannot be child of itself`);
+                    return;
+                }
+
+                children.push(childName);
+
+                // Recursively process children
+                try {
+                    this._buildHierarchyMap(child, bodyName);
+                } catch (error) {
+                    console.error(`HierarchyManager: Error processing child ${childName} of ${bodyName}:`, error);
+                }
+            });
+        }
+
+        // Edge case: Duplicate body names across hierarchy
+        if (this.hierarchyMap.has(bodyName)) {
+            console.error(`HierarchyManager: Duplicate body name '${bodyName}' in hierarchy - overwriting previous entry`);
+        }
+
+        this.hierarchyMap.set(bodyName, {
+            parent: parentName,
+            children: children,
+            body: node.body
+        });
+
+    }
+
+    /**
+     * Set the currently selected body
+     * @param {Object} body - The body that was selected
+     */
+    setSelectedBody(body) {
+        if (!body) {
+            console.warn('HierarchyManager: Cannot select null/undefined body');
+            return;
+        }
+
+        this.currentSelectedBody = body;
+    }
+
+    /**
+     * Get the currently selected body
+     * @returns {Object|null} The currently selected body or null
+     */
+    getSelectedBody() {
+        return this.currentSelectedBody;
+    }
+
+    /**
+     * Clear the currently selected body
+     */
+    clearSelectedBody() {
+        this.currentSelectedBody = null;
+        console.log('HierarchyManager: Cleared selected body');
+    }
+
+    /**
+     * Get hierarchy data for a body
+     * @param {string} bodyName - Name of the body
+     * @returns {Object|null} Hierarchy data or null if not found
+     */
+    getHierarchyData(bodyName) {
+        return this.hierarchyMap.get(bodyName) || null;
+    }
+
+    /**
+     * Check if a body is a direct child of another body
+     * @param {string} childName - Name of the potential child body
+     * @param {string} parentName - Name of the potential parent body
+     * @returns {boolean} True if childName is a direct child of parentName
+     */
+    isDirectChild(childName, parentName) {
+        const parentData = this.hierarchyMap.get(parentName);
+        return parentData ? parentData.children.includes(childName) : false;
+    }
+
+    /**
+     * Check if a body is a root body (has no parent)
+     * @param {string} bodyName - Name of the body
+     * @returns {boolean} True if root body
+     */
+    isRootBody(bodyName) {
+        const hierarchyData = this.hierarchyMap.get(bodyName);
+        return hierarchyData ? hierarchyData.parent === null : false;
+    }
+
+    /**
+     * Get the root body name (the one with no parent)
+     * @returns {string|null} Name of the root body, or null if none found
+     */
+    getRootBodyName() {
+        for (const [name, data] of this.hierarchyMap) {
+            if (data.parent === null) {
+                return name;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Get all body names in the hierarchy
+     * @returns {Array<string>} Array of all body names
+     */
+    getAllBodyNames() {
+        return Array.from(this.hierarchyMap.keys());
+    }
+
+    /**
+     * Get hierarchy statistics
+     * @returns {Object} Statistics about the hierarchy
+     */
+    getStatistics() {
+        let rootCount = 0;
+        let leafCount = 0;
+        let maxDepth = 0;
+
+        this.hierarchyMap.forEach((data, name) => {
+            if (data.parent === null) rootCount++;
+            if (data.children.length === 0) leafCount++;
+
+            // Calculate depth
+            let depth = 0;
+            let currentParent = data.parent;
+            while (currentParent) {
+                depth++;
+                const parentData = this.hierarchyMap.get(currentParent);
+                currentParent = parentData ? parentData.parent : null;
+            }
+            maxDepth = Math.max(maxDepth, depth);
+        });
+
+        return {
+            totalBodies: this.hierarchyMap.size,
+            rootBodies: rootCount,
+            leafBodies: leafCount,
+            maxDepth: maxDepth,
+            hasSelectedBody: this.currentSelectedBody !== null,
+            selectedBodyName: this.currentSelectedBody?.name || null
+        };
+    }
+
+    /**
+     * Clear all hierarchy data
+     */
+    clear() {
+        const count = this.hierarchyMap.size;
+        this.hierarchyMap.clear();
+        this.currentSelectedBody = null;
+        console.log(`HierarchyManager: Cleared hierarchy data (${count} bodies removed)`);
+    }
+
+    /**
+     * Dispose and clean up resources
+     */
+    dispose() {
+        console.log('HierarchyManager: Disposing resources');
+        this.clear();
+    }
+}
+
+export default HierarchyManager;

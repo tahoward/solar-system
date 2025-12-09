@@ -1,0 +1,25 @@
+{
+  "name": "solar-system",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node_modules/.bin/vite",
+    "build": "node_modules/.bin/vite build",
+    "build:github": "node_modules/.bin/vite build --config vite.config.production.js",
+    "preview": "node_modules/.bin/vite preview",
+    "serve": "node server.js"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.1",
+    "vite": "^5.1.6"
+  },
+  "dependencies": {
+    "@tweenjs/tween.js": "^25.0.0",
+    "camera-controls": "^2.10.0",
+    "express": "^4.21.2",
+    "stats-gl": "^3.6.0",
+    "three": "^0.171.0",
+    "three.interactive": "^1.8.0"
+  }
+}
