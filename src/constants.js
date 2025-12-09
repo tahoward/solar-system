@@ -359,6 +359,7 @@ export const CELESTIAL_DATA = [{
           mass: 3.69396e-8,
           rotationPeriod: 655.7,  // Tidally locked (27.3 Earth days)
           axialTilt: 1.54,  // Axial tilt in degrees
+          tidallyLocked: true,  // Moon always shows same face to Earth
           lightIntensity: null,  // No light emission
           surfaceTexture: TEXTURES.moon,  // Moon surface texture
           parent: 'Earth',
@@ -428,6 +429,7 @@ export const CELESTIAL_DATA = [{
           mass: 4.704e-9,  // Mass in solar masses
           rotationPeriod: 42.46,  // Tidally locked (1.77 Earth days)
           axialTilt: 0.05,  // Nearly no tilt
+          tidallyLocked: true,  // Always faces Jupiter
           lightIntensity: null,
           parent: 'Jupiter',
           a: 0.002819,  // Semi-major axis in AU (421,700 km)
@@ -446,6 +448,7 @@ export const CELESTIAL_DATA = [{
           mass: 2.528e-9,  // Mass in solar masses
           rotationPeriod: 85.23,  // Tidally locked (3.55 Earth days)
           axialTilt: 0.1,   // Nearly no tilt
+          tidallyLocked: true,  // Always faces Jupiter
           lightIntensity: null,
           surfaceTexture: TEXTURES.europa,
           parent: 'Jupiter',
@@ -464,6 +467,7 @@ export const CELESTIAL_DATA = [{
           mass: 7.805e-9,  // Mass in solar masses
           rotationPeriod: 171.71,  // Tidally locked (7.15 Earth days)
           axialTilt: 0.33,  // Small tilt
+          tidallyLocked: true,  // Always faces Jupiter
           lightIntensity: null,
           surfaceTexture: TEXTURES.ganymede,
           parent: 'Jupiter',
@@ -482,6 +486,7 @@ export const CELESTIAL_DATA = [{
           mass: 5.670e-9,  // Mass in solar masses
           rotationPeriod: 400.54,  // Tidally locked (16.69 Earth days)
           axialTilt: 0.51,  // Small tilt
+          tidallyLocked: true,  // Always faces Jupiter
           lightIntensity: null,
           surfaceTexture: TEXTURES.callisto,
           parent: 'Jupiter',
@@ -531,6 +536,7 @@ export const CELESTIAL_DATA = [{
           mass: 1.972e-12, // Mass in solar masses
           rotationPeriod: 22.62, // Tidally locked (0.942 Earth days)
           axialTilt: 0.02, // Nearly aligned with Saturn's equator
+          tidallyLocked: true,  // Always faces Saturn
           lightIntensity: null,
           surfaceTexture: TEXTURES.mimas,
           parent: 'Saturn',
@@ -549,6 +555,7 @@ export const CELESTIAL_DATA = [{
           mass: 5.655e-12, // Mass in solar masses
           rotationPeriod: 32.88, // Tidally locked (1.37 Earth days)
           axialTilt: 0.0, // No significant tilt
+          tidallyLocked: true,  // Always faces Saturn
           lightIntensity: null,
           surfaceTexture: TEXTURES.enceladus,
           parent: 'Saturn',
@@ -567,6 +574,7 @@ export const CELESTIAL_DATA = [{
           mass: 3.09e-11, // Mass in solar masses
           rotationPeriod: 45.31, // Tidally locked (1.89 Earth days)
           axialTilt: 0.02, // Nearly aligned with Saturn's equator
+          tidallyLocked: true,  // Always faces Saturn
           lightIntensity: null,
           surfaceTexture: TEXTURES.tethys,
           parent: 'Saturn',
@@ -585,6 +593,7 @@ export const CELESTIAL_DATA = [{
           mass: 5.48e-11, // Mass in solar masses
           rotationPeriod: 65.69, // Tidally locked (2.74 Earth days)
           axialTilt: 0.02, // Nearly no tilt
+          tidallyLocked: true,  // Always faces Saturn
           lightIntensity: null,
           surfaceTexture: TEXTURES.dione,
           parent: 'Saturn',
@@ -603,6 +612,7 @@ export const CELESTIAL_DATA = [{
           mass: 6.741e-9, // Mass in solar masses
           rotationPeriod: 382.69, // Tidally locked (15.95 Earth days)
           axialTilt: 0.02, // Nearly aligned with Saturn's equator
+          tidallyLocked: true,  // Always faces Saturn
           lightIntensity: null,
           surfaceTexture: TEXTURES.titan,
           // Titan's thick methane atmosphere
@@ -630,6 +640,7 @@ export const CELESTIAL_DATA = [{
           mass: 9.09e-11, // Mass in solar masses
           rotationPeriod: 1903.8, // Tidally locked (79.33 Earth days)
           axialTilt: 8.13, // Significant tilt relative to Saturn's equator
+          tidallyLocked: true,  // Always faces Saturn
           lightIntensity: null,
           surfaceTexture: TEXTURES.iapetus,
           parent: 'Saturn',
@@ -719,6 +730,7 @@ export const CELESTIAL_DATA = [{
           mass: 8.08e-10, // Mass in solar masses (about 1/8th of Pluto's mass)
           rotationPeriod: 153.29, // Tidally locked to Pluto (same as Pluto's rotation - they're mutually tidally locked)
           axialTilt: 0.08, // Nearly no tilt relative to orbital plane
+          tidallyLocked: true,  // Always faces Pluto (mutually tidally locked system)
           lightIntensity: null, // No light emission
           surfaceTexture: TEXTURES.charon,
           parent: 'Pluto',

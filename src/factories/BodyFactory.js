@@ -40,7 +40,9 @@ export class BodyFactory {
             bodyData.axialTilt, // Axial tilt in degrees
             bodyData.rings, // Ring system (if any)
             bodyData.clouds, // Cloud system (if any)
-            bodyData.atmosphere // Atmosphere system (if any)
+            bodyData.atmosphere, // Atmosphere system (if any)
+            bodyData.tidallyLocked || false, // Tidal locking (default false)
+            parentBody // Parent body reference for tidal locking
         );
 
         // Store ecliptic attribute from celestial data

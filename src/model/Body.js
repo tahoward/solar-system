@@ -46,6 +46,8 @@ class Body {
      * @param {number} [mass=1] - Mass of the body in solar masses
      * @param {number} [rotationPeriod=24] - Rotation period in Earth hours
      * @param {number} [axialTilt=0] - Axial tilt in degrees
+     * @param {boolean} [tidallyLocked=false] - Whether this body is tidally locked to its parent
+     * @param {Body|null} [parentBody=null] - The parent body this object orbits (for tidal locking)
      */
     constructor(
       name,
@@ -58,7 +60,9 @@ class Body {
       axialTilt = 0,
       rings = null,
       clouds = null,
-      atmosphere = null
+      atmosphere = null,
+      tidallyLocked = false,
+      parentBody = null
     ) {
         // Validate configuration using centralized validator
         ConfigValidator.validateBodyConfig({ name, radius, marker });
@@ -90,6 +94,8 @@ class Body {
         // Rotation properties (passed as parameters)
         this.rotationPeriod = rotationPeriod;
         this.axialTilt = axialTilt;
+        this.tidallyLocked = tidallyLocked;
+        this.parentBody = parentBody;
         this.rotationSpeed = this.calculateRotationSpeed(rotationPeriod);
 
 
@@ -307,23 +313,57 @@ class Body {
      * @param {number} speedMultiplier - Current simulation speed multiplier
      */
     updateRotation(deltaTime = 1/60, speedMultiplier = 1) {
-        // Calculate rotation increment: radians/second * seconds * speed multiplier
-        const rotationIncrement = this.rotationSpeed * deltaTime * speedMultiplier;
+        if (this.tidallyLocked && this.parentBody) {
+            // TIDAL LOCKING: Always face the parent body
+            this.updateTidalLockRotation();
+        } else {
+            // NORMAL ROTATION: Spin based on rotation period
+            // Calculate rotation increment: radians/second * seconds * speed multiplier
+            const rotationIncrement = this.rotationSpeed * deltaTime * speedMultiplier;
 
-        // Rotate main mesh
-        if (this.mesh) {
-            this.mesh.rotation.y += rotationIncrement;
+            // Rotate main mesh
+            if (this.mesh) {
+                this.mesh.rotation.y += rotationIncrement;
+            }
+
+            // Also rotate LOD mesh to keep them synchronized
+            if (this.lodMesh) {
+                this.lodMesh.rotation.y += rotationIncrement;
+            }
         }
 
-        // Also rotate LOD mesh to keep them synchronized
-        if (this.lodMesh) {
-            this.lodMesh.rotation.y += rotationIncrement;
-        }
-
-        // Rotate clouds independently at their own speed
+        // Rotate clouds independently at their own speed (always applies)
         if (this.clouds && this.clouds.userData.rotationSpeed) {
             const cloudRotationIncrement = this.rotationSpeed * deltaTime * speedMultiplier * this.clouds.userData.rotationSpeed;
             this.clouds.rotation.y += cloudRotationIncrement;
+        }
+    }
+
+    /**
+     * Update rotation for tidally locked bodies to always face their parent
+     * @private
+     */
+    updateTidalLockRotation() {
+        if (!this.parentBody || !this.group || !this.parentBody.group) {
+            return;
+        }
+
+        // Calculate vector from this body to its parent
+        const parentDirection = new THREE.Vector3()
+            .subVectors(this.parentBody.group.position, this.group.position)
+            .normalize();
+
+        // Calculate the angle needed to face the parent
+        // We want the body to face the parent with its "front" (negative Z axis by default)
+        const targetRotation = Math.atan2(parentDirection.x, parentDirection.z);
+
+        // Apply the rotation to make the body face its parent
+        if (this.mesh) {
+            this.mesh.rotation.y = targetRotation;
+        }
+
+        if (this.lodMesh) {
+            this.lodMesh.rotation.y = targetRotation;
         }
     }
 
