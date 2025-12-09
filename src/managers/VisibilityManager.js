@@ -223,6 +223,17 @@ export class VisibilityManager {
      * @private
      */
     _shouldItemBeVisible(itemBodyName, itemHierarchyData, selectedBodyName, selectedBodyParent, type) {
+        // Rule 0: Check global visibility flags first
+        if (type === 'orbit' && !this.globalOrbitLinesVisible) {
+            return { shouldBeVisible: false, reason: 'orbit lines globally disabled' };
+        }
+        if (type === 'marker' && !this.globalMarkersVisible) {
+            return { shouldBeVisible: false, reason: 'markers globally disabled' };
+        }
+        if (type === 'orbitTrail' && !this.globalOrbitTrailsVisible) {
+            return { shouldBeVisible: false, reason: 'orbit trails globally disabled' };
+        }
+
         // Rule 1: Direct children of selected body should be visible
         if (itemHierarchyData.parent === selectedBodyName) {
             return { shouldBeVisible: true, reason: `direct child ${type}` };
