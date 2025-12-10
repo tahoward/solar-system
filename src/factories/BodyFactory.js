@@ -177,11 +177,9 @@ export class BodyFactory {
             console.log('🌟 Corona data not found - skipping corona effect');
         }
 
-        // Add sun rays effect (only if rays data exists and not on mobile)
-        if (bodyData.star.rays && !this.isMobileDevice()) {
+        // Add sun rays effect (only if rays data exists)
+        if (bodyData.star.rays) {
             this.addSunRaysEffect(body, bodyData, radius);
-        } else if (this.isMobileDevice()) {
-            console.log('🌞 Mobile device detected - skipping rays for performance');
         } else {
             console.log('🌞 Rays data not found - skipping rays effect');
         }
@@ -366,17 +364,17 @@ export class BodyFactory {
         const stellarRadius = bodyData.radiusScale || 1.0; // Relative to solar radius
         const temperatureBasedBrightness = temperatureToGlareBrightness(temperature, stellarRadius);
 
-        // Allow manual override if specified, otherwise use calculated value
+        // Allow manual override if specified, otherwise use calculated value with massive boost
         const emissiveIntensity = starGlare.emissiveIntensity !== undefined ?
-            starGlare.emissiveIntensity : temperatureBasedBrightness;
+            starGlare.emissiveIntensity : temperatureBasedBrightness * 25.0; // 25x boost - much brighter
 
         // Also scale the base opacity based on temperature for visual brightness (not just bloom)
-        const baseOpacity = starGlare.opacity || 0.8;
-        const temperatureOpacityMultiplier = Math.min(2.0, temperatureBasedBrightness / 5.0); // Scale opacity with temperature
+        const baseOpacity = starGlare.opacity || 1.0; // Increased base opacity
+        const temperatureOpacityMultiplier = Math.min(8.0, temperatureBasedBrightness / 1.5); // Even higher multiplier
         const adjustedOpacity = Math.min(1.0, baseOpacity * temperatureOpacityMultiplier);
 
-        // Calculate color brightness multiplier based on temperature
-        const colorBrightnessMult = Math.min(3.0, temperatureBasedBrightness / 3.0); // Scale color brightness
+        // Calculate color brightness multiplier based on temperature with massive boost
+        const colorBrightnessMult = Math.min(35.0, temperatureBasedBrightness / 0.5); // 35x max, even lower divisor
 
         // Scale distance-based parameters by star radius for proportional scaling
         // This makes larger stars have proportionally larger fade distances and smaller stars smaller ones

@@ -14,9 +14,21 @@ export class BloomManager {
         this.camera = camera;
         this.renderer = renderer;
 
-        // Bloom enable/disable flag
-        this.enabled = true;
+        // Bloom enable/disable flag - disable on mobile devices for performance
+        const isMobile = this.isMobileDevice();
+        this.enabled = !isMobile;
         this.manuallyDisabled = false;  // Track if user manually disabled bloom
+        this.mobileDevice = isMobile;   // Store mobile status to prevent re-enabling
+
+        console.log('🌟 BloomManager initialized:', {
+            isMobile: isMobile,
+            enabled: this.enabled,
+            message: isMobile ? 'Bloom disabled for mobile performance' : 'Bloom enabled for desktop'
+        });
+
+        if (isMobile) {
+            console.log('🌟 Mobile device detected - bloom disabled for performance');
+        }
 
         // Bloom configuration - use constants for centralized control
         this.bloomConfig = {
@@ -29,6 +41,38 @@ export class BloomManager {
         this.starObjects = new Map(); // Map of starObject -> { material, baseEmissiveIntensity }
 
         this.initializePostProcessing();
+    }
+
+    /**
+     * Detect if the current device is a mobile device
+     * @returns {boolean} True if mobile device detected
+     * @private
+     */
+    isMobileDevice() {
+        if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+            console.log('🌟 BloomManager: No window/navigator - assuming desktop');
+            return false;
+        }
+
+        const userAgent = navigator.userAgent.toLowerCase();
+        const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
+
+        // Also check for touch capability and screen size
+        const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        const isSmallScreen = window.innerWidth <= 768 || window.innerHeight <= 768;
+
+        const result = isMobile || (isTouchDevice && isSmallScreen);
+
+        console.log('🌟 BloomManager Mobile Detection:', {
+            userAgent: userAgent,
+            isMobile: isMobile,
+            isTouchDevice: isTouchDevice,
+            isSmallScreen: isSmallScreen,
+            screenSize: `${window.innerWidth}x${window.innerHeight}`,
+            finalResult: result
+        });
+
+        return result;
     }
 
     /**
@@ -208,7 +252,8 @@ export class BloomManager {
             if (shouldDisable && this.enabled) {
                 this.enabled = false;  // Disable bloom completely when close to stars
                 // console.log(`🚫 Bloom disabled: too close to ${closestStarName} (${closestScaledDistance.toFixed(2)} <= ${scaledDisableDistance.toFixed(2)})`);
-            } else if (!shouldDisable && !this.enabled) {
+            } else if (!shouldDisable && !this.enabled && !this.mobileDevice) {
+                // Only enable bloom when far from stars AND not on mobile device
                 this.enabled = true;   // Enable bloom when far from stars
                 // console.log(`✅ Bloom enabled: far enough from ${closestStarName} (${closestScaledDistance.toFixed(2)} > ${scaledDisableDistance.toFixed(2)})`);
             }
@@ -368,10 +413,14 @@ export class BloomManager {
     }
 
     /**
-     * Enable bloom effect
+     * Enable bloom effect (but not on mobile devices)
      */
     enableBloom() {
-        this.enabled = true;
+        if (!this.mobileDevice) {
+            this.enabled = true;
+        } else {
+            console.log('🌟 Bloom enable ignored - mobile device detected');
+        }
     }
 
     /**

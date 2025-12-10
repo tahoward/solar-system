@@ -86,7 +86,7 @@ export const BLOOM = {
   DISABLE_DISTANCE: 0.25,    // Disable bloom completely when closer than this (scaled units)
   FADE_START_DISTANCE: 1.0,  // Start fading bloom at this distance (scaled units)
   FADE_END_DISTANCE: 0.2,    // Fully fade out bloom at this distance (scaled units)
-  MAX_BLOOM_DISTANCE: 1000   // No bloom beyond this distance (scaled units)
+  MAX_BLOOM_DISTANCE: 2000   // No bloom beyond this distance (scaled units)
 };
 
 // Star Visibility Configuration
@@ -271,10 +271,10 @@ export const CELESTIAL_DATA = [{
       fadeEndDistance: 10,  // Distance where glare completely disappears (scaled by radiusScale)
       // Distance-based scaling parameters (all scaled by radiusScale)
       scaleWithDistance: true,  // Enable proportional scaling based on camera distance
-      minScaleDistance: 15,   // Distance at minimum scale (scaled by radiusScale)
-      maxScaleDistance: 1000.0,  // Distance at maximum scale (scaled by radiusScale)
-      minScale: .2,           // Minimum scale factor when very close
-      maxScale: 10,           // Maximum scale factor when far
+      minScaleDistance: 5.0,   // Distance at minimum scale (scaled by radiusScale)
+      maxScaleDistance: 2000.0,  // Distance at maximum scale (scaled by radiusScale)
+      minScale: .02,           // Minimum scale factor when very close
+      maxScale: 20,           // Maximum scale factor when far
       // Radial center glow scaling
       scaleCenterWithDistance: false,  // Enable center glow scaling with distance
       centerBaseSize: 0.05,          // Base size of center glow (0.01 = 1% of texture)

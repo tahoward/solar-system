@@ -16,15 +16,11 @@ class SunGlare extends SunEffect {
 
         // Glare-specific configuration
         this.glareSize = options.size || 5.0;  // Size multiplier relative to sun radius
-        this.glareOpacity = options.opacity || 0.8;
+        this.glareOpacity = options.opacity || 1.0;
         this.glareColor = options.color || 0xffaa00;
-        this.emissiveIntensity = options.emissiveIntensity || 2.0;
-        this.brightnessMult = options.brightnessMult || 1.0; // Additional brightness multiplier for visual effect
+        this.emissiveIntensity = options.emissiveIntensity || 25.0;
+        this.brightnessMult = options.brightnessMult || 15.0; // Additional brightness multiplier for visual effect (increased default)
 
-
-        // Distance fade parameters
-        this.fadeStartDistance = options.fadeStartDistance || 10.0;
-        this.fadeEndDistance = options.fadeEndDistance || 0.6;
 
         // Distance-based scaling parameters
         this.scaleWithDistance = options.scaleWithDistance !== undefined ? options.scaleWithDistance : true;
@@ -32,6 +28,10 @@ class SunGlare extends SunEffect {
         this.maxScaleDistance = options.maxScaleDistance || 10.0;
         this.minScale = options.minScale || 0.1;
         this.maxScale = options.maxScale || 1.0;
+
+        // Distance fade parameters (now using scale distances for consistent behavior)
+        this.fadeStartDistance = options.fadeStartDistance || this.maxScaleDistance;
+        this.fadeEndDistance = options.fadeEndDistance || this.minScaleDistance;
 
         // Radial center glow scaling parameters
         this.scaleCenterWithDistance = options.scaleCenterWithDistance !== undefined ? options.scaleCenterWithDistance : true;
@@ -44,7 +44,7 @@ class SunGlare extends SunEffect {
         // Animation parameters for twinkling effect
         this.twinkleEnabled = options.twinkle !== undefined ? options.twinkle : true;
         this.twinkleSpeed = options.twinkleSpeed || 1.5;
-        this.twinkleIntensity = options.twinkleIntensity || 0.08; // Much more subtle - 8% variation
+        this.twinkleIntensity = options.twinkleIntensity || 0.12; // Subtle twinkle - 12% variation
         this.lastTextureUpdate = 0;
         this.textureUpdateInterval = options.textureUpdateInterval || 150; // Slightly slower updates
 
@@ -55,207 +55,36 @@ class SunGlare extends SunEffect {
     }
 
     /**
-     * Create a procedural glare texture
-     * @param {number} centerScale - Scale factor for the radial center glow (default 1.0)
-     * @param {number} time - Current time for twinkle animation (default 0)
-     * @returns {THREE.CanvasTexture} The glare texture
+     * Create procedural star spike parameters based on distance
+     * @param {number} distance - Distance from camera to star
+     * @returns {Object} Spike configuration parameters
      */
-    createGlareTexture(centerScale = 1.0, time = 0) {
-        const size = 512; // Texture resolution
-        const canvas = document.createElement('canvas');
-        canvas.width = size;
-        canvas.height = size;
-        const context = canvas.getContext('2d');
-        const centerX = size / 2;
-        const centerY = size / 2;
+    createSpikeParameters(distance) {
+        // Calculate distance-based parameters for optimal spike visibility
+        let spikeLength = 0.65;
+        let spikeWidth = 0.02;
+        let centerRadius = 0.05;
 
-        // Clear canvas to transparent
-        context.clearRect(0, 0, size, size);
+        // Adjust parameters based on distance for better visibility
+        if (distance > this.maxScaleDistance) {
+            // Very far - make spikes longer and more prominent
+            spikeLength = 0.75;
+            spikeWidth = 0.025;
+            centerRadius = 0.04;
+        } else if (distance > this.minScaleDistance) {
+            // Medium distance - standard parameters with slight adjustment
+            const { ratio } = MathUtils.clampAndRatio(distance, this.minScaleDistance, this.maxScaleDistance);
+            spikeLength = MathUtils.lerp(0.55, 0.7, ratio);
+            spikeWidth = MathUtils.lerp(0.015, 0.025, ratio);
+            centerRadius = MathUtils.lerp(0.06, 0.04, ratio);
+        }
+        // Close distance uses default values
 
-
-        // Create radial gradient from center for base glow
-        const gradient = context.createRadialGradient(
-            centerX, centerY, 0,           // Inner circle (center)
-            centerX, centerY, size / 2     // Outer circle (edge)
-        );
-
-        // Create scalable center glow based on distance using configurable parameters
-        const baseCenter = this.centerBaseSize * centerScale;  // Scale the center size
-        const fadeOut = this.centerFadeSize * centerScale;     // Scale the fade-out point
-
-        gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');    // Bright center point
-        gradient.addColorStop(Math.min(baseCenter, 0.99), 'rgba(255, 255, 255, 1.0)'); // Same opacity as spikes
-        gradient.addColorStop(Math.min(fadeOut, 0.99), 'rgba(255, 255, 255, 0.0)'); // Transparent - spikes dominate
-        gradient.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');  // Transparent edge
-
-        // Fill the canvas with the base gradient using additive blending
-        context.globalCompositeOperation = 'screen'; // Additive-like blending for center glow
-        context.fillStyle = gradient;
-        context.fillRect(0, 0, size, size);
-
-        // Add star spikes using additive blending
-        context.globalCompositeOperation = 'screen'; // Additive-like blending
-
-        // Create 4 main spikes (cross pattern) with twinkling animation
-        const baseSpikeLength = size * 0.48;
-        const spikeFadeWidth = 12; // Wider for more visibility
-
-        // Draw horizontal and vertical spikes with time-based length variations
-        const spikes = [
-            { angle: 0, length: baseSpikeLength, spikeId: 0 },      // Right
-            { angle: Math.PI / 2, length: baseSpikeLength, spikeId: 1 },  // Down
-            { angle: Math.PI, length: baseSpikeLength, spikeId: 2 },      // Left
-            { angle: 3 * Math.PI / 2, length: baseSpikeLength, spikeId: 3 } // Up
-        ];
-
-        spikes.forEach(spike => {
-            // Calculate twinkle length variation if enabled
-            let actualLength = spike.length;
-            if (this.twinkleEnabled && time > 0) {
-                // Each spike has its own frequency offset to make them twinkle independently
-                const spikeFrequency = this.twinkleSpeed + (spike.spikeId * 0.1);
-                const twinklePhase = time * spikeFrequency + (spike.spikeId * Math.PI * 0.25);
-                const twinkleVariation = Math.sin(twinklePhase) * this.twinkleIntensity;
-                actualLength = spike.length * (1.0 + twinkleVariation);
-            }
-
-            // Create gradient for spike
-            const dx = Math.cos(spike.angle) * actualLength;
-            const dy = Math.sin(spike.angle) * actualLength;
-
-            const spikeGradient = context.createLinearGradient(
-                centerX, centerY,
-                centerX + dx, centerY + dy
-            );
-
-            spikeGradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');    // Maximum brightness at center
-            spikeGradient.addColorStop(0.05, 'rgba(255, 255, 255, 0.95)'); // Still very bright
-            spikeGradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.6)');  // More gradual fade
-            spikeGradient.addColorStop(0.6, 'rgba(255, 255, 255, 0.2)');  // Dim but visible
-            spikeGradient.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');  // Transparent end
-
-            // Draw the spike
-            context.fillStyle = spikeGradient;
-            context.beginPath();
-
-            // Create tapered triangular spike that comes to a sharp point
-            const perpX = -Math.sin(spike.angle) * spikeFadeWidth;
-            const perpY = Math.cos(spike.angle) * spikeFadeWidth;
-
-            context.moveTo(centerX + perpX * 0.3, centerY + perpY * 0.3);  // Start wide at center
-            context.lineTo(centerX + dx, centerY + dy);                    // Sharp point at end
-            context.lineTo(centerX - perpX * 0.3, centerY - perpY * 0.3); // Other side at center
-            context.closePath();
-            context.fill();
-        });
-
-        // Add smaller diagonal spikes with twinkling animation
-        const diagonalSpikeLength = baseSpikeLength * 0.6;
-        const smallSpikes = [
-            { angle: Math.PI / 4, length: diagonalSpikeLength, spikeId: 4 },      // Diagonal
-            { angle: 3 * Math.PI / 4, length: diagonalSpikeLength, spikeId: 5 },
-            { angle: 5 * Math.PI / 4, length: diagonalSpikeLength, spikeId: 6 },
-            { angle: 7 * Math.PI / 4, length: diagonalSpikeLength, spikeId: 7 }
-        ];
-
-        smallSpikes.forEach(spike => {
-            // Calculate twinkle length variation if enabled
-            let actualLength = spike.length;
-            if (this.twinkleEnabled && time > 0) {
-                // Each spike has its own frequency offset to make them twinkle independently
-                const spikeFrequency = this.twinkleSpeed + (spike.spikeId * 0.08);
-                const twinklePhase = time * spikeFrequency + (spike.spikeId * Math.PI * 0.2);
-                const twinkleVariation = Math.sin(twinklePhase) * this.twinkleIntensity;
-                actualLength = spike.length * (1.0 + twinkleVariation);
-            }
-
-            const dx = Math.cos(spike.angle) * actualLength;
-            const dy = Math.sin(spike.angle) * actualLength;
-
-            const spikeGradient = context.createLinearGradient(
-                centerX, centerY,
-                centerX + dx, centerY + dy
-            );
-
-            spikeGradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');   // Brighter diagonal spikes
-            spikeGradient.addColorStop(0.1, 'rgba(255, 255, 255, 0.6)'); // Still bright
-            spikeGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.25)'); // More visible
-            spikeGradient.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');  // Transparent end
-
-            context.fillStyle = spikeGradient;
-            context.beginPath();
-
-            const perpX = -Math.sin(spike.angle) * (spikeFadeWidth * 0.5);
-            const perpY = Math.cos(spike.angle) * (spikeFadeWidth * 0.5);
-
-            // Create tapered triangular spike for diagonal spikes too
-            context.moveTo(centerX + perpX * 0.3, centerY + perpY * 0.3);  // Start wide at center
-            context.lineTo(centerX + dx, centerY + dy);                    // Sharp point at end
-            context.lineTo(centerX - perpX * 0.3, centerY - perpY * 0.3); // Other side at center
-            context.closePath();
-            context.fill();
-        });
-
-        // Add intermediate spikes (16 total spikes now) - these are smaller and more subtle
-        const intermediateSpikeLength = baseSpikeLength * 0.4;
-        const intermediateSpikes = [
-            { angle: Math.PI / 8, length: intermediateSpikeLength, spikeId: 8 },        // 22.5°
-            { angle: 3 * Math.PI / 8, length: intermediateSpikeLength, spikeId: 9 },    // 67.5°
-            { angle: 5 * Math.PI / 8, length: intermediateSpikeLength, spikeId: 10 },    // 112.5°
-            { angle: 7 * Math.PI / 8, length: intermediateSpikeLength, spikeId: 11 },    // 157.5°
-            { angle: 9 * Math.PI / 8, length: intermediateSpikeLength, spikeId: 12 },    // 202.5°
-            { angle: 11 * Math.PI / 8, length: intermediateSpikeLength, spikeId: 13 },   // 247.5°
-            { angle: 13 * Math.PI / 8, length: intermediateSpikeLength, spikeId: 14 },   // 292.5°
-            { angle: 15 * Math.PI / 8, length: intermediateSpikeLength, spikeId: 15 }    // 337.5°
-        ];
-
-        intermediateSpikes.forEach(spike => {
-            // Calculate twinkle length variation if enabled
-            let actualLength = spike.length;
-            if (this.twinkleEnabled && time > 0) {
-                // Each spike has its own frequency offset to make them twinkle independently
-                const spikeFrequency = this.twinkleSpeed + (spike.spikeId * 0.05);
-                const twinklePhase = time * spikeFrequency + (spike.spikeId * Math.PI * 0.15);
-                const twinkleVariation = Math.sin(twinklePhase) * this.twinkleIntensity * 0.4; // Much more subtle for smaller spikes
-                actualLength = spike.length * (1.0 + twinkleVariation);
-            }
-
-            const dx = Math.cos(spike.angle) * actualLength;
-            const dy = Math.sin(spike.angle) * actualLength;
-
-            const spikeGradient = context.createLinearGradient(
-                centerX, centerY,
-                centerX + dx, centerY + dy
-            );
-
-            spikeGradient.addColorStop(0, 'rgba(255, 255, 255, 0.6)');   // Dimmer intermediate spikes
-            spikeGradient.addColorStop(0.1, 'rgba(255, 255, 255, 0.4)'); // Moderate brightness
-            spikeGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.15)'); // Subtle visibility
-            spikeGradient.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');  // Transparent end
-
-            context.fillStyle = spikeGradient;
-            context.beginPath();
-
-            const perpX = -Math.sin(spike.angle) * (spikeFadeWidth * 0.3);  // Even thinner
-            const perpY = Math.cos(spike.angle) * (spikeFadeWidth * 0.3);
-
-            // Create tapered triangular spike for intermediate spikes
-            context.moveTo(centerX + perpX * 0.2, centerY + perpY * 0.2);  // Start narrower at center
-            context.lineTo(centerX + dx, centerY + dy);                    // Sharp point at end
-            context.lineTo(centerX - perpX * 0.2, centerY - perpY * 0.2); // Other side at center
-            context.closePath();
-            context.fill();
-        });
-
-        // Create texture from canvas
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.needsUpdate = true;
-
-        return texture;
+        return { spikeLength, spikeWidth, centerRadius };
     }
 
     /**
-     * Create the sun glare billboard mesh
+     * Create the sun glare billboard mesh with shader
      * @returns {THREE.Mesh} The glare billboard mesh
      */
     createGlareBillboard() {
@@ -263,30 +92,143 @@ class SunGlare extends SunEffect {
         const size = this.sunRadius * this.glareSize;
         const geometry = new THREE.PlaneGeometry(size, size);
 
-        // Create the glare texture
-        const glareTexture = this.createGlareTexture();
-
         // Apply brightness multiplier to color for visual brightness
         const brightenedColor = new THREE.Color(this.glareColor);
         brightenedColor.multiplyScalar(this.brightnessMult);
 
-        // Create material with glare texture/effect
-        const material = new THREE.MeshStandardMaterial({
-            map: glareTexture,
-            color: brightenedColor,
+        // Create shader material for procedural star spikes
+        const material = new THREE.ShaderMaterial({
             transparent: true,
-            opacity: this.glareOpacity,
             depthWrite: false,
             depthTest: true,
-            blending: THREE.NormalBlending,
+            blending: THREE.AdditiveBlending,
             side: THREE.DoubleSide,
-            // Add emissive properties for bloom effect
-            emissive: new THREE.Color(this.glareColor),
-            emissiveIntensity: this.emissiveIntensity,
-            toneMapped: false,
-            // Disable lighting calculations since this is a billboard
-            roughness: 1.0,
-            metalness: 0.0
+            uniforms: {
+                uTime: { value: 0.0 },
+                uColor: { value: brightenedColor },
+                uEmissiveColor: { value: new THREE.Color(this.glareColor) },
+                uOpacity: { value: this.glareOpacity },
+                uEmissiveIntensity: { value: this.emissiveIntensity },
+                uSpikeLength: { value: 0.65 }, // Length of star spikes
+                uSpikeWidth: { value: 0.02 }, // Width of star spikes
+                uCenterRadius: { value: 0.05 }, // Central star core radius
+                uCenterScale: { value: 1.0 }, // For distance-based scaling
+                uTwinkleIntensity: { value: this.twinkleIntensity },
+                uTwinkleSpeed: { value: this.twinkleSpeed },
+                uDistanceFactor: { value: 1.0 } // Controls spike visibility based on distance
+            },
+            vertexShader: `
+                varying vec2 vUv;
+
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float uTime;
+                uniform vec3 uColor;
+                uniform vec3 uEmissiveColor;
+                uniform float uOpacity;
+                uniform float uEmissiveIntensity;
+                uniform float uSpikeLength;
+                uniform float uSpikeWidth;
+                uniform float uCenterRadius;
+                uniform float uCenterScale;
+                uniform float uTwinkleIntensity;
+                uniform float uTwinkleSpeed;
+                uniform float uDistanceFactor;
+
+                varying vec2 vUv;
+
+                void main() {
+                    // Convert UV to centered coordinates (-0.5 to 0.5)
+                    vec2 center = vUv - 0.5;
+                    float dist = length(center);
+
+                    float alpha = 0.0;
+
+                    // Central bright core - always visible
+                    float coreRadius = uCenterRadius * uCenterScale;
+                    if (dist <= coreRadius) {
+                        alpha = smoothstep(coreRadius * 1.2, 0.0, dist);
+                    }
+
+                    // Create 4 classic star spikes (cross pattern)
+                    // Horizontal and vertical spikes for classic star appearance
+                    vec2 absCenter = abs(center);
+
+                    // Calculate spike parameters with enhanced twinkle animation
+                    float twinklePhase = uTime * uTwinkleSpeed;
+
+                    // More complex twinkle with multiple frequencies for more organic feel
+                    float horizontalTwinkle = 1.0 + sin(twinklePhase) * uTwinkleIntensity +
+                                             sin(twinklePhase * 1.7 + 2.1) * uTwinkleIntensity * 0.5;
+
+                    float verticalTwinkle = 1.0 + sin(twinklePhase + 1.57079632679) * uTwinkleIntensity +
+                                           sin(twinklePhase * 1.3 + 3.8) * uTwinkleIntensity * 0.6; // Different frequencies
+
+                    float adjustedSpikeLength = uSpikeLength * uDistanceFactor;
+                    float adjustedSpikeWidth = uSpikeWidth * uCenterScale;
+
+                    // Increase pointiness when far away to maintain sharp ends
+                    float pointinessFactor = 1.0 + (uDistanceFactor - 1.0) * 0.8; // More pointy when distant
+
+                    // Horizontal spike (left-right) - create triangular shape
+                    if (absCenter.y <= adjustedSpikeWidth && absCenter.x <= adjustedSpikeLength) {
+                        float spikeProgress = absCenter.x / adjustedSpikeLength;
+
+                        // Create true triangular shape: width decreases linearly with distance from center
+                        float triangleWidth = adjustedSpikeWidth * (1.0 - spikeProgress);
+
+                        // Check if we're within the triangle
+                        if (absCenter.y <= triangleWidth) {
+                            float lengthFade = 1.0 - spikeProgress;
+                            float widthFade = 1.0 - (absCenter.y / triangleWidth);
+
+                            // Sharp triangular falloff
+                            lengthFade = pow(lengthFade, 2.0 * pointinessFactor); // Very sharp point
+                            widthFade = pow(widthFade, 0.3); // Softer width edges for anti-aliasing
+
+                            float horizontalAlpha = lengthFade * widthFade * horizontalTwinkle;
+                            alpha = max(alpha, horizontalAlpha);
+                        }
+                    }
+
+                    // Vertical spike (up-down) - create triangular shape
+                    if (absCenter.x <= adjustedSpikeWidth && absCenter.y <= adjustedSpikeLength) {
+                        float spikeProgress = absCenter.y / adjustedSpikeLength;
+
+                        // Create true triangular shape: width decreases linearly with distance from center
+                        float triangleWidth = adjustedSpikeWidth * (1.0 - spikeProgress);
+
+                        // Check if we're within the triangle
+                        if (absCenter.x <= triangleWidth) {
+                            float lengthFade = 1.0 - spikeProgress;
+                            float widthFade = 1.0 - (absCenter.x / triangleWidth);
+
+                            // Sharp triangular falloff
+                            lengthFade = pow(lengthFade, 2.0 * pointinessFactor); // Very sharp point
+                            widthFade = pow(widthFade, 0.3); // Softer width edges for anti-aliasing
+
+                            float verticalAlpha = lengthFade * widthFade * verticalTwinkle;
+                            alpha = max(alpha, verticalAlpha);
+                        }
+                    }
+
+                    // Enhance brightness at spike intersections for better visibility
+                    if (absCenter.x <= adjustedSpikeWidth && absCenter.y <= adjustedSpikeWidth) {
+                        alpha = max(alpha, 0.8);
+                    }
+
+                    alpha = clamp(alpha, 0.0, 1.0);
+
+                    // Apply emissive color and intensity
+                    vec3 finalColor = uEmissiveColor * uEmissiveIntensity;
+
+                    gl_FragColor = vec4(finalColor, alpha * uOpacity);
+                }
+            `
         });
 
         // Store material reference
@@ -326,68 +268,73 @@ class SunGlare extends SunEffect {
         this.updateBillboardOrientation(camera, sunPosition);
 
 
-        // Calculate center scale based on distance for radial glow scaling
+        // Calculate center scale based on distance for shader scaling
         let centerScale = 1.0;
-        let shouldRegenerateTexture = false;
 
         if (this.scaleCenterWithDistance && this.scaleWithDistance) {
             const { ratio: distanceRatio } = MathUtils.clampAndRatio(distance, this.minScaleDistance, this.maxScaleDistance);
             centerScale = MathUtils.lerp(this.minScale, this.maxScale, distanceRatio);
-            shouldRegenerateTexture = true;
         }
 
-        // Update texture for twinkling animation if enabled
-        if (this.twinkleEnabled && this.currentFadeFactor > 0.01) {
-            const currentTime = Date.now();
-            if (currentTime - this.lastTextureUpdate > this.textureUpdateInterval) {
-                shouldRegenerateTexture = true;
-                this.lastTextureUpdate = currentTime;
+        // Calculate distance-based spike parameters
+        const spikeParams = this.createSpikeParameters(distance);
+
+        // Calculate distance-based spike visibility factor and emissive boost
+        let distanceFactor = 1.0;
+        let emissiveBoost = 1.0;
+
+        if (distance > this.minScaleDistance) {
+            // Increase spike prominence when further away for better visibility
+            const { ratio: distanceRatio } = MathUtils.clampAndRatio(distance, this.minScaleDistance, this.maxScaleDistance * 2);
+            distanceFactor = MathUtils.lerp(1.0, 1.8, distanceRatio); // Spikes become more prominent with distance
+
+            // Boost emissive intensity at extreme distances for light bleed effect
+            if (distance > this.maxScaleDistance) {
+                const extremeDistanceRatio = Math.min((distance - this.maxScaleDistance) / this.maxScaleDistance, 2.0);
+                emissiveBoost = 1.0 + extremeDistanceRatio * 1.5; // Up to 2.5x emissive at extreme distances
             }
         }
 
-        // Regenerate texture if needed
-        if (shouldRegenerateTexture && this.currentFadeFactor > 0.01) {
-            const currentTime = this.time; // Use animation time for consistent twinkling
-            const newTexture = this.createGlareTexture(centerScale, currentTime);
-            if (this.material.map) this.material.map.dispose(); // Clean up old texture
-            this.material.map = newTexture;
-            this.material.needsUpdate = true;
+        // Update shader uniforms with distance-adaptive parameters
+        if (this.material.uniforms) {
+            this.material.uniforms.uTime.value = this.time;
+            this.material.uniforms.uCenterScale.value = centerScale;
+            this.material.uniforms.uOpacity.value = this.glareOpacity * this.currentFadeFactor;
+            this.material.uniforms.uEmissiveIntensity.value = this.emissiveIntensity * this.currentFadeFactor * emissiveBoost;
+            this.material.uniforms.uDistanceFactor.value = distanceFactor;
+            this.material.uniforms.uTwinkleIntensity.value = this.twinkleIntensity;
+            this.material.uniforms.uTwinkleSpeed.value = this.twinkleSpeed;
+
+            // Update spike parameters based on distance
+            this.material.uniforms.uSpikeLength.value = spikeParams.spikeLength;
+            this.material.uniforms.uSpikeWidth.value = spikeParams.spikeWidth;
+            this.material.uniforms.uCenterRadius.value = spikeParams.centerRadius;
         }
 
-        // Update material opacity based on fade factor
-        this.material.opacity = this.glareOpacity * this.currentFadeFactor;
-        this.material.emissiveIntensity = this.emissiveIntensity * this.currentFadeFactor;
+        // Material properties are now controlled via shader uniforms
 
         // Calculate scaling based on distance if enabled
-        let scaleFactor = this.currentFadeFactor;
+        let scaleFactor = 1.0;
 
         if (this.scaleWithDistance) {
-            // Calculate distance-based scale (closer = smaller, farther = larger)
+            // Linear scaling: direct proportional relationship
             const { ratio: distanceRatio } = MathUtils.clampAndRatio(distance, this.minScaleDistance, this.maxScaleDistance);
-            const distanceScale = MathUtils.lerp(this.minScale, this.maxScale, distanceRatio);
 
-            // Combine fade factor with distance scaling
-            scaleFactor = this.currentFadeFactor * distanceScale;
+            // Simple linear interpolation between min and max scale
+            scaleFactor = MathUtils.lerp(this.minScale, this.maxScale, distanceRatio);
         }
 
+        // Apply scaling to the mesh
         this.mesh.scale.setScalar(scaleFactor);
     }
 
     /**
      * Update fade factor based on camera distance to sun
-     * @param {number} distance - Distance from camera to sun
+     * @param {number} _distance - Distance from camera to sun (unused - no fading)
      */
-    updateFadeDistance(distance) {
-        if (distance >= this.fadeStartDistance) {
-            // Full size/opacity when far away (10+ units)
-            this.currentFadeFactor = 1.0;
-        } else if (distance <= this.fadeEndDistance) {
-            // Completely faded when very close (0.6 or less units)
-            this.currentFadeFactor = 0.0;
-        } else {
-            // Linear fade between start and end distances
-            this.currentFadeFactor = MathUtils.inverseLerp(this.fadeEndDistance, this.fadeStartDistance, distance);
-        }
+    updateFadeDistance(_distance) {
+        // No fade on zoom - maintain full brightness at all distances
+        this.currentFadeFactor = 1.0;
     }
 
     /**
@@ -420,8 +367,8 @@ class SunGlare extends SunEffect {
      */
     setGlareOpacity(opacity) {
         this.glareOpacity = opacity;
-        if (this.material) {
-            this.material.opacity = opacity * this.currentFadeFactor;
+        if (this.material && this.material.uniforms) {
+            this.material.uniforms.uOpacity.value = opacity * this.currentFadeFactor;
         }
     }
 
@@ -431,9 +378,10 @@ class SunGlare extends SunEffect {
      */
     setGlareColor(color) {
         this.glareColor = color;
-        if (this.material) {
-            this.material.color.setHex(color);
-            this.material.emissive.setHex(color);
+        if (this.material && this.material.uniforms) {
+            const newColor = new THREE.Color(color);
+            this.material.uniforms.uEmissiveColor.value = newColor;
+            this.material.uniforms.uColor.value = newColor.clone().multiplyScalar(this.brightnessMult);
         }
     }
 
@@ -443,8 +391,8 @@ class SunGlare extends SunEffect {
      */
     setEmissiveIntensity(intensity) {
         this.emissiveIntensity = intensity;
-        if (this.material) {
-            this.material.emissiveIntensity = intensity * this.currentFadeFactor;
+        if (this.material && this.material.uniforms) {
+            this.material.uniforms.uEmissiveIntensity.value = intensity * this.currentFadeFactor;
         }
     }
 
@@ -483,8 +431,46 @@ class SunGlare extends SunEffect {
      */
     setTwinkleIntensity(intensity) {
         this.twinkleIntensity = intensity;
-        // Force texture regeneration on next update
-        this.lastTextureUpdate = 0;
+        if (this.material && this.material.uniforms) {
+            this.material.uniforms.uTwinkleIntensity.value = intensity;
+        }
+    }
+
+    /**
+     * Set star spike parameters
+     * @param {Object} params - Spike parameters
+     * @param {number} params.length - Length of spikes (0-1)
+     * @param {number} params.width - Width of spikes (0-1)
+     * @param {number} params.centerRadius - Radius of center core (0-1)
+     */
+    setSpikeParameters(params = {}) {
+        if (this.material && this.material.uniforms) {
+            if (params.length !== undefined) {
+                this.material.uniforms.uSpikeLength.value = params.length;
+            }
+            if (params.width !== undefined) {
+                this.material.uniforms.uSpikeWidth.value = params.width;
+            }
+            if (params.centerRadius !== undefined) {
+                this.material.uniforms.uCenterRadius.value = params.centerRadius;
+            }
+        }
+    }
+
+    /**
+     * Get current spike parameters
+     * @returns {Object} Current spike configuration
+     */
+    getSpikeParameters() {
+        if (this.material && this.material.uniforms) {
+            return {
+                length: this.material.uniforms.uSpikeLength.value,
+                width: this.material.uniforms.uSpikeWidth.value,
+                centerRadius: this.material.uniforms.uCenterRadius.value,
+                distanceFactor: this.material.uniforms.uDistanceFactor.value
+            };
+        }
+        return null;
     }
 
     /**
