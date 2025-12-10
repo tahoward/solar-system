@@ -1,0 +1,259 @@
+body, html {
+    margin: 0;
+    padding: 0;
+    overflow: hidden; /* Prevent scrollbars */
+    width: 100%;
+    height: 100%;
+}
+
+/* Mobile Menu Styles */
+#mobile-menu-container {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 20000;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Hamburger Button */
+.hamburger-btn {
+    --btn-size: 48px;
+    --btn-padding: 8px;
+    --line-height: 3px;
+    --line-gap: 6px;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: var(--line-gap);
+    width: var(--btn-size);
+    height: var(--btn-size);
+    background: rgba(0, 0, 0, 0.8);
+    border: 2px solid #00ff00;
+    border-radius: 8px;
+    cursor: pointer;
+    padding: var(--btn-padding);
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+}
+
+.hamburger-btn:hover {
+    background: rgba(0, 50, 0, 0.9);
+    transform: scale(1.05);
+}
+
+.hamburger-btn:active {
+    transform: scale(0.95);
+}
+
+.hamburger-line {
+    width: 100%;
+    height: var(--line-height);
+    background: #00ff00;
+    border-radius: 2px;
+    transition: all 0.3s ease;
+    transform-origin: center;
+}
+
+/* Hamburger animation when menu is open */
+.hamburger-btn.active .hamburger-line:nth-child(1) {
+    transform: translateY(calc(var(--line-gap) + var(--line-height))) rotate(45deg);
+}
+
+.hamburger-btn.active .hamburger-line:nth-child(2) {
+    opacity: 0;
+}
+
+.hamburger-btn.active .hamburger-line:nth-child(3) {
+    transform: translateY(calc(-1 * (var(--line-gap) + var(--line-height)))) rotate(-45deg);
+}
+
+/* Mobile Menu Panel */
+.mobile-menu {
+    position: absolute;
+    top: 60px;
+    left: 0;
+    background: rgba(0, 0, 0, 0.95);
+    border: 2px solid #00ff00;
+    border-radius: 12px;
+    backdrop-filter: blur(15px);
+    min-width: 280px;
+    max-width: 320px;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+    transform: translateX(-100%);
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    color: #00ff00;
+    font-size: 14px;
+}
+
+.mobile-menu.active {
+    transform: translateX(0);
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Menu Sections */
+.menu-section {
+    padding: 15px;
+    border-bottom: 1px solid rgba(0, 255, 0, 0.2);
+}
+
+.menu-section:last-child {
+    border-bottom: none;
+}
+
+.menu-section h3 {
+    margin: 0 0 10px 0;
+    color: #00ff88;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+/* Menu Buttons */
+.menu-btn {
+    display: block;
+    width: 100%;
+    padding: 12px 16px;
+    margin: 6px 0;
+    background: rgba(0, 50, 0, 0.3);
+    border: 1px solid rgba(0, 255, 0, 0.3);
+    border-radius: 6px;
+    color: #00ff00;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+}
+
+.menu-btn:hover {
+    background: rgba(0, 100, 0, 0.5);
+    border-color: #00ff00;
+    transform: translateX(4px);
+}
+
+.menu-btn:active {
+    background: rgba(0, 150, 0, 0.7);
+    transform: translateX(2px);
+}
+
+/* Status Display */
+.status-display {
+    background: rgba(0, 20, 0, 0.5);
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 8px;
+}
+
+.status-item {
+    margin: 4px 0;
+    font-size: 13px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.status-item span {
+    color: #00ff88;
+    font-weight: 500;
+}
+
+/* Hide desktop overlays by default (but allow F3 toggle) */
+#controls-overlay,
+#state-overlay,
+#stats-overlay {
+    display: none;
+}
+
+/* Hide debug overlay by default (but allow F1 toggle) */
+#debug-overlay {
+    display: none;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .hamburger-btn {
+        --btn-size: 44px;
+        --btn-padding: 6px;
+        --line-gap: 5px;
+    }
+
+    .mobile-menu {
+        min-width: calc(100vw - 60px);
+        max-width: calc(100vw - 60px);
+    }
+}
+
+@media (max-width: 480px) {
+    #mobile-menu-container {
+        top: 15px;
+        left: 15px;
+    }
+
+    .hamburger-btn {
+        --btn-size: 40px;
+        --btn-padding: 5px;
+        --line-gap: 4px;
+    }
+
+    .mobile-menu {
+        min-width: calc(100vw - 50px);
+        max-width: calc(100vw - 50px);
+        top: 50px;
+        max-height: calc(100vh - 80px);
+        max-height: calc(100dvh - 80px); /* Use dynamic viewport height on supported browsers */
+    }
+
+    .menu-section {
+        padding: 12px;
+    }
+
+    .menu-btn {
+        padding: 10px 14px;
+        font-size: 13px;
+    }
+}
+
+/* Desktop - Keep mobile menu visible for now (for testing) */
+@media (min-width: 769px) {
+    #mobile-menu-container {
+        display: block; /* Changed from none to block for testing */
+        opacity: 0.9; /* Slightly transparent on desktop so you can see it */
+    }
+}
+
+/* Touch-friendly improvements */
+@media (hover: none) and (pointer: coarse) {
+    .menu-btn {
+        min-height: 44px;
+        padding: 14px 16px;
+    }
+
+    .hamburger-btn {
+        min-width: 48px;
+        min-height: 48px;
+    }
+}
+
+/* Scrollbar styling for menu */
+.mobile-menu::-webkit-scrollbar {
+    width: 6px;
+}
+
+.mobile-menu::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 3px;
+}
+
+.mobile-menu::-webkit-scrollbar-thumb {
+    background: rgba(0, 255, 0, 0.3);
+    border-radius: 3px;
+}
+
+.mobile-menu::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 255, 0, 0.5);
+}
