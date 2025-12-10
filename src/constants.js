@@ -252,7 +252,7 @@ export const CELESTIAL_DATA = [{
     },
     // Sun flares parameters
     flares: {
-      lineCount: 1024,
+      lineCount: 128,
       lineLength: 64,
       lowres: false,
       animationSpeed: 0.1,  // Time multiplier for animation
