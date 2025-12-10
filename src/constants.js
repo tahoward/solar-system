@@ -359,6 +359,7 @@ export const CELESTIAL_DATA = [{
           mass: 3.69396e-8,
           rotationPeriod: 655.7,  // Tidally locked (27.3 Earth days)
           axialTilt: 1.54,  // Axial tilt in degrees
+          rotationOffset: -Math.PI / 2,  // 90 degree rotation offset (π/2 radians) to show a different face
           tidallyLocked: true,  // Moon always shows same face to Earth
           lightIntensity: null,  // No light emission
           surfaceTexture: TEXTURES.moon,  // Moon surface texture

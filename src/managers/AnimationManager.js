@@ -393,7 +393,8 @@ export class AnimationManager {
 
                 hierarchyData.children.forEach(childName => {
                     const moonBody = bodyMap.get(childName);
-                    if (moonBody) {
+                    // Only add bodies that don't emit light (exclude stars/suns)
+                    if (moonBody && !moonBody.emittedLight) {
                         currentShadowCasters.push(moonBody);
                     }
                 });
@@ -405,7 +406,8 @@ export class AnimationManager {
             // If this body has a parent (this is a moon), add parent as shadow caster for this body
             if (hierarchyData.parent) {
                 const parentBody = bodyMap.get(hierarchyData.parent);
-                if (parentBody) {
+                // Only add bodies that don't emit light (exclude stars/suns)
+                if (parentBody && !parentBody.emittedLight) {
                     const currentShadowCasters = shadowCastersMap.get(bodyName) || [];
                     currentShadowCasters.push(parentBody);
                     shadowCastersMap.set(bodyName, currentShadowCasters);

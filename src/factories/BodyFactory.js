@@ -41,6 +41,7 @@ export class BodyFactory {
             bodyData.rings, // Ring system (if any)
             bodyData.clouds, // Cloud system (if any)
             bodyData.atmosphere, // Atmosphere system (if any)
+            bodyData.rotationOffset || 0, // Rotation offset in radians (default 0)
             bodyData.tidallyLocked || false, // Tidal locking (default false)
             parentBody // Parent body reference for tidal locking
         );

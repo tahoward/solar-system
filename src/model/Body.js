@@ -22,6 +22,7 @@ import OrbitTrail from './OrbitTrail.js';
  * @property {THREE.Material} material - The rendering material
  * @property {THREE.PointLight|null} emittedLight - Optional emitted light
  * @property {Marker|null} marker - Optional marker for navigation
+ * @property {number} rotationOffset - Fixed rotation offset in radians applied to all rotation
  */
 
 class Body {
@@ -46,6 +47,7 @@ class Body {
      * @param {number} [mass=1] - Mass of the body in solar masses
      * @param {number} [rotationPeriod=24] - Rotation period in Earth hours
      * @param {number} [axialTilt=0] - Axial tilt in degrees
+     * @param {number} [rotationOffset=0] - Fixed rotation offset in radians
      * @param {boolean} [tidallyLocked=false] - Whether this body is tidally locked to its parent
      * @param {Body|null} [parentBody=null] - The parent body this object orbits (for tidal locking)
      */
@@ -61,6 +63,7 @@ class Body {
       rings = null,
       clouds = null,
       atmosphere = null,
+      rotationOffset = 0,
       tidallyLocked = false,
       parentBody = null
     ) {
@@ -94,6 +97,7 @@ class Body {
         // Rotation properties (passed as parameters)
         this.rotationPeriod = rotationPeriod;
         this.axialTilt = axialTilt;
+        this.rotationOffset = rotationOffset;
         this.tidallyLocked = tidallyLocked;
         this.parentBody = parentBody;
         this.rotationSpeed = this.calculateRotationSpeed(rotationPeriod);
@@ -104,6 +108,11 @@ class Body {
 
         // Create mesh and group structure
         this.mesh = this.createMesh();
+
+        // Apply initial rotation offset to the mesh
+        if (this.rotationOffset !== 0) {
+            this.mesh.rotation.y = this.rotationOffset;
+        }
 
         // Create tilt container for fixed axial tilt BEFORE LOD system
         this.tiltContainer = new THREE.Group();
@@ -171,6 +180,7 @@ class Body {
         return new THREE.SphereGeometry(this.radius, GEOMETRY.SPHERE_WIDTH_SEGMENTS, GEOMETRY.SPHERE_HEIGHT_SEGMENTS);
     }
 
+
     /**
      * Creates the mesh using the material and geometry.
      * @returns {THREE.Mesh} The created mesh combining geometry and material
@@ -178,8 +188,6 @@ class Body {
      */
     createMesh() {
         const mesh = new THREE.Mesh(this.geometry, this.material);
-        mesh.castShadow = true; // Allow planet to cast shadows on rings
-        mesh.receiveShadow = true; // Allow planet to receive shadows from rings
         return mesh;
     }
 
@@ -217,6 +225,11 @@ class Body {
 
         // Low detail: pinpoint light (everything beyond 0.01 units)
         this.lod.addLevel(this.pinpointMesh, 0.01);
+
+        // Apply initial rotation offset to LOD mesh to match main mesh
+        if (this.rotationOffset !== 0) {
+            lodMesh.rotation.y = this.rotationOffset;
+        }
 
         // Store reference to LOD mesh for rotation updates
         this.lodMesh = lodMesh;
@@ -321,7 +334,7 @@ class Body {
             // Calculate rotation increment: radians/second * seconds * speed multiplier
             const rotationIncrement = this.rotationSpeed * deltaTime * speedMultiplier;
 
-            // Rotate main mesh
+            // Rotate main mesh (rotation offset was applied at initialization)
             if (this.mesh) {
                 this.mesh.rotation.y += rotationIncrement;
             }
@@ -357,13 +370,15 @@ class Body {
         // We want the body to face the parent with its "front" (negative Z axis by default)
         const targetRotation = Math.atan2(parentDirection.x, parentDirection.z);
 
-        // Apply the rotation to make the body face its parent
+        // Apply the rotation to make the body face its parent, plus any rotation offset
+        const finalRotation = targetRotation + this.rotationOffset;
+
         if (this.mesh) {
-            this.mesh.rotation.y = targetRotation;
+            this.mesh.rotation.y = finalRotation;
         }
 
         if (this.lodMesh) {
-            this.lodMesh.rotation.y = targetRotation;
+            this.lodMesh.rotation.y = finalRotation;
         }
     }
 
