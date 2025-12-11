@@ -1,9 +1,16 @@
-// Mobile UI Manager for Solar System
-// Handles hamburger menu functionality and mobile-specific interactions
+/**
+ * MobileUIManager - Mobile UI Management for Solar System
+ *
+ * Handles mobile-specific UI functionality including:
+ * - Hamburger menu functionality and interactions
+ * - Mobile-optimized status displays
+ * - Touch event handling
+ * - Mobile device detection and adaptations
+ */
 
-import { log } from './Logger.js';
+import { log } from '../utils/Logger.js';
 
-class MobileUI {
+class MobileUIManager {
     constructor() {
         this.isMenuOpen = false;
         this.isContainerHidden = false;
@@ -425,8 +432,8 @@ class MobileUI {
 }
 
 // Create singleton instance
-const mobileUI = new MobileUI();
+const mobileUI = new MobileUIManager();
 
 // Export both the class and the singleton
 export default mobileUI;
-export { MobileUI };
+export { MobileUIManager };

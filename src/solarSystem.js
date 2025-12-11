@@ -9,7 +9,7 @@ import Stats from 'stats-gl';
 import { TEXTURES } from './assets/index.js';
 import { SIMULATION } from './constants.js';
 import { createControlsOverlay, createStateOverlay, createStatsOverlay } from './ui/OverlayManager.js';
-import mobileUI from './utils/MobileUI.js';
+import mobileUI from './ui/MobileUIManager.js';
 import clockManager from './managers/ClockManager.js';
 import TexturePreloader from './utils/TexturePreloader.js';
 import LoadingScreen from './ui/LoadingScreen.js';
