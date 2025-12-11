@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import SunEffect from './SunEffect.js';
 import ShaderUniformConfig from './ShaderUniformConfig.js';
 import ShaderLoader from '../shaders/ShaderLoader.js';
+import { log } from '../utils/Logger.js';
 
 // Sun rays vertex shader main code - adapted from stable SunFlares architecture
 const sunRaysVSMain = `
@@ -436,7 +437,7 @@ class SunRays extends SunEffect {
         // To fully change ray length, we need to regenerate the geometry
         // since ray end positions are baked into the geometry
         if (this.mesh) {
-            console.log(`Updating ray length to ${length}`);
+            log.debug('SunRays', `Updating ray length to ${length}`);
             const newGeometry = this.createRaysGeometry();
             this.mesh.geometry.dispose(); // Clean up old geometry
             this.mesh.geometry = newGeometry;
@@ -452,7 +453,7 @@ class SunRays extends SunEffect {
         const clampedCount = Math.min(Math.max(count, 100), 10000);
 
         if (this.rayCount !== clampedCount) {
-            console.log(`Updating ray count from ${this.rayCount} to ${clampedCount}`);
+            log.debug('SunRays', `Updating ray count from ${this.rayCount} to ${clampedCount}`);
             this.rayCount = clampedCount;
 
             // Regenerate geometry with new ray count
@@ -469,12 +470,12 @@ class SunRays extends SunEffect {
     }
 
     setBendAmount(amount) {
-        console.log(`Setting bend amount to: ${amount}`);
+        log.debug('SunRays', `Setting bend amount to: ${amount}`);
         if (this.mesh && this.mesh.material && this.mesh.material.uniforms.uBendAmount) {
             this.mesh.material.uniforms.uBendAmount.value = amount;
-            console.log(`Updated uBendAmount uniform to: ${amount}`);
+            log.debug('SunRays', `Updated uBendAmount uniform to: ${amount}`);
         } else {
-            console.log('uBendAmount uniform not found or mesh not ready');
+            log.debug('SunRays', 'uBendAmount uniform not found or mesh not ready');
         }
         this.bendAmount = amount;
     }

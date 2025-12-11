@@ -1,3 +1,5 @@
+import { log } from '../utils/Logger.js';
+
 /**
  * Manages hierarchical relationships between celestial bodies
  */
@@ -6,7 +8,7 @@ export class HierarchyManager {
         this.hierarchyMap = new Map(); // Maps body names to their hierarchy data
         this.currentSelectedBody = null; // Track currently selected body
 
-        console.log('HierarchyManager: Initialized');
+        log.init('HierarchyManager', 'HierarchyManager');
     }
 
     /**
@@ -16,14 +18,14 @@ export class HierarchyManager {
     registerHierarchy(hierarchy) {
         this.hierarchyMap.clear();
         this._buildHierarchyMap(hierarchy, null);
-        console.log(`HierarchyManager: Registered hierarchy with ${this.hierarchyMap.size} bodies`);
+        log.info('HierarchyManager', `Registered hierarchy with ${this.hierarchyMap.size} bodies`);
 
         // Debug: Log the hierarchy structure
-        console.log('HierarchyManager: Hierarchy structure:');
+        log.debug('HierarchyManager', 'Hierarchy structure:');
         this.hierarchyMap.forEach((data, name) => {
             const parentText = data.parent ? `parent: ${data.parent}` : 'parent: none (root)';
             const childrenText = data.children.length > 0 ? `children: [${data.children.join(', ')}]` : 'children: none';
-            console.log(`  ${name} -> ${parentText}, ${childrenText}`);
+            log.debug('HierarchyManager', `  ${name} -> ${parentText}, ${childrenText}`);
         });
     }
 
@@ -36,20 +38,20 @@ export class HierarchyManager {
     _buildHierarchyMap(node, parentName) {
         // Edge case: Invalid node
         if (!node) {
-            console.warn('HierarchyManager: Skipping null/undefined node in hierarchy');
+            log.warn('HierarchyManager', 'Skipping null/undefined node in hierarchy');
             return;
         }
 
         // Edge case: Node without body
         if (!node.body) {
-            console.warn('HierarchyManager: Skipping node without body property');
+            log.warn('HierarchyManager', 'Skipping node without body property');
             return;
         }
 
         // Edge case: Body without name
         const bodyName = node.body.name;
         if (!bodyName) {
-            console.warn('HierarchyManager: Skipping body without name property');
+            log.warn('HierarchyManager', 'Skipping body without name property');
             return;
         }
 
@@ -60,7 +62,7 @@ export class HierarchyManager {
             node.children.forEach((child, index) => {
                 // Edge case: Invalid child
                 if (!child || !child.body || !child.body.name) {
-                    console.warn(`HierarchyManager: Skipping invalid child ${index} of ${bodyName}`);
+                    log.warn('HierarchyManager', `Skipping invalid child ${index} of ${bodyName}`);
                     return;
                 }
 
@@ -68,13 +70,13 @@ export class HierarchyManager {
 
                 // Edge case: Duplicate child names
                 if (children.includes(childName)) {
-                    console.warn(`HierarchyManager: Duplicate child name '${childName}' for parent '${bodyName}'`);
+                    log.warn('HierarchyManager', `Duplicate child name '${childName}' for parent '${bodyName}'`);
                     return;
                 }
 
                 // Edge case: Circular reference prevention
                 if (childName === bodyName) {
-                    console.error(`HierarchyManager: Circular reference detected: ${bodyName} cannot be child of itself`);
+                    log.error('HierarchyManager', `Circular reference detected: ${bodyName} cannot be child of itself`);
                     return;
                 }
 
@@ -84,14 +86,14 @@ export class HierarchyManager {
                 try {
                     this._buildHierarchyMap(child, bodyName);
                 } catch (error) {
-                    console.error(`HierarchyManager: Error processing child ${childName} of ${bodyName}:`, error);
+                    log.error('HierarchyManager', `Error processing child ${childName} of ${bodyName}`, error);
                 }
             });
         }
 
         // Edge case: Duplicate body names across hierarchy
         if (this.hierarchyMap.has(bodyName)) {
-            console.error(`HierarchyManager: Duplicate body name '${bodyName}' in hierarchy - overwriting previous entry`);
+            log.error('HierarchyManager', `Duplicate body name '${bodyName}' in hierarchy - overwriting previous entry`);
         }
 
         this.hierarchyMap.set(bodyName, {
@@ -108,7 +110,7 @@ export class HierarchyManager {
      */
     setSelectedBody(body) {
         if (!body) {
-            console.warn('HierarchyManager: Cannot select null/undefined body');
+            log.warn('HierarchyManager', 'Cannot select null/undefined body');
             return;
         }
 
@@ -128,7 +130,7 @@ export class HierarchyManager {
      */
     clearSelectedBody() {
         this.currentSelectedBody = null;
-        console.log('HierarchyManager: Cleared selected body');
+        log.debug('HierarchyManager', 'Cleared selected body');
     }
 
     /**
@@ -190,14 +192,14 @@ export class HierarchyManager {
         const count = this.hierarchyMap.size;
         this.hierarchyMap.clear();
         this.currentSelectedBody = null;
-        console.log(`HierarchyManager: Cleared hierarchy data (${count} bodies removed)`);
+        log.info('HierarchyManager', `Cleared hierarchy data (${count} bodies removed)`);
     }
 
     /**
      * Dispose and clean up resources
      */
     dispose() {
-        console.log('HierarchyManager: Disposing resources');
+        log.dispose('HierarchyManager', 'resources');
         this.clear();
     }
 }

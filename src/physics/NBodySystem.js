@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import clockManager from '../managers/ClockManager.js';
 import { calculateKeplerianPositionWithTransforms, calculateKeplerianVelocityWithTransforms } from './kepler.js';
+import { log } from '../utils/Logger.js';
 
 /**
  * N-Body gravitational simulation functions
@@ -29,7 +30,7 @@ export function updateHierarchyNBodyPhysics(hierarchy, deltaTime, sceneScale = 0
     collectBodiesFromHierarchy(hierarchy, bodies);
 
     if (bodies.length === 0) {
-        console.warn('NBodySystem: No bodies found in hierarchy for n-body physics');
+        log.warn('NBodySystem', 'No bodies found in hierarchy for n-body physics');
         return;
     }
 
@@ -214,7 +215,7 @@ function initializeChildPhysics(parent, parentBody, sceneScale) {
 
         // Skip initialization if body already has physics state
         if (hasPosition && hasVelocity) {
-            console.log(`NBodySystem: Skipping initialization for ${childBody.name} - already has physics state`);
+            log.debug('NBodySystem', `Skipping initialization for ${childBody.name} - already has physics state`);
         } else {
             // Initialize physics on bodies that need it
             childBody.setInitialPhysicsConditions(
@@ -254,7 +255,7 @@ function initializeChildPhysics(parent, parentBody, sceneScale) {
 
             childBody.updatePosition(childBody.position);
 
-            console.log(`NBodySystem: Set Keplerian orbit for ${childBody.name} using kepler.js functions: a=${child.data.a.toFixed(3)}AU, e=${child.data.e.toFixed(3)}, i=${child.data.i.toFixed(1)}°`);
+            log.debug('NBodySystem', `Set Keplerian orbit for ${childBody.name} using kepler.js functions: a=${child.data.a.toFixed(3)}AU, e=${child.data.e.toFixed(3)}, i=${child.data.i.toFixed(1)}°`);
             }
         }
 

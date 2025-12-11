@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { log } from '../utils/Logger.js';
 
 /**
  * BaseCelestialShaderMaterial - Base class for all celestial shader materials
@@ -94,7 +95,7 @@ class BaseCelestialShaderMaterial extends THREE.ShaderMaterial {
      */
     setRingParameters(innerRadius, outerRadius, alphaTexture) {
         if (!this._supportsShadows) {
-            console.warn('BaseCelestialShaderMaterial: Attempting to set ring parameters on material that does not support shadows');
+            log.warn('BaseCelestialShaderMaterial', 'Attempting to set ring parameters on material that does not support shadows');
             return;
         }
 
@@ -110,7 +111,7 @@ class BaseCelestialShaderMaterial extends THREE.ShaderMaterial {
      */
     setRingShadowsEnabled(enabled) {
         if (!this._supportsShadows) {
-            console.warn('BaseCelestialShaderMaterial: Attempting to set ring shadows on material that does not support shadows');
+            log.warn('BaseCelestialShaderMaterial', 'Attempting to set ring shadows on material that does not support shadows');
             return;
         }
 
@@ -124,7 +125,7 @@ class BaseCelestialShaderMaterial extends THREE.ShaderMaterial {
      */
     updateMoons(positions, radii) {
         if (!this._supportsShadows) {
-            console.warn('BaseCelestialShaderMaterial: Attempting to update moons on material that does not support shadows');
+            log.warn('BaseCelestialShaderMaterial', 'Attempting to update moons on material that does not support shadows');
             return;
         }
 

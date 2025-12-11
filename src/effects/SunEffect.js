@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import ShaderUniformHelper from '../utils/ShaderUniformHelper.js';
+import { log } from '../utils/Logger.js';
 
 /**
  * SunEffect - Base class for sun-related visual effects (flares, rays, etc.)
@@ -83,7 +84,7 @@ class SunEffect {
     addToScene(parent) {
         if (this.mesh) {
             parent.add(this.mesh);
-            console.log(`${this.effectName} added to scene`);
+            log.info('SunEffect', `${this.effectName} added to scene`);
         }
     }
 
@@ -110,7 +111,7 @@ class SunEffect {
                 this.mesh.material.dispose();
             }
         }
-        console.log(`${this.effectName} disposed`);
+        log.info('SunEffect', `${this.effectName} disposed`);
     }
 
     /**

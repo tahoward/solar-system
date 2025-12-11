@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { Group, Tween, Easing } from '@tweenjs/tween.js';
 import { ANIMATION, SCENE } from '../constants.js';
+import { log } from '../utils/Logger.js';
 
 /**
  * Camera configuration constants
@@ -109,7 +110,7 @@ export class CameraController {
      */
     setTargetDirect(group) {
         if (!group) {
-            console.warn('CameraController: setTargetDirect - No group provided');
+            log.warn('CameraController', 'setTargetDirect - No group provided');
             return;
         }
 
@@ -146,7 +147,7 @@ export class CameraController {
      */
     setTargetSmooth(group, duration = ANIMATION.DEFAULT_TRANSITION_DURATION) {
         if (!group) {
-            console.warn('CameraController: setTargetSmooth - No group provided');
+            log.warn('CameraController', 'setTargetSmooth - No group provided');
             return;
         }
 
@@ -264,11 +265,11 @@ export class CameraController {
                 // Apply zoom limits for non-smooth transitions
                 this.applyZoomLimits(targetBody.group);
             }
-            console.log(`CameraController: Camera now following: ${bodyName}`);
+            log.camera(`Camera now following: ${bodyName}`);
 
             return targetBody;
         } else {
-            console.warn(`CameraController: Body '${bodyName}' not found`);
+            log.warn('CameraController', `Body '${bodyName}' not found`);
             return null;
         }
     }
@@ -312,7 +313,7 @@ export class CameraController {
      * Reset camera to initial position and clear all targeting/following
      */
     resetCamera() {
-        console.log('CameraController: Resetting camera to initial position');
+        log.camera('Resetting camera to initial position');
 
         // Stop any active animations
         this._stopCurrentAnimation();
@@ -336,7 +337,7 @@ export class CameraController {
         // Force controls to update and reset internal distance tracking
         this.controls.update();
 
-        console.log('CameraController: Camera reset completed');
+        log.camera('Camera reset completed');
     }
 
     /**
@@ -522,7 +523,7 @@ export class CameraController {
         this.camera = null;
         this.controls = null;
         this.tweenGroup = null;
-        console.log('CameraController: Disposed');
+        log.dispose('CameraController', 'Disposed');
     }
 
     // Static distance calculation methods

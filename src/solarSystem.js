@@ -46,7 +46,7 @@ async function initializeSolarSystem() {
         },
         // On error
         (error) => {
-            console.error('Failed to preload textures:', error);
+            log.error('SolarSystem', 'Failed to preload textures', error);
             loadingScreen.showError('Failed to load textures');
         }
     );
@@ -68,7 +68,7 @@ async function initializeSolarSystem() {
 
         log.info('SolarSystem', 'Solar system initialization complete with preloaded textures');
     } catch (error) {
-        console.error('Failed to initialize solar system:', error);
+        log.error('SolarSystem', 'Failed to initialize solar system', error);
         loadingScreen.showError(error.message);
     }
 }
@@ -98,13 +98,13 @@ async function initializeScene(loadedTextures) {
     orbits = result.orbits;
     hierarchy = result.hierarchy;
 
-    console.log(`Solar System: Initialized unified structure supporting both physics modes`);
-    console.log(`Solar System: Current physics mode: ${SIMULATION.getPhysicsMode()}`);
+    log.info('SolarSystem', `Initialized unified structure supporting both physics modes`);
+    log.info('SolarSystem', `Current physics mode: ${SIMULATION.getPhysicsMode()}`);
 
     // Register hierarchy with SceneManager for hierarchical marker visibility
     if (hierarchy) {
         SceneManager.registerHierarchy(hierarchy);
-        console.log('SolarSystem: Registered hierarchy for hierarchical marker visibility');
+        log.info('SolarSystem', 'Registered hierarchy for hierarchical marker visibility');
     }
 
     // N-body system is now handled functionally, no separate object to register
@@ -181,5 +181,5 @@ async function initializeScene(loadedTextures) {
 
 // Start the initialization process
 initializeSolarSystem().catch(error => {
-    console.error('Failed to initialize solar system:', error);
+    log.error('SolarSystem', 'Failed to initialize solar system', error);
 });

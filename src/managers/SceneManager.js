@@ -11,6 +11,7 @@ import OrbitTrailManager from './OrbitTrailManager.js';
 import BloomManager from '../effects/BloomManager.js';
 import SkyboxManager from './SkyboxManager.js';
 import { ANIMATION, SCENE } from '../constants.js';
+import { log } from '../utils/Logger.js';
 
 // SceneManager.js
 class SceneManager {
@@ -467,7 +468,7 @@ class SceneManager {
           radius: constants.BLOOM.RADIUS,
           threshold: constants.BLOOM.THRESHOLD
         });
-        console.log('🌟 SceneManager: Updated bloom configuration from constants:', {
+        log.info('SceneManager', '🌟 Updated bloom configuration from constants:', {
           strength: constants.BLOOM.STRENGTH,
           radius: constants.BLOOM.RADIUS,
           threshold: constants.BLOOM.THRESHOLD
@@ -485,7 +486,7 @@ class SceneManager {
     try {
       return await this.skyboxManager.createSkybox(this.scene, imageUrl);
     } catch (error) {
-      console.error('❌ SceneManager: Failed to create skybox:', error);
+      log.error('SceneManager', '❌ Failed to create skybox:', error);
       throw error;
     }
   }

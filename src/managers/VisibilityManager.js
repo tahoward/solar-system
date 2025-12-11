@@ -1,3 +1,5 @@
+import { log } from '../utils/Logger.js';
+
 /**
  * Manages visibility of orbits, markers, and orbit trails based on hierarchical relationships
  * Uses unified visibility logic and maintains global visibility state for all visual elements
@@ -16,7 +18,7 @@ export class VisibilityManager {
         this.globalOrbitTrailsVisible = true;
 
 
-        console.log('VisibilityManager: Initialized');
+        log.init('VisibilityManager', 'VisibilityManager');
     }
 
     /**
@@ -25,7 +27,7 @@ export class VisibilityManager {
      */
     registerOrbit(orbit) {
         if (!orbit) {
-            console.warn('VisibilityManager: Cannot register null or undefined orbit');
+            log.warn('VisibilityManager', 'Cannot register null or undefined orbit');
             return;
         }
 
@@ -38,7 +40,7 @@ export class VisibilityManager {
      */
     registerMarker(marker) {
         if (!marker) {
-            console.warn('VisibilityManager: Cannot register null or undefined marker');
+            log.warn('VisibilityManager', 'Cannot register null or undefined marker');
             return;
         }
 
@@ -51,7 +53,7 @@ export class VisibilityManager {
      */
     registerOrbitTrail(body) {
         if (!body || !body.orbitTrail) {
-            console.warn('VisibilityManager: Cannot register body without orbit trail');
+            log.warn('VisibilityManager', 'Cannot register body without orbit trail');
             return;
         }
 
@@ -72,7 +74,7 @@ export class VisibilityManager {
 
         const wasRemoved = this.orbits.delete(orbit);
         if (wasRemoved) {
-            console.log(`VisibilityManager: Unregistered orbit for ${orbit.body?.name || 'unknown'}`);
+            log.debug('VisibilityManager', `Unregistered orbit for ${orbit.body?.name || 'unknown'}`);
         }
     }
 
@@ -85,7 +87,7 @@ export class VisibilityManager {
 
         const wasRemoved = this.markers.delete(marker);
         if (wasRemoved) {
-            console.log(`VisibilityManager: Unregistered marker for ${marker.body?.name || 'unknown'}`);
+            log.debug('VisibilityManager', `Unregistered marker for ${marker.body?.name || 'unknown'}`);
         }
     }
 
@@ -98,7 +100,7 @@ export class VisibilityManager {
 
         const wasRemoved = this.orbitTrails.delete(body);
         if (wasRemoved) {
-            console.log(`VisibilityManager: Unregistered orbit trail for ${body.name || 'unknown'}`);
+            log.debug('VisibilityManager', `Unregistered orbit trail for ${body.name || 'unknown'}`);
         }
     }
 
@@ -427,7 +429,7 @@ export class VisibilityManager {
             this.updateOrbitTrailVisibility(currentSelectedBody);
         }
 
-        console.log(`VisibilityManager: Orbit trails ${this.globalOrbitTrailsVisible ? 'enabled' : 'disabled'}`);
+        log.info('VisibilityManager', `Orbit trails ${this.globalOrbitTrailsVisible ? 'enabled' : 'disabled'}`);
         return this.globalOrbitTrailsVisible;
     }
 
@@ -448,7 +450,7 @@ export class VisibilityManager {
                 body.clearOrbitTrail();
             }
         });
-        console.log('VisibilityManager: Cleared all orbit trails');
+        log.info('VisibilityManager', 'Cleared all orbit trails');
     }
 
 

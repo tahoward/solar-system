@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CELESTIAL_DATA } from '../constants.js';
 import { TEXTURES } from '../assets/index.js';
+import logger from './Logger.js';
 
 /**
  * Utility class to preload all textures before scene initialization
@@ -93,7 +94,7 @@ export class TexturePreloader {
         this.totalTextures = textureUrls.size;
         this.loadedCount = 0;
 
-        console.log(`TexturePreloader: Starting to preload ${this.totalTextures} textures...`);
+        logger.info('TexturePreloader', `Starting to preload ${this.totalTextures} textures`);
 
         // Create promises for all texture loading
         const loadingPromises = Array.from(textureUrls).map(url =>
@@ -104,7 +105,7 @@ export class TexturePreloader {
             // Wait for all textures to load
             await Promise.all(loadingPromises);
 
-            console.log(`TexturePreloader: Successfully loaded ${this.loadedCount}/${this.totalTextures} textures`);
+            logger.info('TexturePreloader', `Successfully loaded ${this.loadedCount}/${this.totalTextures} textures`);
 
             if (this.onComplete) {
                 this.onComplete(this.loadedTextures);
@@ -112,7 +113,7 @@ export class TexturePreloader {
 
             return this.loadedTextures;
         } catch (error) {
-            console.error('TexturePreloader: Failed to load some textures:', error);
+            logger.error('TexturePreloader', 'Failed to load some textures', error);
             if (this.onError) {
                 this.onError(error);
             }
@@ -143,7 +144,7 @@ export class TexturePreloader {
                     this.loadedCount++;
 
                     const percentage = (this.loadedCount / this.totalTextures) * 100;
-                    console.log(`TexturePreloader: Loaded ${url} (${this.loadedCount}/${this.totalTextures} - ${percentage.toFixed(1)}%)`);
+                    logger.debug('TexturePreloader', `Loaded ${url} (${this.loadedCount}/${this.totalTextures} - ${percentage.toFixed(1)}%)`);
 
                     if (this.onProgress) {
                         this.onProgress(this.loadedCount, this.totalTextures, percentage);
@@ -155,7 +156,7 @@ export class TexturePreloader {
                 undefined,
                 // onError callback
                 (error) => {
-                    console.error(`TexturePreloader: Failed to load texture ${url}:`, error);
+                    logger.error('TexturePreloader', `Failed to load texture ${url}`, error);
                     reject(error);
                 }
             );

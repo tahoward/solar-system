@@ -1,3 +1,5 @@
+import { log } from './Logger.js';
+
 /**
  * Performance statistics tracker with time series data
  * Tracks FPS, GPU utilization, and CPU utilization over time
@@ -87,7 +89,7 @@ export class PerformanceStats {
 
 
         } catch (error) {
-            console.warn('PerformanceStats: Error reading stats-gl data:', error);
+            log.warn('PerformanceStats', 'Error reading stats-gl data', error);
             this.updateBasicStats(now);
         }
     }

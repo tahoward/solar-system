@@ -1,3 +1,5 @@
+import { log } from '../utils/Logger.js';
+
 /**
  * OrbitTrailManager - Manages orbit trail initialization, registration, and state
  * Handles the lifecycle of orbit trails separately from orbit management
@@ -8,7 +10,7 @@ export class OrbitTrailManager {
         this.orbitTrails = new Map(); // bodyName -> body with orbit trail
         this.globalEnabled = true; // Default to enabled
 
-        console.log('OrbitTrailManager: Initialized');
+        log.init('OrbitTrailManager', 'OrbitTrailManager');
     }
 
     /**
@@ -25,7 +27,7 @@ export class OrbitTrailManager {
             this.enableAll(true);
         }
 
-        console.log(`OrbitTrailManager: Initialized ${this.orbitTrails.size} orbit trails`);
+        log.info('OrbitTrailManager', `Initialized ${this.orbitTrails.size} orbit trails`);
     }
 
     /**
@@ -62,14 +64,14 @@ export class OrbitTrailManager {
      */
     registerOrbitTrail(body) {
         if (!body || !body.orbitTrail) {
-            console.warn('OrbitTrailManager: Cannot register body without orbit trail');
+            log.warn('OrbitTrailManager', 'Cannot register body without orbit trail');
             return null;
         }
 
         // Store in our collection
         this.orbitTrails.set(body.name, body);
 
-        console.log(`OrbitTrailManager: Registered orbit trail for ${body.name}`);
+        log.debug('OrbitTrailManager', `Registered orbit trail for ${body.name}`);
         return body;
     }
 
@@ -82,7 +84,7 @@ export class OrbitTrailManager {
 
         const wasRemoved = this.orbitTrails.delete(body.name);
         if (wasRemoved) {
-            console.log(`OrbitTrailManager: Unregistered orbit trail for ${body.name}`);
+            log.debug('OrbitTrailManager', `Unregistered orbit trail for ${body.name}`);
         }
     }
 
@@ -97,7 +99,7 @@ export class OrbitTrailManager {
             }
         });
 
-        console.log(`OrbitTrailManager: ${enabled ? 'Enabled' : 'Disabled'} all orbit trails`);
+        log.info('OrbitTrailManager', `${enabled ? 'Enabled' : 'Disabled'} all orbit trails`);
     }
 
     /**
@@ -110,7 +112,7 @@ export class OrbitTrailManager {
             }
         });
 
-        console.log('OrbitTrailManager: Cleared all orbit trails');
+        log.info('OrbitTrailManager', 'Cleared all orbit trails');
     }
 
     /**
@@ -122,7 +124,7 @@ export class OrbitTrailManager {
         const body = this.orbitTrails.get(bodyName);
         if (body && body.toggleOrbitTrail) {
             const newState = body.toggleOrbitTrail();
-            console.log(`OrbitTrailManager: Toggled orbit trail for ${bodyName} -> ${newState ? 'enabled' : 'disabled'}`);
+            log.debug('OrbitTrailManager', `Toggled orbit trail for ${bodyName} -> ${newState ? 'enabled' : 'disabled'}`);
             return newState;
         }
         return null;
@@ -150,7 +152,7 @@ export class OrbitTrailManager {
      * Dispose and clean up resources
      */
     dispose() {
-        console.log('OrbitTrailManager: Disposing resources');
+        log.dispose('OrbitTrailManager', 'resources');
         this.orbitTrails.clear();
     }
 }

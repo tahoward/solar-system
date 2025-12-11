@@ -3,6 +3,7 @@ import SunShaderMaterial from '../shaders/SunShaderMaterial.js';
 import PlanetShaderMaterial from '../shaders/PlanetShaderMaterial.js';
 import { temperatureToColor, temperatureToGlareBrightness } from '../constants.js';
 import TextureFactory from './TextureFactory.js';
+import { log } from '../utils/Logger.js';
 
 /**
  * Factory class responsible for creating materials for celestial bodies
@@ -90,10 +91,10 @@ export class MaterialFactory {
             // Try to get preloaded texture first
             if (this.preloadedTextures && this.preloadedTextures.has(bodyData.surfaceTexture)) {
                 planetTexture = this.preloadedTextures.get(bodyData.surfaceTexture);
-                console.log(`MaterialFactory: Using preloaded texture for ${bodyData.name || 'celestial body'}`);
+                log.debug('MaterialFactory', `Using preloaded texture for ${bodyData.name || 'celestial body'}`);
             } else {
                 // Fallback to loading texture (for compatibility)
-                console.warn(`MaterialFactory: Preloaded texture not found for ${bodyData.surfaceTexture}, loading directly...`);
+                log.warn('MaterialFactory', `Preloaded texture not found for ${bodyData.surfaceTexture}, loading directly...`);
                 const loader = new THREE.TextureLoader();
                 planetTexture = loader.load(bodyData.surfaceTexture);
                 planetTexture.wrapS = THREE.RepeatWrapping;
@@ -141,9 +142,9 @@ export class MaterialFactory {
         if (rings.texture) {
             if (this.preloadedTextures && this.preloadedTextures.has(rings.texture)) {
                 ringTexture = this.preloadedTextures.get(rings.texture);
-                console.log(`MaterialFactory: Using preloaded ring texture for ${bodyData.name || 'celestial body'} ring shadows`);
+                log.debug('MaterialFactory', `Using preloaded ring texture for ${bodyData.name || 'celestial body'} ring shadows`);
             } else {
-                console.warn(`MaterialFactory: Preloaded ring texture not found for ${rings.texture}, loading directly...`);
+                log.warn('MaterialFactory', `Preloaded ring texture not found for ${rings.texture}, loading directly...`);
                 const loader = new THREE.TextureLoader();
                 ringTexture = loader.load(rings.texture);
                 ringTexture.wrapS = THREE.ClampToEdgeWrapping;

@@ -277,17 +277,6 @@ class Body {
 
         // Update LOD based on camera position
         this.lod.update(camera);
-
-        // Debug LOD changes more frequently for testing (disabled to reduce console noise)
-        // if (Math.random() < 0.05) { // 5% of frames for easier debugging
-        //     const distance = camera.position.distanceTo(this.group.position);
-        //     const currentLevel = this.lod.getCurrentLevel();
-        //     if (currentLevel === 0) {
-        //         console.log(`🔍 ${this.name} LOD: Full detail (distance: ${distance.toFixed(3)})`);
-        //     } else {
-        //         console.log(`✨ ${this.name} LOD: Pinpoint (distance: ${distance.toFixed(1)}) - Should be visible!`);
-        //     }
-        // }
     }
 
     /**
@@ -426,10 +415,10 @@ class Body {
             // Try to get preloaded texture first
             if (Body.preloadedTextures && Body.preloadedTextures.has(ringConfig.texture)) {
                 ringTexture = Body.preloadedTextures.get(ringConfig.texture);
-                console.log(`Body: Using preloaded ring texture for ${this.name}`);
+                log.debug('Body', `Using preloaded ring texture for ${this.name}`);
             } else {
                 // Fallback to loading texture (for compatibility)
-                console.warn(`Body: Preloaded ring texture not found for ${ringConfig.texture}, loading directly...`);
+                log.warn('Body', `Preloaded ring texture not found for ${ringConfig.texture}, loading directly...`);
                 const textureLoader = new THREE.TextureLoader();
                 ringTexture = textureLoader.load(ringConfig.texture);
 
@@ -592,7 +581,7 @@ class Body {
         cloudMesh.userData.rotationSpeed = rotationSpeed || 1.0;
         cloudMesh.userData.shaderMaterial = cloudMaterial;
 
-        console.log(`Body: Created cloud system with planet shader for ${this.name} (radius: ${cloudRadius.toFixed(3)}, opacity: ${opacity})`);
+        log.debug('Body', `Created cloud system with planet shader for ${this.name} (radius: ${cloudRadius.toFixed(3)}, opacity: ${opacity})`);
 
         return cloudMesh;
     }

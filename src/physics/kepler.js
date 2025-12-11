@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ORBIT, MATH } from '../constants.js';
+import { log } from '../utils/Logger.js';
 
 // Physics constants - we'll get the scale dynamically to avoid circular imports
 let auScale = null;
@@ -331,7 +332,7 @@ function updateChildrenPositions(parent, parentBody, timestamp) {
             updateChildrenPositions(child, child.body, timestamp);
 
         } catch (error) {
-            console.error(`Kepler: Error updating position for ${child.body?.name || 'unknown'}:`, error);
+            log.error('Kepler', `Error updating position for ${child.body?.name || 'unknown'}`, error);
         }
     });
 }

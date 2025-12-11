@@ -1,6 +1,7 @@
 import SceneManager from './SceneManager.js';
 import clockManager from './ClockManager.js';
 import devUtils from '../utils/DevUtils.js';
+import logger from '../utils/Logger.js';
 import { updateStateDisplay, updateStatsDisplay, updateDebugOverlay } from '../ui/OverlayManager.js';
 import { SIMULATION } from '../constants.js';
 import PerformanceStats from '../utils/PerformanceStats.js';
@@ -39,8 +40,8 @@ export class AnimationManager {
         // Bind the animate method to preserve 'this' context
         this.animate = this.animate.bind(this);
 
-        console.log(`AnimationManager: Initialized with ${SIMULATION.USE_N_BODY_PHYSICS ? 'n-body physics' : 'Kepler orbits'}`);
-        console.log(`AnimationManager: Using unified ClockManager for time coordination`);
+        logger.info('AnimationManager', `Initialized with ${SIMULATION.USE_N_BODY_PHYSICS ? 'n-body physics' : 'Kepler orbits'}`);
+        logger.info('AnimationManager', 'Using unified ClockManager for time coordination');
     }
 
     /**
@@ -48,7 +49,7 @@ export class AnimationManager {
      */
     start() {
         if (this.isRunning) {
-            console.warn('AnimationManager: Animation loop is already running');
+            logger.warn('AnimationManager', 'Animation loop is already running');
             return;
         }
 
@@ -65,7 +66,7 @@ export class AnimationManager {
             this.performanceStats.setStatsGL(this.stats);
         }
 
-        console.log(`AnimationManager: Starting with speed: ${clockManager.getSpeedMultiplier()}x`);
+        logger.info('AnimationManager', `Starting with speed: ${clockManager.getSpeedMultiplier()}x`);
         SceneManager.renderer.setAnimationLoop(this.animate);
     }
 
@@ -74,12 +75,12 @@ export class AnimationManager {
      */
     stop() {
         if (!this.isRunning) {
-            console.warn('AnimationManager: Animation loop is not running');
+            logger.warn('AnimationManager', 'Animation loop is not running');
             return;
         }
 
         this.isRunning = false;
-        console.log('AnimationManager: Stopping animation loop');
+        logger.info('AnimationManager', 'Stopping animation loop');
         SceneManager.renderer.setAnimationLoop(null);
     }
 
@@ -135,7 +136,7 @@ export class AnimationManager {
             devUtils.recordFrame();
 
         } catch (error) {
-            console.error('AnimationManager: Error in animation loop:', error);
+            logger.error('AnimationManager', 'Error in animation loop', error);
             // Continue animation even if one frame fails
         }
     }
@@ -242,7 +243,7 @@ export class AnimationManager {
                 if (this.orbitManager && typeof this.orbitManager.updateBodyPositions === 'function') {
                     this.orbitManager.updateBodyPositions(this.fixedTimeStep, SceneManager.scale);
                 } else {
-                    console.warn('AnimationManager: OrbitManager not available for n-body physics');
+                    logger.warn('AnimationManager', 'OrbitManager not available for n-body physics');
                 }
                 this.accumulator -= this.fixedTimeStep;
                 updateCount++;
@@ -269,7 +270,7 @@ export class AnimationManager {
                 if (this.orbitManager && typeof this.orbitManager.updateBodyPositions === 'function') {
                     this.orbitManager.updateBodyPositions(this.keplerAccumulatedTime, SceneManager.scale);
                 } else {
-                    console.warn('AnimationManager: OrbitManager not available, falling back to individual orbit updates');
+                    logger.warn('AnimationManager', 'OrbitManager not available, falling back to individual orbit updates');
                     // Fallback to individual orbit updates if OrbitManager is not available
                     this.orbits.forEach(orbit => {
                         if (orbit && typeof orbit.update === 'function') {
@@ -458,7 +459,7 @@ export class AnimationManager {
      */
     pause() {
         this.isRunning = false;
-        console.log('AnimationManager: Animation paused');
+        logger.info('AnimationManager', 'Animation paused');
     }
 
     /**
@@ -467,7 +468,7 @@ export class AnimationManager {
     resume() {
         if (!this.isRunning) {
             this.isRunning = true;
-            console.log('AnimationManager: Animation resumed');
+            logger.info('AnimationManager', 'Animation resumed');
         }
     }
 
@@ -486,7 +487,7 @@ export class AnimationManager {
     addOrbit(orbit) {
         if (!this.orbits.includes(orbit)) {
             this.orbits.push(orbit);
-            console.log('AnimationManager: Added new orbit to animation loop');
+            logger.info('AnimationManager', 'Added new orbit to animation loop');
         }
     }
 
@@ -498,7 +499,7 @@ export class AnimationManager {
         const index = this.orbits.indexOf(orbit);
         if (index !== -1) {
             this.orbits.splice(index, 1);
-            console.log('AnimationManager: Removed orbit from animation loop');
+            logger.info('AnimationManager', 'Removed orbit from animation loop');
         }
     }
 

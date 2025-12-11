@@ -34,50 +34,50 @@ class DevConsole {
 
         this.register('cleanup', () => {
             // Stop animation first - force stop the renderer animation loop
-            console.log('🧹 Cleanup: Stopping animation...');
+            log.info('DevUtils', '🧹 Cleanup: Stopping animation...');
             if (typeof window !== 'undefined' && window.SceneManager?.renderer) {
                 window.SceneManager.renderer.setAnimationLoop(null);
             }
 
             // Clear the entire scene as a nuclear option
-            console.log('🧹 Cleanup: Clearing scene...');
+            log.info('DevUtils', '🧹 Cleanup: Clearing scene...');
             let sceneChildrenBefore = 0;
             let sceneChildrenAfter = 0;
 
             if (typeof window !== 'undefined' && window.SceneManager?.scene) {
                 sceneChildrenBefore = window.SceneManager.scene.children.length;
-                console.log(`🧹 Scene children before cleanup: ${sceneChildrenBefore}`);
+                log.info('DevUtils', `🧹 Scene children before cleanup: ${sceneChildrenBefore}`);
 
                 // Remove all children from the scene
                 const childrenToRemove = [...window.SceneManager.scene.children];
                 childrenToRemove.forEach((child, index) => {
-                    console.log(`🧹 Removing child ${index}: ${child.type} (${child.name || 'unnamed'})`);
+                    log.info('DevUtils', `🧹 Removing child ${index}: ${child.type} (${child.name || 'unnamed'})`);
                     window.SceneManager.scene.remove(child);
 
                     // Dispose of the child if it has dispose methods
                     if (child.geometry?.dispose) {
                         child.geometry.dispose();
-                        console.log(`🧹 Disposed geometry for ${child.type}`);
+                        log.info('DevUtils', `🧹 Disposed geometry for ${child.type}`);
                     }
                     if (child.material?.dispose) {
                         child.material.dispose();
-                        console.log(`🧹 Disposed material for ${child.type}`);
+                        log.info('DevUtils', `🧹 Disposed material for ${child.type}`);
                     }
                 });
 
                 sceneChildrenAfter = window.SceneManager.scene.children.length;
-                console.log(`🧹 Scene children after cleanup: ${sceneChildrenAfter}`);
+                log.info('DevUtils', `🧹 Scene children after cleanup: ${sceneChildrenAfter}`);
 
                 // Force a render to update the display
                 if (window.SceneManager.renderer && window.SceneManager.camera) {
-                    console.log('🧹 Forcing render update...');
+                    log.info('DevUtils', '🧹 Forcing render update...');
                     window.SceneManager.renderer.render(window.SceneManager.scene, window.SceneManager.camera);
                 }
             } else {
-                console.log('🧹 WARNING: Could not access SceneManager or scene!');
+                log.warn('DevUtils', '🧹 WARNING: Could not access SceneManager or scene!');
             }
 
-            console.log('🧹 Cleanup: Complete! Scene cleared.');
+            log.info('DevUtils', '🧹 Cleanup: Complete! Scene cleared.');
 
             return {
                 message: 'Scene cleared and animation stopped',
@@ -132,8 +132,8 @@ class DevConsole {
                 register: (name, handler, description) => this.register(name, handler, description)
             };
 
-            console.log('%c🚀 Solar System Dev Console Available!', 'color: #00ff00; font-weight: bold;');
-            console.log('%cType dev.help() for available commands', 'color: #888;');
+            log.info('DevUtils', '%c🚀 Solar System Dev Console Available!', 'color: #00ff00; font-weight: bold;');
+            log.info('DevUtils', '%cType dev.help() for available commands', 'color: #888;');
         }
     }
 

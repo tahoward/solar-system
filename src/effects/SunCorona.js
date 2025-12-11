@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { log } from '../utils/Logger.js';
 
 /**
  * SunCorona - Creates a 3D outer sphere corona effect to replace the billboard
@@ -278,7 +279,7 @@ class SunCorona {
      */
     addToScene(parent) {
         parent.add(this.mesh);
-        console.log('🌟 SunCorona added to scene');
+        log.info('SunCorona', '🌟 SunCorona added to scene');
     }
 
     /**
@@ -308,7 +309,7 @@ class SunCorona {
             this.mesh.material.dispose();
         }
 
-        console.log('🌟 SunCorona disposed');
+        log.info('SunCorona', '🌟 SunCorona disposed');
     }
 }
 

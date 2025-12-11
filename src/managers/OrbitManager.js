@@ -3,6 +3,7 @@ import clockManager from './ClockManager.js';
 import { updateHierarchyPositions } from '../physics/kepler.js';
 import { updateHierarchyNBodyPhysics, initializeHierarchyPhysics } from '../physics/NBodySystem.js';
 import { SIMULATION } from '../constants.js';
+import { log } from '../utils/Logger.js';
 
 /**
  * Manages orbit line visibility and body position updates based on hierarchical relationships
@@ -13,7 +14,7 @@ export class OrbitManager {
         this.orbits = new Set();
         this.hierarchy = null; // Will store the hierarchy for position updates
 
-        console.log('OrbitManager: Initialized');
+        log.init('OrbitManager', 'OrbitManager');
     }
 
     /**
@@ -22,7 +23,7 @@ export class OrbitManager {
      */
     setHierarchy(hierarchy) {
         this.hierarchy = hierarchy;
-        console.log('OrbitManager: Hierarchy set for position updates');
+        log.info('OrbitManager', 'Hierarchy set for position updates');
     }
 
     /**
@@ -31,7 +32,7 @@ export class OrbitManager {
      */
     initializePhysics(sceneScale) {
         if (!this.hierarchy) {
-            console.warn('OrbitManager: No hierarchy set, cannot initialize physics');
+            log.warn('OrbitManager', 'No hierarchy set, cannot initialize physics');
             return;
         }
 
@@ -39,11 +40,11 @@ export class OrbitManager {
         if (SIMULATION.USE_N_BODY_PHYSICS) {
             // Initialize n-body physics
             initializeHierarchyPhysics(this.hierarchy, sceneScale);
-            console.log('OrbitManager: Initialized n-body physics for hierarchy');
+            log.info('OrbitManager', 'Initialized n-body physics for hierarchy');
         } else {
             // For Kepler physics, initialize physics conditions for orbit trails
             this.initializeKeplerPhysics(this.hierarchy, sceneScale);
-            console.log('OrbitManager: Initialized Kepler physics conditions for hierarchy');
+            log.info('OrbitManager', 'Initialized Kepler physics conditions for hierarchy');
         }
 
         // Initialize orbit trails for all bodies (both physics systems)
@@ -56,7 +57,7 @@ export class OrbitManager {
      */
     registerOrbit(orbit) {
         if (!orbit) {
-            console.warn('OrbitManager: Cannot register null or undefined orbit');
+            log.warn('OrbitManager', 'Cannot register null or undefined orbit');
             return;
         }
 
@@ -69,15 +70,15 @@ export class OrbitManager {
      */
     unregisterOrbit(orbit) {
         if (!orbit) {
-            console.warn('OrbitManager: Cannot unregister null or undefined orbit');
+            log.warn('OrbitManager', 'Cannot unregister null or undefined orbit');
             return;
         }
 
         const wasRemoved = this.orbits.delete(orbit);
         if (wasRemoved) {
-            console.log(`OrbitManager: Unregistered orbit for ${orbit.body?.name || 'unknown'} (total: ${this.orbits.size})`);
+            log.debug('OrbitManager', `Unregistered orbit for ${orbit.body?.name || 'unknown'} (total: ${this.orbits.size})`);
         } else {
-            console.warn('OrbitManager: Attempted to unregister orbit that was not registered');
+            log.warn('OrbitManager', 'Attempted to unregister orbit that was not registered');
         }
     }
 
@@ -117,7 +118,7 @@ export class OrbitManager {
     clearAllOrbits() {
         const count = this.orbits.size;
         this.orbits.clear();
-        console.log(`OrbitManager: Cleared all orbit registrations (${count} orbits removed)`);
+        log.info('OrbitManager', `Cleared all orbit registrations (${count} orbits removed)`);
     }
 
 
@@ -130,7 +131,7 @@ export class OrbitManager {
      */
     updateBodyPositions(timestamp, sceneScale) {
         if (!this.hierarchy) {
-            console.warn('OrbitManager: No hierarchy set, cannot update positions');
+            log.warn('OrbitManager', 'No hierarchy set, cannot update positions');
             return;
         }
 
@@ -161,7 +162,7 @@ export class OrbitManager {
                 try {
                     orbit.body.updateRotation(rotationDeltaTime, 1);
                 } catch (error) {
-                    console.error(`OrbitManager: Error updating rotation for ${orbit.body?.name || 'unknown'}:`, error);
+                    log.error('OrbitManager', `Error updating rotation for ${orbit.body?.name || 'unknown'}`, error);
                 }
             }
         });
@@ -218,7 +219,7 @@ export class OrbitManager {
      * Dispose and clean up resources
      */
     dispose() {
-        console.log('OrbitManager: Disposing resources');
+        log.dispose('OrbitManager', 'resources');
         this.clearAllOrbits();
     }
 }

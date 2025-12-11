@@ -7,6 +7,7 @@ import SunGlare from '../effects/SunGlare.js';
 import SceneManager from '../managers/SceneManager.js';
 import { temperatureToColor, temperatureToBlackbodyLight, temperatureToGlareBrightness } from '../constants.js';
 import MaterialFactory from './MaterialFactory.js';
+import { log } from '../utils/Logger.js';
 
 /**
  * Factory class responsible for creating Body instances
@@ -137,7 +138,7 @@ export class BodyFactory {
         if (bodyData.markerColor !== undefined) {
             body.markerColor = new THREE.Color(bodyData.markerColor);
         } else {
-            console.warn(`🏭 WARNING: No markerColor specified for ${bodyData.name}`);
+            log.warn('BodyFactory', `No markerColor specified for ${bodyData.name}`);
         }
     }
 
@@ -174,28 +175,28 @@ export class BodyFactory {
         if (bodyData.star.corona) {
             this.addCoronaEffect(body, bodyData, radius);
         } else {
-            console.log('🌟 Corona data not found - skipping corona effect');
+            log.debug('BodyFactory', 'Corona data not found - skipping corona effect');
         }
 
         // Add sun rays effect (only if rays data exists)
         if (bodyData.star.rays) {
             this.addSunRaysEffect(body, bodyData, radius);
         } else {
-            console.log('🌞 Rays data not found - skipping rays effect');
+            log.debug('BodyFactory', 'Rays data not found - skipping rays effect');
         }
 
         // Add sun flares effect (only if flares data exists)
         if (bodyData.star.flares) {
             this.addSunFlaresEffect(body, bodyData, radius);
         } else {
-            console.log('🔥 Flares data not found - skipping flares effect');
+            log.debug('BodyFactory', 'Flares data not found - skipping flares effect');
         }
 
         // Add sun glare effect (only if glare data exists)
         if (bodyData.star.glare) {
             this.addSunGlareEffect(body, bodyData, radius);
         } else {
-            console.log('✨ Glare data not found - skipping glare effect');
+            log.debug('BodyFactory', 'Glare data not found - skipping glare effect');
         }
 
         // Store star data for animation manager access

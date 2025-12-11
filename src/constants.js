@@ -1,6 +1,7 @@
 // Solar System Simulation Constants
 import MathUtils from './utils/MathUtils.js';
 import { TEXTURES } from './assets/index.js';
+import logger from './utils/Logger.js';
 
 // Simulation Configuration
 export const SIMULATION = {
@@ -10,7 +11,7 @@ export const SIMULATION = {
   // Toggle function to switch physics modes
   togglePhysicsMode() {
     this.USE_N_BODY_PHYSICS = !this.USE_N_BODY_PHYSICS;
-    console.log(`Physics mode switched to: ${this.USE_N_BODY_PHYSICS ? 'N-Body' : 'Kepler'}`);
+    logger.info('SIMULATION', `Physics mode switched to: ${this.USE_N_BODY_PHYSICS ? 'N-Body' : 'Kepler'}`);
     return this.USE_N_BODY_PHYSICS;
   },
 

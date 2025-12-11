@@ -4,6 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { BLOOM, STAR_VISIBILITY } from '../constants.js';
+import { log } from '../utils/Logger.js';
 
 /**
  * BloomManager handles selective bloom effects for stars in the solar system
@@ -20,14 +21,14 @@ export class BloomManager {
         this.manuallyDisabled = false;  // Track if user manually disabled bloom
         this.mobileDevice = isMobile;   // Store mobile status to prevent re-enabling
 
-        console.log('🌟 BloomManager initialized:', {
+        log.info('BloomManager', '🌟 BloomManager initialized', {
             isMobile: isMobile,
             enabled: this.enabled,
             message: isMobile ? 'Bloom disabled for mobile performance' : 'Bloom enabled for desktop'
         });
 
         if (isMobile) {
-            console.log('🌟 Mobile device detected - bloom disabled for performance');
+            log.info('BloomManager', '🌟 Mobile device detected - bloom disabled for performance');
         }
 
         // Bloom configuration - use constants for centralized control
@@ -50,7 +51,7 @@ export class BloomManager {
      */
     isMobileDevice() {
         if (typeof window === 'undefined' || typeof navigator === 'undefined') {
-            console.log('🌟 BloomManager: No window/navigator - assuming desktop');
+            log.info('BloomManager', '🌟 BloomManager: No window/navigator - assuming desktop');
             return false;
         }
 
@@ -63,7 +64,7 @@ export class BloomManager {
 
         const result = isMobile || (isTouchDevice && isSmallScreen);
 
-        console.log('🌟 BloomManager Mobile Detection:', {
+        log.debug('BloomManager', '🌟 BloomManager Mobile Detection', {
             userAgent: userAgent,
             isMobile: isMobile,
             isTouchDevice: isTouchDevice,
@@ -161,7 +162,7 @@ export class BloomManager {
                 radiusScale: radiusScale  // Store for distance scaling
             });
         } else {
-            console.warn('🌟 BloomManager: Could not find star material for bloom control in:', starObject.name || 'unnamed');
+            log.warn('BloomManager', 'Could not find star material for bloom control in:', starObject.name || 'unnamed');
         }
     }
 
@@ -197,11 +198,6 @@ export class BloomManager {
                 // Store the star data for the closest star so we can use its radiusScale for thresholds
                 this.closestStarData = starData;
             }
-
-            // Log camera distance to this star occasionally (disabled)
-            // if (Math.random() < 0.005) { // 0.5% of frames
-            //     console.log(`📏 Camera distance to ${starObject.name || 'unnamed star'}: actual=${actualDistance.toFixed(2)}, disableAt=${effectiveDisableDistance.toFixed(2)} (${BLOOM.DISABLE_DISTANCE.toFixed(2)} × ${starData.radiusScale.toFixed(1)})`);
-            // }
 
             // Control star mesh visibility based on actual distance (while keeping glare visible)
             this.updateStarMeshVisibility(starObject, starData, actualDistance);
@@ -244,18 +240,11 @@ export class BloomManager {
             // Disable entire bloom system when within scaled disable distance of stars
             const shouldDisable = closestScaledDistance <= scaledDisableDistance;
 
-            // Debug logging occasionally (disabled)
-            // if (Math.random() < 0.01) { // 1% of frames
-            //     console.log(`🌟 Bloom Debug: distance=${closestScaledDistance.toFixed(2)}, disableAt=${scaledDisableDistance.toFixed(2)}, radiusScale=${radiusScale.toFixed(1)}, shouldDisable=${shouldDisable}, enabled=${this.enabled}`);
-            // }
-
             if (shouldDisable && this.enabled) {
                 this.enabled = false;  // Disable bloom completely when close to stars
-                // console.log(`🚫 Bloom disabled: too close to ${closestStarName} (${closestScaledDistance.toFixed(2)} <= ${scaledDisableDistance.toFixed(2)})`);
             } else if (!shouldDisable && !this.enabled && !this.mobileDevice) {
                 // Only enable bloom when far from stars AND not on mobile device
                 this.enabled = true;   // Enable bloom when far from stars
-                // console.log(`✅ Bloom enabled: far enough from ${closestStarName} (${closestScaledDistance.toFixed(2)} > ${scaledDisableDistance.toFixed(2)})`);
             }
 
             // Always set strength if enabled
@@ -419,7 +408,7 @@ export class BloomManager {
         if (!this.mobileDevice) {
             this.enabled = true;
         } else {
-            console.log('🌟 Bloom enable ignored - mobile device detected');
+            log.info('BloomManager', '🌟 Bloom enable ignored - mobile device detected');
         }
     }
 

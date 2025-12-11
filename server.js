@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { log } from './src/utils/Logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +18,6 @@ app.get('*', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Solar System running at: http://localhost:${PORT}`);
-  console.log(`📁 Serving from: ${path.join(__dirname, 'dist')}`);
+  log.info('Server', `🚀 Solar System running at: http://localhost:${PORT}`);
+  log.info('Server', `📁 Serving from: ${path.join(__dirname, 'dist')}`);
 });

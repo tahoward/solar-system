@@ -3,6 +3,7 @@ import Orbit from '../model/Orbit.js';
 import SceneManager from '../managers/SceneManager.js';
 import { CELESTIAL_DATA, ORBIT } from '../constants.js';
 import BodyFactory from './BodyFactory.js';
+import { log } from '../utils/Logger.js';
 
 /**
  * Factory class responsible for orchestrating the creation of solar systems
@@ -51,8 +52,6 @@ export class SolarSystemFactory {
 
         flattenHierarchy({ children });
 
-        console.log(planets)
-
         return {
             planets,
             orbits,
@@ -82,7 +81,7 @@ export class SolarSystemFactory {
                 // Register orbit with SceneManager
                 SceneManager.registerOrbit(orbit);
             } else {
-                console.warn(`✗ Skipped orbit for ${bodyData.name} - invalid body:`, { hasBody: !!body, hasGroup: !!body?.group });
+                log.warn('SolarSystemFactory', `✗ Skipped orbit for ${bodyData.name} - invalid body:`, { hasBody: !!body, hasGroup: !!body?.group });
             }
         } else if (!parentBody && body) {
             // Create virtual stationary orbit for root body (Sun)

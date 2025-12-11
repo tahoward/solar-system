@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SKYBOX } from '../constants.js';
 import MathUtils from '../utils/MathUtils.js';
+import { log } from '../utils/Logger.js';
 
 /**
  * SkyboxManager - Manages skybox textures and rendering for the solar system
@@ -28,16 +29,16 @@ class SkyboxManager {
    */
   async createSkybox(scene, imageUrl) {
     try {
-      console.log('🌌 Loading skybox texture from:', imageUrl);
+      log.info('SkyboxManager', '🌌 Loading skybox texture from:', imageUrl);
 
       // Try to get preloaded texture first
       let texture;
       if (this.preloadedTextures && this.preloadedTextures.has(imageUrl)) {
         texture = this.preloadedTextures.get(imageUrl);
-        console.log('🌌 Using preloaded skybox texture');
+        log.info('SkyboxManager', '🌌 Using preloaded skybox texture');
       } else {
         // Fallback to loading texture (for compatibility)
-        console.warn('🌌 Preloaded skybox texture not found, loading directly...');
+        log.warn('SkyboxManager', '🌌 Preloaded skybox texture not found, loading directly...');
         texture = await this.loadTexture(imageUrl);
       }
 
@@ -74,11 +75,11 @@ class SkyboxManager {
       // Add to scene
       scene.add(this.skybox);
 
-      console.log('🌌 Skybox created and added to scene');
+      log.info('SkyboxManager', '🌌 Skybox created and added to scene');
       return this.skybox;
 
     } catch (error) {
-      console.error('❌ Failed to create skybox:', error);
+      log.error('SkyboxManager', '❌ Failed to create skybox:', error);
       throw error;
     }
   }
@@ -103,11 +104,11 @@ class SkyboxManager {
         // onProgress
         (progress) => {
           const percent = Math.round((progress.loaded / progress.total) * 100);
-          console.log(`🌌 Loading skybox: ${percent}%`);
+          log.info('SkyboxManager', `🌌 Loading skybox: ${percent}%`);
         },
         // onError
         (error) => {
-          console.error('❌ Error loading skybox texture:', error);
+          log.error('SkyboxManager', '❌ Error loading skybox texture:', error);
           reject(error);
         }
       );
@@ -120,12 +121,12 @@ class SkyboxManager {
    */
   async updateTexture(imageUrl) {
     if (!this.skybox) {
-      console.warn('⚠️ No skybox exists to update');
+      log.warn('SkyboxManager', '⚠️ No skybox exists to update');
       return;
     }
 
     try {
-      console.log('🌌 Updating skybox texture to:', imageUrl);
+      log.info('SkyboxManager', '🌌 Updating skybox texture to:', imageUrl);
       const texture = await this.loadTexture(imageUrl);
 
       // Dispose of old texture to free memory
@@ -139,9 +140,9 @@ class SkyboxManager {
       this.skybox.material.depthTest = true;
       this.skybox.material.needsUpdate = true;
 
-      console.log('🌌 Skybox texture updated successfully');
+      log.info('SkyboxManager', '🌌 Skybox texture updated successfully');
     } catch (error) {
-      console.error('❌ Failed to update skybox texture:', error);
+      log.error('SkyboxManager', '❌ Failed to update skybox texture:', error);
     }
   }
 
@@ -151,7 +152,7 @@ class SkyboxManager {
    */
   removeSkybox(scene) {
     if (this.skybox) {
-      console.log('🌌 Removing skybox from scene');
+      log.info('SkyboxManager', '🌌 Removing skybox from scene');
 
       // Dispose of geometry and material to free memory
       this.skybox.geometry.dispose();
@@ -164,7 +165,7 @@ class SkyboxManager {
       scene.remove(this.skybox);
       this.skybox = null;
 
-      console.log('🌌 Skybox removed and cleaned up');
+      log.info('SkyboxManager', '🌌 Skybox removed and cleaned up');
     }
   }
 
@@ -175,7 +176,7 @@ class SkyboxManager {
   setVisible(visible) {
     if (this.skybox) {
       this.skybox.visible = visible;
-      console.log(`🌌 Skybox visibility set to: ${visible}`);
+      log.info('SkyboxManager', `🌌 Skybox visibility set to: ${visible}`);
     }
   }
 
@@ -203,7 +204,7 @@ class SkyboxManager {
     if (this.skybox && this.skybox.material) {
       const clampedOpacity = MathUtils.clamp(opacity, SKYBOX.MIN_OPACITY, SKYBOX.MAX_OPACITY);
       this.skybox.material.opacity = clampedOpacity;
-      console.log(`🌌 Skybox opacity set to: ${clampedOpacity.toFixed(2)}`);
+      log.info('SkyboxManager', `🌌 Skybox opacity set to: ${clampedOpacity.toFixed(2)}`);
     }
   }
 

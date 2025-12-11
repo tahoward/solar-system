@@ -1,4 +1,5 @@
 import { MARKER } from '../constants.js';
+import { log } from '../utils/Logger.js';
 
 /**
  * Manages marker lifecycle, selection, and coordinates with hierarchy/orbit managers
@@ -13,7 +14,7 @@ export class MarkerManager {
         // Store reference to shared hierarchy manager
         this.hierarchyManager = hierarchyManager;
 
-        console.log('MarkerManager: Initialized');
+        log.init('MarkerManager', 'MarkerManager');
     }
 
     /**
@@ -22,7 +23,7 @@ export class MarkerManager {
      */
     setMarkerSizeMultiplier(multiplier) {
         if (typeof multiplier !== 'number' || multiplier < MARKER.MIN_SIZE_MULTIPLIER || multiplier > MARKER.MAX_SIZE_MULTIPLIER) {
-            console.warn(`MarkerManager: Invalid marker size multiplier: ${multiplier}. Must be between ${MARKER.MIN_SIZE_MULTIPLIER} and ${MARKER.MAX_SIZE_MULTIPLIER}`);
+            log.warn('MarkerManager', `Invalid marker size multiplier: ${multiplier}. Must be between ${MARKER.MIN_SIZE_MULTIPLIER} and ${MARKER.MAX_SIZE_MULTIPLIER}`);
             return;
         }
 
@@ -43,7 +44,7 @@ export class MarkerManager {
      */
     registerMarker(marker) {
         if (!marker) {
-            console.warn('MarkerManager: Cannot register null or undefined marker');
+            log.warn('MarkerManager', 'Cannot register null or undefined marker');
             return;
         }
 
@@ -66,20 +67,20 @@ export class MarkerManager {
      */
     unregisterMarker(marker) {
         if (!marker) {
-            console.warn('MarkerManager: Cannot unregister null or undefined marker');
+            log.warn('MarkerManager', 'Cannot unregister null or undefined marker');
             return;
         }
 
         const wasRemoved = this.markers.delete(marker);
         if (wasRemoved) {
-            console.log(`MarkerManager: Unregistered marker (total: ${this.markers.size})`);
+            log.debug('MarkerManager', `Unregistered marker (total: ${this.markers.size})`);
 
             // Clean up if this was the current selected marker
             if (this.currentSelectedMarker === marker) {
                 this.currentSelectedMarker = null;
             }
         } else {
-            console.warn('MarkerManager: Attempted to unregister marker that was not registered');
+            log.warn('MarkerManager', 'Attempted to unregister marker that was not registered');
         }
     }
 
@@ -91,7 +92,7 @@ export class MarkerManager {
      */
     onMarkerSelected(selectedMarker) {
         if (!selectedMarker) {
-            console.warn('MarkerManager: Cannot select null or undefined marker');
+            log.warn('MarkerManager', 'Cannot select null or undefined marker');
             return;
         }
 
@@ -111,7 +112,7 @@ export class MarkerManager {
      */
     onBodySelected(body) {
         if (!body) {
-            console.warn('MarkerManager: Cannot select body - body is null or undefined');
+            log.warn('MarkerManager', 'Cannot select body - body is null or undefined');
             return;
         }
 
@@ -127,7 +128,7 @@ export class MarkerManager {
             if (typeof marker.hide === 'function') {
                 marker.hide();
             } else {
-                console.warn('MarkerManager: Marker does not have hide method');
+                log.warn('MarkerManager', 'Marker does not have hide method');
             }
         } else {
         }
@@ -147,7 +148,7 @@ export class MarkerManager {
      * Restore all markers to full opacity
      */
     restoreAllMarkers() {
-        console.log(`MarkerManager: Restoring all markers (${this.markers.size} total)`);
+        log.debug('MarkerManager', `Restoring all markers (${this.markers.size} total)`);
 
         let restoredCount = 0;
         this.markers.forEach(marker => {
@@ -159,13 +160,13 @@ export class MarkerManager {
                 marker.show();
                 restoredCount++;
             } else {
-                console.warn('MarkerManager: Marker missing or does not have show method');
+                log.warn('MarkerManager', 'Marker missing or does not have show method');
             }
         });
 
         this.currentSelectedMarker = null;
         this.hierarchyManager.clearSelectedBody();
-        console.log(`MarkerManager: Restored ${restoredCount} markers`);
+        log.debug('MarkerManager', `Restored ${restoredCount} markers`);
     }
 
     // fadeOutAllMarkers() removed - unused method
@@ -210,7 +211,7 @@ export class MarkerManager {
         const count = this.markers.size;
         this.markers.clear();
         this.currentSelectedMarker = null;
-        console.log(`MarkerManager: Cleared all marker registrations (${count} markers removed)`);
+        log.info('MarkerManager', `Cleared all marker registrations (${count} markers removed)`);
     }
 
     /**
@@ -218,7 +219,7 @@ export class MarkerManager {
      * This method can be called when the global size changes to update all markers
      */
     updateAllMarkerSizes() {
-        console.log(`MarkerManager: Updating size for all markers to ${this.markerSizeMultiplier.toFixed(1)}x`);
+        log.debug('MarkerManager', `Updating size for all markers to ${this.markerSizeMultiplier.toFixed(1)}x`);
 
         // Note: Individual markers will read the size multiplier from SceneManager
         // This method is here for potential future functionality where we actively push updates
@@ -306,7 +307,7 @@ export class MarkerManager {
      * Clean up resources
      */
     dispose() {
-        console.log('MarkerManager: Disposing resources');
+        log.dispose('MarkerManager', 'resources');
         this.clearAllMarkers();
         this.hierarchyManager.dispose();
         // orbitManager.dispose() removed - orbitManager no longer owned by MarkerManager

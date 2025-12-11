@@ -4,6 +4,7 @@ import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader';
 import markerSVG from '../../assets/marker.svg'
 import SceneManager from '../managers/SceneManager.js';
 import { MARKER, TARGETING } from '../constants.js';
+import { log } from '../utils/Logger.js';
 
 /**
  * SVG Template Manager - handles loading and caching of marker SVG template
@@ -47,7 +48,7 @@ class SVGTemplateManager {
             await SVGTemplateManager.loadingPromise;
             return this.svgTemplate.clone();
         } catch (error) {
-            console.error('SVGTemplateManager: Failed to load marker SVG:', error);
+            log.error('SVGTemplateManager', 'Failed to load marker SVG', error);
             // Reset loading promise so we can retry
             SVGTemplateManager.loadingPromise = null;
             throw error;
@@ -86,7 +87,7 @@ class SVGTemplateManager {
             this.isLoaded = true;
 
         } catch (error) {
-            console.error('SVGTemplateManager: Error loading SVG template:', error);
+            log.error('SVGTemplateManager', 'Error loading SVG template', error);
             throw error;
         }
     }
@@ -149,7 +150,7 @@ class Marker {
 
             this.isReady = true;
         } catch (error) {
-            console.error(`Marker: Failed to initialize for ${this.body.name || 'unnamed body'}:`, error);
+            log.error('Marker', `Failed to initialize for ${this.body.name || 'unnamed body'}`, error);
             this.isReady = false;
         }
     }
@@ -211,7 +212,7 @@ class Marker {
             if (this.body.markerColor) {
                 shapeMesh.material.color.copy(this.body.markerColor);
             } else {
-                console.error(`📍 ERROR: No markerColor attribute set for ${this.body.name}`);
+                log.error('Marker', `No markerColor attribute set for ${this.body.name}`);
                 // Fallback to red to make missing markerColor obvious
                 shapeMesh.material.color.setHex(0xFF0000);
             }
@@ -297,7 +298,7 @@ class Marker {
         const hierarchyData = SceneManager.markerManager?.hierarchyMap?.get(bodyName);
 
         if (!hierarchyData) {
-            console.warn(`Marker: No hierarchy data for ${bodyName}, defaulting to interactive`);
+            log.warn('Marker', `No hierarchy data for ${bodyName}, defaulting to interactive`);
             return true;
         }
 
