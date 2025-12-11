@@ -1,7 +1,7 @@
 import SceneManager from '../managers/SceneManager.js';
 import clockManager from '../managers/ClockManager.js';
 import { TARGETING, MARKER, ORBIT, SIMULATION } from '../constants.js';
-import { toggleControlsOverlay, toggleStateOverlay, toggleStatsOverlay, toggleDebugOverlay } from '../utils/ui.js';
+import { toggleControlsOverlay, toggleStateOverlay, toggleStatsOverlay, toggleDebugOverlay } from '../ui/OverlayManager.js';
 
 /**
  * Handles all keyboard and mouse input for the solar system application

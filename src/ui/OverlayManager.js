@@ -1,7 +1,15 @@
-// UI Utility Functions
+/**
+ * OverlayManager - UI Overlay Management Functions
+ *
+ * Manages all UI overlays in the solar system application:
+ * - Controls overlay (keyboard/mouse help)
+ * - State overlay (system status and current target info)
+ * - Stats overlay (performance statistics)
+ * - Debug overlay (development information)
+ */
 
 import { UI } from '../constants.js';
-import configService from './ConfigService.js';
+import configService from '../utils/ConfigService.js';
 
 // Target info display removed - info now shown in state overlay
 

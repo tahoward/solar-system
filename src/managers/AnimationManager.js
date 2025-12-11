@@ -2,7 +2,7 @@ import SceneManager from './SceneManager.js';
 import clockManager from './ClockManager.js';
 import devUtils from '../utils/DevUtils.js';
 import memoryMonitor from '../utils/MemoryMonitor.js';
-import { updateStateOverlay, updateStatsOverlay } from '../utils/ui.js';
+import { updateStateOverlay, updateStatsOverlay } from '../ui/OverlayManager.js';
 import { SIMULATION } from '../constants.js';
 import PerformanceStats from '../utils/PerformanceStats.js';
 

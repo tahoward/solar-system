@@ -8,7 +8,7 @@ import { log } from './utils/Logger.js';
 import Stats from 'stats-gl';
 import { TEXTURES } from './assets/index.js';
 import { SIMULATION } from './constants.js';
-import { createControlsOverlay, createStateOverlay, createStatsOverlay } from './utils/ui.js';
+import { createControlsOverlay, createStateOverlay, createStatsOverlay } from './ui/OverlayManager.js';
 import mobileUI from './utils/MobileUI.js';
 import clockManager from './managers/ClockManager.js';
 import TexturePreloader from './utils/TexturePreloader.js';
