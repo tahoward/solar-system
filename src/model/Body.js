@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import Marker from './Marker.js';
+import Orbit from './Orbit.js';
 import SceneManager from '../managers/SceneManager.js';
 import ConfigValidator from '../utils/ConfigValidator.js';
 import { log } from '../utils/Logger.js';
@@ -114,6 +115,10 @@ class Body {
         this.parentBody = parentBody;
         this.rotationSpeed = this.calculateRotationSpeed(rotationPeriod);
 
+        // Hierarchy properties for recursive creation
+        this.children = [];
+        this.orbit = null;
+        this.bodyData = bodyData; // Store original data for reference
 
         // Create basic materials and geometries
         this.geometry = this.createGeometry();
@@ -193,8 +198,112 @@ class Body {
             log.info('Body', `Auto-registered ${this.name} for bloom effects`);
         }
 
+        // Create orbit for this body if it has a parent
+        this.createOrbit();
+
+        // Recursively create children bodies
+        this.createChildren();
+
         // Initialize orbit trail (after scene setup)
         this.initializeOrbitTrail();
+    }
+
+    /**
+     * Creates an orbit for this body if it has orbital parameters
+     * @private
+     */
+    createOrbit() {
+        // Only create orbit if this body has a parent and orbital parameters
+        if (!this.parentBody || !this.bodyData.a) {
+            // Create virtual stationary orbit for root body (Sun)
+            if (!this.parentBody) {
+                this.orbit = this.createVirtualOrbit();
+                SceneManager.registerOrbit(this.orbit);
+            }
+            return;
+        }
+
+        // Create regular orbit for bodies orbiting a parent
+        if (this.group) {
+            this.orbit = this.createOrbitFromData();
+            SceneManager.registerOrbit(this.orbit);
+            log.debug('Body', `Created orbit for ${this.name}`);
+        } else {
+            log.warn('Body', `Skipped orbit for ${this.name} - invalid body group`);
+        }
+    }
+
+    /**
+     * Recursively creates all children bodies
+     * @private
+     */
+    createChildren() {
+        if (!this.bodyData.children || this.bodyData.children.length === 0) {
+            return;
+        }
+
+        this.bodyData.children.forEach(childData => {
+            try {
+                // Create child body recursively - it will handle its own children
+                const childBody = new Body(childData, this);
+                this.children.push({
+                    body: childBody,
+                    orbit: childBody.orbit,
+                    children: childBody.children,
+                    data: childData
+                });
+                log.debug('Body', `Created child ${childData.name} for ${this.name}`);
+            } catch (error) {
+                log.error('Body', `Failed to create child ${childData.name} for ${this.name}:`, error);
+            }
+        });
+
+        log.info('Body', `Created ${this.children.length} children for ${this.name}`);
+    }
+
+    /**
+     * Create orbit from celestial data
+     * @returns {Orbit} The created orbit
+     * @private
+     */
+    createOrbitFromData() {
+        const sceneScale = SceneManager.scale;
+        return new Orbit(
+            this,                          // body
+            this.bodyData.a,              // semiMajorAxis
+            this.bodyData.e,              // eccentricity
+            this.bodyData.i,              // inclination
+            this.parentBody,              // parentBody for relative positioning
+            this.bodyData.omega || 0,     // longitudeOfAscendingNode
+            this.bodyData.w || 0,         // argumentOfPeriapsis
+            this.bodyData.M0 || 0,        // meanAnomalyAtEpoch
+            sceneScale                    // Scene scale factor
+        );
+    }
+
+    /**
+     * Create a virtual stationary orbit for the root body (Sun)
+     * This allows the Sun to be treated uniformly with other bodies in the orbit system
+     * @returns {Object} Virtual orbit object that keeps the body at (0,0,0)
+     * @private
+     */
+    createVirtualOrbit() {
+        return {
+            body: this,
+            parentBody: null,
+            semiMajorAxis: 0,
+            eccentricity: 0,
+            orbitalPeriod: 0,
+            // Virtual orbit always returns (0,0,0) position
+            calculatePosition: () => new THREE.Vector3(0, 0, 0),
+            // Visibility methods for compatibility with VisibilityManager
+            show: () => {}, // No-op - Sun has no orbit line to show
+            hide: () => {}, // No-op - Sun has no orbit line to hide
+            getVisibility: () => true, // Sun is always "visible"
+            // Orbit line properties for compatibility
+            orbitLine: null,
+            isVisible: true
+        };
     }
 
     /**

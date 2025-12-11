@@ -92,7 +92,7 @@ async function initializeScene(loadedTextures) {
 
     // Create the solar system using the factory
     // Use unified structure that supports both physics modes for runtime toggling
-    const hierarchy = SolarSystemFactory.createSolarSystem(SceneManager.scale);
+    const hierarchy = SolarSystemFactory.createSolarSystem();
 
     log.info('SolarSystem', `Initialized unified structure supporting both physics modes`);
     log.info('SolarSystem', `Current physics mode: ${SIMULATION.getPhysicsMode()}`);
