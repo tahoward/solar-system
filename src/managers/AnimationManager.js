@@ -104,20 +104,25 @@ export class AnimationManager {
                 this.stats.update();
             }
 
+            
+
             // Update performance stats (call at start of frame)
             this.performanceStats.update();
 
             // Update the unified clock system
             clockManager.update(timestamp);
 
-            // Update star rotation and effects using unified clock
-            this.updateStars();
-
-            // Update all planetary orbits using unified clock
+            // Update all planetary orbits using unified clock first
             this.updateOrbits();
 
-            // Update LOD systems for all planets
-            this.updateLODSystems();
+            // Update star rotation and effects using unified clock (after orbit positions are updated)
+            const star = this.getFirstStar()
+            this.hierarchy.body.updateRecursive(
+                clockManager.getRotationDeltaTime(),
+                1,
+                star.starPosition,
+                star.starLightColor,
+            )
 
             // Update scene manager animations (TWEEN)
             this.updateSceneAnimations();
@@ -147,79 +152,6 @@ export class AnimationManager {
     }
 
     /**
-     * Update any stars found in the orbits array (marker, rotation, effects)
-     */
-    updateStars() {
-        const deltaTime = clockManager.getRotationDeltaTime();
-
-        // Find all stars in the orbits array and update them
-        this.orbits.forEach(orbit => {
-            const body = orbit.body;
-
-            // Skip if this body is not a star
-            if (!body.isStar) return;
-
-            // Update star shader animation if it's using a shader material
-            if (body.isShaderMaterial && body.material.updateTime) {
-                const currentTime = clockManager.getSimulationTime();
-                body.material.updateTime(currentTime);
-            }
-
-            // Update star corona effect using unified clock
-            if (body.billboard && body.billboard.update) {
-                const effectsDeltaTime = clockManager.getEffectsDeltaTime();
-                const camera = SceneManager.camera;
-                body.billboard.update(effectsDeltaTime, camera);
-            }
-
-            // Update star rays effect using unified clock
-            if (body.sunRays && body.sunRays.update) {
-                const effectsDeltaTime = clockManager.getEffectsDeltaTime();
-                // Get camera and star position for rays animation
-                const camera = SceneManager.camera;
-                const starPosition = body.group.position;
-                body.sunRays.update(effectsDeltaTime, camera, starPosition);
-            }
-
-            // Update star flares effect using unified clock
-            if (body.sunFlares && body.sunFlares.update) {
-                const camera = SceneManager.camera;
-                // Use animation speed from star configuration (default 0.1 for slow animation)
-                const animationSpeed = body.starData?.flares?.animationSpeed || 0.1;
-                const currentTime = clockManager.getSimulationTime() * animationSpeed;
-                // Pass star material uniforms for synchronization
-                const starMaterialUniforms = body.material ? body.material.uniforms : {};
-                body.sunFlares.update(currentTime, camera, starMaterialUniforms);
-            }
-
-            // Update star glare effect using unified clock
-            if (body.sunGlare && body.sunGlare.update) {
-                const effectsDeltaTime = clockManager.getEffectsDeltaTime();
-                const camera = SceneManager.camera;
-                const starPosition = body.group.position;
-
-                // Ensure glare is added to scene if not already (includes bloom layers)
-                if (!body.sunGlare.mesh.parent) {
-                    body.sunGlare.addToScene(SceneManager.scene);
-                }
-
-                // Position glare and all bloom layers at star's world position
-                body.sunGlare.getAllMeshes().forEach(mesh => {
-                    mesh.position.copy(starPosition);
-                    mesh.visible = true;
-                    // Make billboard face camera after positioning
-                    mesh.lookAt(camera.position);
-                });
-
-                // Always keep star visible and let glare handle its own fading overlay
-                if (body.mesh) body.mesh.visible = true;
-
-                body.sunGlare.update(effectsDeltaTime, camera, starPosition);
-            }
-        });
-    }
-
-    /**
      * Update all planetary orbits or physics bodies using unified clock
      */
     updateOrbits() {
@@ -229,7 +161,6 @@ export class AnimationManager {
             // Use same accumulator pattern as n-body
             this.accumulator += keplerDeltaTime;
 
-            let updateCount = 0;
             // Update Kepler orbits with same fixed timestep as n-body
             while (this.accumulator >= this.fixedTimeStep) {
                 // Use centralized time calculation from ClockManager
@@ -237,50 +168,16 @@ export class AnimationManager {
                 this.keplerAccumulatedTime += timeIncrement;
 
                 // Update all Kepler orbit positions using OrbitManager
-                if (this.orbitManager && typeof this.orbitManager.updateBodyPositions === 'function') {
-                    this.orbitManager.updateBodyPositions(this.keplerAccumulatedTime, SceneManager.scale);
-                } else {
-                    logger.warn('AnimationManager', 'OrbitManager not available, falling back to individual orbit updates');
-                    // Fallback to individual orbit updates if OrbitManager is not available
-                    this.orbits.forEach(orbit => {
-                        if (orbit && typeof orbit.update === 'function') {
-                            orbit.update(this.keplerAccumulatedTime);
-                        }
-                    });
-                }
+                this.orbitManager.updateBodyPositions(this.keplerAccumulatedTime, SceneManager.scale);
 
                 this.accumulator -= this.fixedTimeStep;
-                updateCount++;
             }
-
-            // Update atmosphere lighting for Kepler orbit bodies
-            this.updateAtmosphereLighting();
-    }
-
-    /**
-     * Update LOD systems for all celestial bodies
-     */
-    updateLODSystems() {
-        const camera = SceneManager.camera;
-        if (!camera) return;
-
-        // Update LOD for all bodies (including stars) and orbits
-        this.orbits.forEach(orbit => {
-            if (orbit && orbit.body && typeof orbit.body.updateLOD === 'function') {
-                orbit.body.updateLOD(camera);
-            }
-
-            // Update orbit line LOD based on camera distance
-            if (orbit && typeof orbit.updateLOD === 'function') {
-                orbit.updateLOD(camera.position);
-            }
-        });
     }
 
     /**
      * Update atmosphere lighting for all bodies with atmospheres
      */
-    updateAtmosphereLighting() {
+    getFirstStar() {
         // Find the first star in the orbits array to use as light source
         let starPosition = null;
         let starLightColor = 0xffffff; // Default white
@@ -299,88 +196,7 @@ export class AnimationManager {
             }
         }
 
-        // Only proceed if we found a star
-        if (!starPosition) return;
-
-        // Update atmosphere lighting for all orbiting bodies
-        this.orbits.forEach(orbit => {
-            if (orbit && orbit.body && orbit.body.updateAtmosphereLighting) {
-                orbit.body.updateAtmosphereLighting(starPosition, starLightColor);
-            }
-        });
-
-        // Update bidirectional shadows for all planets and moons
-        this.updateBidirectionalShadows();
-    }
-
-    /**
-     * Update bidirectional shadows: moons cast shadows on planets AND planets cast shadows on moons
-     */
-    updateBidirectionalShadows() {
-        // Try to get HierarchyManager instance
-        const hierarchyManager = this.hierarchyManager;
-
-        if (!hierarchyManager || !hierarchyManager.hierarchyMap) {
-            return; // No hierarchy data available
-        }
-
-        // Create a map of body names to body objects for quick lookup
-        const bodyMap = new Map();
-        this.orbits.forEach(orbit => {
-            if (orbit && orbit.body && orbit.body.name) {
-                bodyMap.set(orbit.body.name, orbit.body);
-            }
-        });
-
-        // Collect all shadow casters for each body
-        const shadowCastersMap = new Map();
-
-        // Initialize shadow casters map for all bodies
-        hierarchyManager.hierarchyMap.forEach((hierarchyData, bodyName) => {
-            shadowCastersMap.set(bodyName, []);
-        });
-
-        // Build shadow relationships
-        hierarchyManager.hierarchyMap.forEach((hierarchyData, bodyName) => {
-            const currentBody = bodyMap.get(bodyName);
-            if (!currentBody) return;
-
-            // 1. MOONS CAST SHADOWS ON PLANETS
-            // If this body has children (moons), add them as shadow casters for this body (planet)
-            if (hierarchyData.children && hierarchyData.children.length > 0) {
-                const currentShadowCasters = shadowCastersMap.get(bodyName) || [];
-
-                hierarchyData.children.forEach(childName => {
-                    const moonBody = bodyMap.get(childName);
-                    // Only add bodies that don't emit light (exclude stars/suns)
-                    if (moonBody && !moonBody.emittedLight) {
-                        currentShadowCasters.push(moonBody);
-                    }
-                });
-
-                shadowCastersMap.set(bodyName, currentShadowCasters);
-            }
-
-            // 2. PLANETS CAST SHADOWS ON MOONS
-            // If this body has a parent (this is a moon), add parent as shadow caster for this body
-            if (hierarchyData.parent) {
-                const parentBody = bodyMap.get(hierarchyData.parent);
-                // Only add bodies that don't emit light (exclude stars/suns)
-                if (parentBody && !parentBody.emittedLight) {
-                    const currentShadowCasters = shadowCastersMap.get(bodyName) || [];
-                    currentShadowCasters.push(parentBody);
-                    shadowCastersMap.set(bodyName, currentShadowCasters);
-                }
-            }
-        });
-
-        // Apply all shadows at once for each body
-        shadowCastersMap.forEach((shadowCasters, bodyName) => {
-            const targetBody = bodyMap.get(bodyName);
-            if (targetBody && shadowCasters.length > 0) {
-                targetBody.updateMoonShadows(shadowCasters);
-            }
-        });
+        return { starLightColor, starPosition }
     }
 
     /**
@@ -424,46 +240,6 @@ export class AnimationManager {
         }
     }
 
-    /**
-     * Get animation status
-     * @returns {boolean} True if animation is running
-     */
-    isAnimating() {
-        return this.isRunning;
-    }
-
-    /**
-     * Add a new orbit to the animation loop
-     * @param {Object} orbit - The orbit or physics body to add
-     */
-    addOrbit(orbit) {
-        if (!this.orbits.includes(orbit)) {
-            this.orbits.push(orbit);
-            logger.info('AnimationManager', 'Added new orbit to animation loop');
-        }
-    }
-
-    /**
-     * Remove an orbit from the animation loop
-     * @param {Object} orbit - The orbit or physics body to remove
-     */
-    removeOrbit(orbit) {
-        const index = this.orbits.indexOf(orbit);
-        if (index !== -1) {
-            this.orbits.splice(index, 1);
-            logger.info('AnimationManager', 'Removed orbit from animation loop');
-        }
-    }
-
-    /**
-     * Get the current number of animated orbits
-     * @returns {number} Number of orbits being animated
-     */
-    getOrbitCount() {
-        return this.orbits.length;
-    }
-
-
 
     /**
      * Check if orbit lines are currently visible
@@ -482,11 +258,11 @@ export class AnimationManager {
      */
     getTrailsVisibility() {
         // Get orbit trails state from SceneManager's VisibilityManager
-        if (typeof window !== 'undefined' && window.SceneManager) {
-            return window.SceneManager.areOrbitTrailsVisible();
+        if (SceneManager && typeof SceneManager.areMarkersVisible === 'function') {
+            return SceneManager.areOrbitTrailsVisible();
         }
 
-        return false;
+        return true;
     }
 
     /**
@@ -496,14 +272,6 @@ export class AnimationManager {
         // Check SceneManager for marker visibility
         if (SceneManager && typeof SceneManager.areMarkersVisible === 'function') {
             return SceneManager.areMarkersVisible();
-        }
-
-        // Fallback: check the first orbit's marker visibility as a representative
-        if (this.orbits && this.orbits.length > 0) {
-            const firstOrbit = this.orbits[0];
-            if (firstOrbit && firstOrbit.body && firstOrbit.body.marker) {
-                return firstOrbit.body.marker.visible;
-            }
         }
 
         return true; // Default to visible

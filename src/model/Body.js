@@ -3,7 +3,7 @@ import Marker from './Marker.js';
 import Orbit from './Orbit.js';
 import SceneManager from '../managers/SceneManager.js';
 import ConfigValidator from '../utils/ConfigValidator.js';
-import { log } from '../utils/Logger.js';
+import logger, { log } from '../utils/Logger.js';
 import { GEOMETRY } from '../constants.js';
 import AtmosphereShaderMaterial from '../shaders/AtmosphereShaderMaterial.js';
 import CloudShaderMaterial from '../shaders/CloudShaderMaterial.js';
@@ -239,6 +239,7 @@ class Body {
      */
     createChildren() {
         if (!this.bodyData.children || this.bodyData.children.length === 0) {
+            log.debug('Body', `${this.name}: No children to create`);
             return;
         }
 
@@ -258,7 +259,7 @@ class Body {
             }
         });
 
-        log.info('Body', `Created ${this.children.length} children for ${this.name}`);
+        log.info('Body', `${this.name}: Successfully created ${this.children.length} children`);
     }
 
     /**
@@ -477,6 +478,27 @@ class Body {
     }
 
     /**
+     * Update rotation for this body and all its children recursively
+     * This replaces the OrbitManager's iteration pattern with direct hierarchical updates
+     * @param {number} deltaTime - Time elapsed since last frame in seconds
+     * @param {number} speedMultiplier - Current simulation speed multiplier
+     */
+    updateRotationRecursive(deltaTime = 1/60, speedMultiplier = 1) {
+        // Update this body's rotation
+        this.updateRotation(deltaTime, speedMultiplier);
+
+        // Recursively update rotation for all children
+        if (this.children && this.children.length > 0) {
+            this.children.forEach(childHierarchy => {
+                const childBody = childHierarchy.body;
+                if (childBody && typeof childBody.updateRotationRecursive === 'function') {
+                    childBody.updateRotationRecursive(deltaTime, speedMultiplier);
+                }
+            });
+        }
+    }
+
+    /**
      * Update rotation for tidally locked bodies to always face their parent
      * @private
      */
@@ -599,8 +621,8 @@ class Body {
         topRingMesh.receiveShadow = true; // Enable shadow receiving
         ringGroup.add(topRingMesh);
 
-        // Create bottom side ring mesh (flipped)
-        const bottomRingMesh = new THREE.Mesh(ringGeometry, ringMaterial.clone());
+        // Create bottom side ring mesh (flipped) - use same material to avoid double shadows
+        const bottomRingMesh = new THREE.Mesh(ringGeometry, ringMaterial);
         bottomRingMesh.rotation.x = -Math.PI / 2; // Flip to face the other direction
         bottomRingMesh.receiveShadow = true; // Enable shadow receiving
         ringGroup.add(bottomRingMesh);
@@ -760,10 +782,13 @@ class Body {
     }
 
     /**
-     * Update atmosphere lighting based on light source
+     * Update atmosphere lighting for this body and all its children recursively
+     * This replaces the AnimationManager's iteration pattern with direct hierarchical updates
      * @param {THREE.Vector3} lightPosition - Position of the light source (usually the sun)
+     * @param {THREE.Color|number} lightColor - Color of the light source
      */
-    updateAtmosphereLighting(lightPosition, lightColor) {
+    updateLighting(lightPosition, lightColor) {
+        // Update this body's atmosphere lighting
         if (this.atmosphere && this.atmosphere.userData.shaderMaterial) {
             this.atmosphere.userData.shaderMaterial.updateLighting(lightPosition, this.group.position);
             // Update atmosphere light color if provided
@@ -835,6 +860,124 @@ class Body {
             } else {
                 this.clouds.userData.shaderMaterial.clearMoons();
             }
+        }
+    }
+
+    /**
+     * Update shadows using direct parent/children relationships (recursive shadow system)
+     * This replaces the complex HierarchyManager-based system with a simpler direct approach
+     */
+    updateDirectShadows() {
+        const shadowCasters = [];
+
+        // Collect shadow casters from children (moons cast shadows on their parent planet)
+        if (this.children && this.children.length > 0) {
+            this.children.forEach(childHierarchy => {
+                const childBody = childHierarchy.body;
+                // Only add bodies that don't emit light (exclude stars/suns)
+                if (childBody && !childBody.emittedLight) {
+                    shadowCasters.push(childBody);
+                }
+            });
+        }
+
+        // Collect shadow casters from parent (planet casts shadow on its moons)
+        if (this.parentBody && !this.parentBody.emittedLight) {
+            shadowCasters.push(this.parentBody);
+        }
+
+
+        // Apply shadows if we have shadow casters
+        if (shadowCasters.length > 0) {
+            this.updateMoonShadows(shadowCasters);
+        } else {
+            // Clear shadows if no shadow casters
+            if (this.material && typeof this.material.clearMoons === 'function') {
+                this.material.clearMoons();
+            }
+            if (this.clouds && this.clouds.userData.shaderMaterial && typeof this.clouds.userData.shaderMaterial.clearMoons === 'function') {
+                this.clouds.userData.shaderMaterial.clearMoons();
+            }
+        }
+    }
+
+    updateRecursive(deltaTime = 1/60, speedMultiplier = 1, starPosition, starLightColor) {
+        this.updateRotation(deltaTime, speedMultiplier);
+        this.updateDirectShadows();
+        this.updateLighting(starPosition, starLightColor);
+        this.updateLOD(SceneManager.camera)
+
+        if (typeof this.orbit.updateLOD === 'function') {
+            this.orbit.updateLOD(SceneManager.camera.position)
+        }
+
+        if (this.isStar) {
+            // Update star shader animation if it's using a shader material
+            if (this.isShaderMaterial && this.material.updateTime) {
+                const currentTime = clockManager.getSimulationTime();
+                this.material.updateTime(currentTime);
+            }
+
+            // Update star corona effect using unified clock
+            if (this.billboard && this.billboard.update) {
+                const effectsDeltaTime = clockManager.getEffectsDeltaTime();
+                const camera = SceneManager.camera;
+                this.billboard.update(effectsDeltaTime, camera);
+            }
+
+            // Update star rays effect using unified clock
+            if (this.sunRays && this.sunRays.update) {
+                const effectsDeltaTime = clockManager.getEffectsDeltaTime();
+                // Get camera and star position for rays animation
+                const camera = SceneManager.camera;
+                const starPosition = this.group.position;
+                this.sunRays.update(effectsDeltaTime, camera, starPosition);
+            }
+
+            // Update star flares effect using unified clock
+            if (this.sunFlares && this.sunFlares.update) {
+                const camera = SceneManager.camera;
+                // Use animation speed from star configuration (default 0.1 for slow animation)
+                const animationSpeed = this.starData?.flares?.animationSpeed || 0.1;
+                const currentTime = clockManager.getSimulationTime() * animationSpeed;
+                // Pass star material uniforms for synchronization
+                const starMaterialUniforms = this.material ? this.material.uniforms : {};
+                this.sunFlares.update(currentTime, camera, starMaterialUniforms);
+            }
+
+            // Update star glare effect using unified clock
+            if (this.sunGlare && this.sunGlare.update) {
+                const effectsDeltaTime = clockManager.getEffectsDeltaTime();
+                const camera = SceneManager.camera;
+                const starPosition = this.group.position;
+
+                // Ensure glare is added to scene if not already (includes bloom layers)
+                if (!this.sunGlare.mesh.parent) {
+                    this.sunGlare.addToScene(SceneManager.scene);
+                }
+
+                // Position glare and all bloom layers at star's world position
+                this.sunGlare.getAllMeshes().forEach(mesh => {
+                    mesh.position.copy(starPosition);
+                    mesh.visible = true;
+                    // Make billboard face camera after positioning
+                    mesh.lookAt(camera.position);
+                });
+
+                // Always keep star visible and let glare handle its own fading overlay
+                if (this.mesh) this.mesh.visible = true;
+
+                this.sunGlare.update(effectsDeltaTime, camera, starPosition);
+            }        
+        }
+
+        if (this.children && this.children.length > 0) {
+            this.children.forEach(childHierarchy => {
+                const childBody = childHierarchy.body;
+                if (childBody && typeof childBody.updateRecursive === 'function') {
+                    childBody.updateRecursive(deltaTime, speedMultiplier, starPosition, starLightColor);
+                }
+            });
         }
     }
 

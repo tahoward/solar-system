@@ -150,21 +150,17 @@ export class OrbitManager {
     }
 
     /**
-     * Update rotations for all bodies in registered orbits
+     * Update rotations for all bodies using recursive hierarchy update
+     * Uses the root body's updateRotationRecursive to efficiently update entire hierarchy
      * @private
      */
     updateBodyRotations() {
         const rotationDeltaTime = clockManager.getRotationDeltaTime();
 
-        this.orbits.forEach(orbit => {
-            if (orbit && orbit.body && orbit.body.updateRotation) {
-                try {
-                    orbit.body.updateRotation(rotationDeltaTime, 1);
-                } catch (error) {
-                    log.error('OrbitManager', `Error updating rotation for ${orbit.body?.name || 'unknown'}`, error);
-                }
-            }
-        });
+        // Use hierarchy root body for recursive rotation updates
+        if (this.hierarchy && this.hierarchy.body) {
+            this.hierarchy.body.updateRotationRecursive(rotationDeltaTime, 1);
+        }
     }
 
     /**
