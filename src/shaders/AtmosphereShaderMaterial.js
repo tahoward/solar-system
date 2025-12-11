@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import BaseCelestialShaderMaterial from './BaseCelestialShaderMaterial.js';
 
 const vertexShader = `
 uniform vec3 lightDirection;
@@ -28,11 +29,10 @@ void main() {
 const fragmentShader = `
 uniform vec3 atmosphereColor;
 uniform float atmosphereTransparency;
-uniform vec3 lightDirection;
-uniform vec3 lightColor;
-uniform vec3 planetCenter;
 uniform float fadeStart;
 uniform float fadeEnd;
+
+${BaseCelestialShaderMaterial.getCommonUniforms(false)}
 
 varying vec3 vNormal;
 varying vec3 vWorldPosition;
@@ -85,42 +85,38 @@ void main() {
 
 /**
  * AtmosphereShaderMaterial - A custom Three.js material for rendering planetary atmospheres
- * Based on the flexible atmosphere shader technique from petrocket.blogspot.com
+ * Based on BaseCelestialShaderMaterial with atmosphere-specific features
  */
-class AtmosphereShaderMaterial extends THREE.ShaderMaterial {
+class AtmosphereShaderMaterial extends BaseCelestialShaderMaterial {
     constructor(options = {}) {
-        // Enhanced uniform values with lighting and fade controls
-        const uniforms = {
+        const atmosphereSpecificUniforms = {
             atmosphereColor: { value: new THREE.Color(options.atmosphereColor || 0x87CEEB) },
             atmosphereTransparency: { value: options.atmosphereTransparency || 0.8 },
-            lightDirection: { value: new THREE.Vector3(1.0, 0.0, 0.0) },
-            lightColor: { value: new THREE.Color(options.lightColor || 0xffffff) },
-            planetCenter: { value: new THREE.Vector3(0, 0, 0) },
             fadeStart: { value: options.fadeStart || 0.7 },  // Where fade begins (0.0=center, 1.0=edge)
             fadeEnd: { value: options.fadeEnd || 1.0 }       // Where it reaches zero opacity
         };
 
         super({
-            uniforms,
-            vertexShader,
-            fragmentShader,
-            transparent: true,
-            blending: THREE.AdditiveBlending,
-            side: THREE.BackSide, // Render atmosphere from inside
-            depthWrite: false,
-            toneMapped: false,  // Required for emissive > 1.0 to work with bloom
-            ...options.materialOptions
+            ...options,
+            supportsShadows: false, // Atmospheres don't need shadow calculations
+            additionalUniforms: atmosphereSpecificUniforms,
+            materialOptions: {
+                vertexShader,
+                fragmentShader,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                side: THREE.BackSide, // Render atmosphere from inside
+                depthWrite: false,
+                toneMapped: false,  // Required for emissive > 1.0 to work with bloom
+                ...options.materialOptions
+            }
         });
 
-
         // Store references for easy access
-        this.atmosphereColor = uniforms.atmosphereColor;
-        this.atmosphereTransparency = uniforms.atmosphereTransparency;
-        this.lightDirection = uniforms.lightDirection;
-        this.lightColor = uniforms.lightColor;
-        this.planetCenter = uniforms.planetCenter;
-        this.fadeStart = uniforms.fadeStart;
-        this.fadeEnd = uniforms.fadeEnd;
+        this.atmosphereColor = this.uniforms.atmosphereColor;
+        this.atmosphereTransparency = this.uniforms.atmosphereTransparency;
+        this.fadeStart = this.uniforms.fadeStart;
+        this.fadeEnd = this.uniforms.fadeEnd;
     }
 
     /**
@@ -143,30 +139,7 @@ class AtmosphereShaderMaterial extends THREE.ShaderMaterial {
         this.atmosphereTransparency.value = transparency;
     }
 
-    /**
-     * Set light color for atmosphere illumination
-     * @param {number|THREE.Color} color - The light color
-     */
-    setLightColor(color) {
-        if (typeof color === 'number') {
-            this.lightColor.value.setHex(color);
-        } else {
-            this.lightColor.value.copy(color);
-        }
-    }
-
-    /**
-     * Update atmosphere lighting based on sun and planet positions
-     */
-    updateLighting(lightPosition, planetPosition) {
-        // Calculate light direction from planet to sun
-        const lightDirection = new THREE.Vector3()
-            .subVectors(lightPosition, planetPosition)
-            .normalize();
-
-        this.lightDirection.value.copy(lightDirection);
-        this.planetCenter.value.copy(planetPosition);
-    }
+    // Inherited methods: updateLighting(), setLightColor()
 
     /**
      * Set fade start point for smooth radial fade-out
