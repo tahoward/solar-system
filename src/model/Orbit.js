@@ -86,6 +86,15 @@ class Orbit {
         // Register material for resolution updates
         SceneManager.registerLineMaterial(orbitMaterial);
 
+        // Initialize orbit trail for the associated body
+        if (this.body && this.body.initializeOrbitTrail && typeof this.body.initializeOrbitTrail === 'function') {
+            // Ensure orbit trail exists (won't recreate if already exists)
+            this.body.initializeOrbitTrail();
+        }
+
+        // Auto-register this orbit with the OrbitManager through SceneManager
+        SceneManager.registerOrbit(this);
+
         // Initial visibility state
         this.isVisible = true;
     }
@@ -264,6 +273,9 @@ class Orbit {
      * Clean up orbit resources
      */
     dispose() {
+        // Unregister this orbit from OrbitManager through SceneManager
+        SceneManager.unregisterOrbit(this);
+
         // Remove orbit line from its parent (either parent body's group or scene)
         if (this.orbitLine && this.orbitLine.parent) {
             this.orbitLine.parent.remove(this.orbitLine);

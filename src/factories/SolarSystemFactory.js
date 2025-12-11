@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import Orbit from '../model/Orbit.js';
 import SceneManager from '../managers/SceneManager.js';
 import { CELESTIAL_DATA, ORBIT } from '../constants.js';
-import BodyFactory from './BodyFactory.js';
+import Body from '../model/Body.js';
 import { log } from '../utils/Logger.js';
 
 /**
@@ -42,8 +42,8 @@ export class SolarSystemFactory {
      * @returns {Object} Object containing the body and its children hierarchy
      */
     static createBodyHierarchy(bodyData, parentBody = null, sceneScale) {
-        // Create the body using BodyFactory
-        const body = BodyFactory.createBodyFromData(bodyData, parentBody);
+        // Create the body using Body constructor
+        const body = new Body(bodyData, parentBody);
 
 
         // Create orbit - real orbit for bodies with parents, virtual orbit for root body (Sun)

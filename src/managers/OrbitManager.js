@@ -47,8 +47,7 @@ export class OrbitManager {
             log.info('OrbitManager', 'Initialized Kepler physics conditions for hierarchy');
         }
 
-        // Initialize orbit trails for all bodies (both physics systems)
-        this.initializeOrbitTrails(this.hierarchy);
+        // Note: Orbit trails are now initialized automatically in Orbit constructor
     }
 
     /**
@@ -193,27 +192,6 @@ export class OrbitManager {
         }
     }
 
-    /**
-     * Initialize orbit trails for all bodies in the hierarchy
-     * @param {Object} hierarchy - The hierarchical solar system data
-     */
-    initializeOrbitTrails(hierarchy) {
-        if (!hierarchy) return;
-
-        // Initialize orbit trail for the current body (if it's not the root)
-        if (hierarchy.body && hierarchy.body.initializeOrbitTrail && typeof hierarchy.body.initializeOrbitTrail === 'function') {
-            // Ensure orbit trail exists (won't recreate if already exists)
-            hierarchy.body.initializeOrbitTrail();
-
-        }
-
-        // Recursively initialize orbit trails for children
-        if (hierarchy.children && hierarchy.children.length > 0) {
-            hierarchy.children.forEach(child => {
-                this.initializeOrbitTrails(child);
-            });
-        }
-    }
 
     /**
      * Dispose and clean up resources

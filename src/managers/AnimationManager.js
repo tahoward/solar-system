@@ -159,17 +159,6 @@ export class AnimationManager {
             // Skip if this body is not a star
             if (!body.isStar) return;
 
-            // Update star marker using unified clock
-            if (body.marker) {
-                body.marker.update();
-            }
-
-            // Update star rotation with unified clock
-            if (body.updateRotation) {
-                // Use deltaTime that already includes speed multiplier from clock manager
-                body.updateRotation(deltaTime, 1);
-            }
-
             // Update star shader animation if it's using a shader material
             if (body.isShaderMaterial && body.material.updateTime) {
                 const currentTime = clockManager.getSimulationTime();
@@ -234,30 +223,6 @@ export class AnimationManager {
      * Update all planetary orbits or physics bodies using unified clock
      */
     updateOrbits() {
-        if (SIMULATION.USE_N_BODY_PHYSICS) {
-            // Use raw delta time - n-body system will apply its own speed multiplier internally
-            const physicsDeltaTime = clockManager.getDeltaTime();
-
-            // Use fixed timestep accumulator for physics stability
-            this.accumulator += physicsDeltaTime;
-
-            let updateCount = 0;
-            // Update physics with fixed timestep using functional n-body physics
-            while (this.accumulator >= this.fixedTimeStep) {
-                // Update all n-body physics positions using OrbitManager
-                if (this.orbitManager && typeof this.orbitManager.updateBodyPositions === 'function') {
-                    this.orbitManager.updateBodyPositions(this.fixedTimeStep, SceneManager.scale);
-                } else {
-                    logger.warn('AnimationManager', 'OrbitManager not available for n-body physics');
-                }
-                this.accumulator -= this.fixedTimeStep;
-                updateCount++;
-            }
-
-            // Update atmosphere lighting for n-body physics bodies
-            this.updateAtmosphereLighting();
-
-        } else {
             // Use same timestep accumulator approach as n-body for perfect synchronization
             const keplerDeltaTime = clockManager.getDeltaTime();
 
@@ -290,8 +255,6 @@ export class AnimationManager {
 
             // Update atmosphere lighting for Kepler orbit bodies
             this.updateAtmosphereLighting();
-
-        }
     }
 
     /**
@@ -343,14 +306,6 @@ export class AnimationManager {
         this.orbits.forEach(orbit => {
             if (orbit && orbit.body && orbit.body.updateAtmosphereLighting) {
                 orbit.body.updateAtmosphereLighting(starPosition, starLightColor);
-
-                // Update shadow light for Saturn (for ring shadows)
-                if (orbit.body.name === 'Saturn' && starPosition) {
-                    const sceneManager = SceneManager.getInstance ? SceneManager.getInstance() : SceneManager.instance;
-                    if (sceneManager && sceneManager.updateShadowLight) {
-                        sceneManager.updateShadowLight(starPosition, orbit.body.group.position);
-                    }
-                }
             }
         });
 
@@ -426,14 +381,6 @@ export class AnimationManager {
                 targetBody.updateMoonShadows(shadowCasters);
             }
         });
-    }
-
-    /**
-     * Set hierarchy manager reference for moon shadow calculations
-     * @param {HierarchyManager} hierarchyManager - The hierarchy manager instance
-     */
-    setHierarchyManager(hierarchyManager) {
-        this.hierarchyManager = hierarchyManager;
     }
 
     /**

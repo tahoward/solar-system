@@ -108,13 +108,6 @@ async function initializeScene(loadedTextures) {
     // Initialize animation manager
     const animationManager = new AnimationManager(hierarchy, stats);
 
-    // Connect hierarchy manager to animation manager for moon shadows
-    if (hierarchy) {
-        if (SceneManager && SceneManager.hierarchyManager) {
-            animationManager.setHierarchyManager(SceneManager.hierarchyManager);
-        }
-    }
-
     // Set up input controls
     const targetableBodies = SceneManager.getTargetableBodies(animationManager.orbits);
     const inputController = new InputController(targetableBodies, animationManager);
@@ -135,13 +128,7 @@ async function initializeScene(loadedTextures) {
     // Start with root of hierarchy selected to show planet markers and set up hierarchy
     SceneManager.onBodySelected(hierarchy.body);
 
-    // Register any other stars in the system
-    animationManager.orbits?.forEach((orbit) => {
-        if (orbit?.body?.isStar) {
-            SceneManager.registerStar(orbit.body.group);
-            log.info('SolarSystem', `Registered ${orbit.body.name} for bloom effects`);
-        }
-    });
+    // Note: Star registration is now handled automatically in Body constructor
 
     // Expose SceneManager, clockManager, and mobileUI globally for cleanup access
     if (typeof window !== 'undefined') {
