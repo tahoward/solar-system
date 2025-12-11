@@ -1,8 +1,7 @@
 import SceneManager from './SceneManager.js';
 import clockManager from './ClockManager.js';
 import devUtils from '../utils/DevUtils.js';
-import memoryMonitor from '../utils/MemoryMonitor.js';
-import { updateStateOverlay, updateStatsOverlay } from '../ui/OverlayManager.js';
+import { updateStateDisplay, updateStatsDisplay, updateDebugOverlay } from '../ui/OverlayManager.js';
 import { SIMULATION } from '../constants.js';
 import PerformanceStats from '../utils/PerformanceStats.js';
 
@@ -124,18 +123,17 @@ export class AnimationManager {
             this.updateStats();
 
             // Update state overlay with current system state
-            this.updateStateDisplay();
+            updateStateDisplay(this);
 
             // Update stats overlay with performance data
-            this.updateStatsDisplay();
+            updateStatsDisplay(this.performanceStats);
+
+            // Update debug overlay with live data
+            updateDebugOverlay();
 
             // Record frame for development tools
             devUtils.recordFrame();
 
-            // Check memory usage occasionally
-            if (Math.random() < 0.01) { // 1% of frames
-                memoryMonitor.check();
-            }
         } catch (error) {
             console.error('AnimationManager: Error in animation loop:', error);
             // Continue animation even if one frame fails
@@ -513,79 +511,6 @@ export class AnimationManager {
     }
 
 
-    /**
-     * Update the state overlay with current system information
-     */
-    updateStateDisplay() {
-        // Only update occasionally to avoid performance impact
-        if (Math.random() < 0.3) { // 30% of frames, ~18fps
-            // Get current target from InputController (globally accessible)
-            let targetName = 'Unknown';
-            let bodyPosition = { x: 0, y: 0, z: 0 };
-            if (typeof window !== 'undefined' && window.InputController) {
-                const currentTarget = window.InputController.getCurrentTarget();
-                targetName = currentTarget?.name || 'Unknown';
-
-                // Get the body position if available
-                if (currentTarget?.body?.group?.position) {
-                    const pos = currentTarget.body.group.position;
-                    bodyPosition = {
-                        x: pos.x,
-                        y: pos.y,
-                        z: pos.z
-                    };
-                }
-            }
-
-            // Get current speed from clock manager and convert to display scale
-            const speed = clockManager.getSpeedMultiplier() * 100.0;
-
-            // Get zoom distance from camera to target
-            let zoomDistance = 0;
-            if (SceneManager.camera && SceneManager.controls?.target) {
-                zoomDistance = SceneManager.camera.position.distanceTo(SceneManager.controls.target);
-            }
-
-            // Get state from various managers
-            const bloomEnabled = SceneManager.isBloomEnabled() || false;
-            const markersVisible = this.getMarkersVisibility();
-
-            // Check if orbit trails/lines are visible - we'll need to track this
-            const orbitLinesVisible = this.getOrbitLinesVisibility();
-            const trailsVisible = this.getTrailsVisibility();
-
-            updateStateOverlay({
-                currentTarget: targetName,
-                bloomEnabled,
-                markersVisible,
-                trailsVisible,
-                orbitLinesVisible,
-                physicsMode: SIMULATION.getPhysicsMode(),
-                speed,
-                zoomDistance,
-                bodyPosition
-            });
-        }
-    }
-
-    /**
-     * Update the stats overlay with performance data
-     */
-    updateStatsDisplay() {
-        // Update at 30fps for smooth UI
-        if (Math.random() < 0.5) { // 50% of frames, ~30fps at 60fps
-            const currentStats = this.performanceStats.getCurrentStats();
-            const summary = this.performanceStats.getStatsSummary();
-            const timeSeries = this.performanceStats.getTimeSeries();
-
-            updateStatsOverlay({
-                current: currentStats,
-                summary: summary,
-                timeSeries: timeSeries,
-                sampleCount: summary.sampleCount
-            });
-        }
-    }
 
     /**
      * Check if orbit lines are currently visible

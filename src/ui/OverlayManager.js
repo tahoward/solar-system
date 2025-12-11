@@ -8,8 +8,10 @@
  * - Debug overlay (development information)
  */
 
-import { UI } from '../constants.js';
+import { UI, SIMULATION } from '../constants.js';
 import configService from '../utils/ConfigService.js';
+import clockManager from '../managers/ClockManager.js';
+import SceneManager from '../managers/SceneManager.js';
 
 // Target info display removed - info now shown in state overlay
 
@@ -300,6 +302,28 @@ export function toggleDebugOverlay() {
 }
 
 /**
+ * Updates the debug overlay content if it exists and is visible
+ */
+export function updateDebugOverlay() {
+    const debugOverlay = document.getElementById('debug-overlay');
+
+    // Only update if overlay exists and is visible
+    if (!debugOverlay || debugOverlay.style.display === 'none') {
+        return;
+    }
+
+    // Update content with fresh data
+    const memory = getMemoryInfo();
+
+    debugOverlay.innerHTML = `
+        <div><strong>🚀 Solar System Debug</strong></div>
+        <div>Memory: ${memory.usedJSHeapSize || 'N/A'}MB</div>
+        <div>Environment: ${configService.get('ENVIRONMENT', 'unknown')}</div>
+        <div><small>Press F12 → type dev.help()</small></div>
+    `;
+}
+
+/**
  * Get memory information
  */
 function getMemoryInfo() {
@@ -310,6 +334,79 @@ function getMemoryInfo() {
     return {
         usedJSHeapSize: Math.round(performance.memory.usedJSHeapSize / 1024 / 1024)
     };
+}
+
+/**
+ * Updates the state display with current system information
+ * Call this every frame - it will check if overlay is visible and return early if not needed
+ */
+export function updateStateDisplay(animationManager) {
+    // The updateStateOverlay function already checks visibility, so we can call it every frame
+
+    // Get current target from InputController (globally accessible)
+    let targetName = 'Unknown';
+    let bodyPosition = { x: 0, y: 0, z: 0 };
+    if (typeof window !== 'undefined' && window.InputController) {
+        const currentTarget = window.InputController.getCurrentTarget();
+        targetName = currentTarget?.name || 'Unknown';
+
+        // Get the body position if available
+        if (currentTarget?.body?.group?.position) {
+            const pos = currentTarget.body.group.position;
+            bodyPosition = {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z
+            };
+        }
+    }
+
+    // Get current speed from clock manager and convert to display scale
+    const speed = clockManager.getSpeedMultiplier() * 100.0;
+
+    // Get zoom distance from camera to target
+    let zoomDistance = 0;
+    if (SceneManager.camera && SceneManager.controls?.target) {
+        zoomDistance = SceneManager.camera.position.distanceTo(SceneManager.controls.target);
+    }
+
+    // Get state from various managers
+    const bloomEnabled = SceneManager.isBloomEnabled() || false;
+    const markersVisible = animationManager.getMarkersVisibility();
+
+    // Check if orbit trails/lines are visible - we'll need to track this
+    const orbitLinesVisible = animationManager.getOrbitLinesVisibility();
+    const trailsVisible = animationManager.getTrailsVisibility();
+
+    updateStateOverlay({
+        currentTarget: targetName,
+        bloomEnabled,
+        markersVisible,
+        trailsVisible,
+        orbitLinesVisible,
+        physicsMode: SIMULATION.getPhysicsMode(),
+        speed,
+        zoomDistance,
+        bodyPosition
+    });
+}
+
+/**
+ * Updates the stats display with performance data
+ * Call this every frame - it will check if overlay is visible and return early if not needed
+ */
+export function updateStatsDisplay(performanceStats) {
+    // The updateStatsOverlay function already checks visibility, so we can call it every frame
+    const currentStats = performanceStats.getCurrentStats();
+    const summary = performanceStats.getStatsSummary();
+    const timeSeries = performanceStats.getTimeSeries();
+
+    updateStatsOverlay({
+        current: currentStats,
+        summary: summary,
+        timeSeries: timeSeries,
+        sampleCount: summary.sampleCount
+    });
 }
 
 /**
