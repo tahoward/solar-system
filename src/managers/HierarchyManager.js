@@ -182,39 +182,6 @@ export class HierarchyManager {
         return Array.from(this.hierarchyMap.keys());
     }
 
-    /**
-     * Get hierarchy statistics
-     * @returns {Object} Statistics about the hierarchy
-     */
-    getStatistics() {
-        let rootCount = 0;
-        let leafCount = 0;
-        let maxDepth = 0;
-
-        this.hierarchyMap.forEach((data, name) => {
-            if (data.parent === null) rootCount++;
-            if (data.children.length === 0) leafCount++;
-
-            // Calculate depth
-            let depth = 0;
-            let currentParent = data.parent;
-            while (currentParent) {
-                depth++;
-                const parentData = this.hierarchyMap.get(currentParent);
-                currentParent = parentData ? parentData.parent : null;
-            }
-            maxDepth = Math.max(maxDepth, depth);
-        });
-
-        return {
-            totalBodies: this.hierarchyMap.size,
-            rootBodies: rootCount,
-            leafBodies: leafCount,
-            maxDepth: maxDepth,
-            hasSelectedBody: this.currentSelectedBody !== null,
-            selectedBodyName: this.currentSelectedBody?.name || null
-        };
-    }
 
     /**
      * Clear all hierarchy data

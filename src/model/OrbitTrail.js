@@ -277,6 +277,20 @@ export class OrbitTrail {
     }
 
     /**
+     * Hide the orbit trail
+     */
+    hide() {
+        this.setVisible(false);
+    }
+
+    /**
+     * Show the orbit trail
+     */
+    show() {
+        this.setVisible(true);
+    }
+
+    /**
      * Toggle trail enabled state
      * @returns {boolean} New enabled state
      */
@@ -309,20 +323,6 @@ export class OrbitTrail {
         }
     }
 
-    /**
-     * Get current trail statistics
-     * @returns {Object} Trail statistics
-     */
-    getStats() {
-        return {
-            bodyName: this.bodyName,
-            pointCount: this.points.length,
-            maxLength: this.maxLength,
-            enabled: this.enabled,
-            visible: this.visible,
-            updateCounter: this.updateCounter
-        };
-    }
 
     /**
      * Clean up resources

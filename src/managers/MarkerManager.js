@@ -123,11 +123,11 @@ export class MarkerManager {
         if (marker) {
             this.onMarkerSelected(marker);
 
-            // Fade out the selected marker
-            if (typeof marker.fadeOut === 'function') {
-                marker.fadeOut();
+            // Hide the selected marker
+            if (typeof marker.hide === 'function') {
+                marker.hide();
             } else {
-                console.warn('MarkerManager: Marker does not have fadeOut method');
+                console.warn('MarkerManager: Marker does not have hide method');
             }
         } else {
         }
@@ -151,15 +151,15 @@ export class MarkerManager {
 
         let restoredCount = 0;
         this.markers.forEach(marker => {
-            if (marker && typeof marker.fadeIn === 'function') {
+            if (marker && typeof marker.show === 'function') {
                 // Re-enable interaction for all markers
                 if (typeof marker.reenableInteraction === 'function') {
                     marker.reenableInteraction();
                 }
-                marker.fadeIn();
+                marker.show();
                 restoredCount++;
             } else {
-                console.warn('MarkerManager: Marker missing or does not have fadeIn method');
+                console.warn('MarkerManager: Marker missing or does not have show method');
             }
         });
 
@@ -299,34 +299,6 @@ export class MarkerManager {
         }
     }
 
-    /**
-     * Get marker statistics for debugging
-     * @returns {Object} Object containing marker statistics
-     */
-    getStatistics() {
-        const stats = {
-            totalMarkers: this.markers.size,
-            hasSelectedMarker: this.currentSelectedMarker !== null,
-            selectedMarkerName: this.currentSelectedMarker?.body?.name || null,
-            currentSizeMultiplier: this.markerSizeMultiplier,
-            markersWithFadeIn: 0,
-            markersWithFadeOut: 0,
-            hierarchy: this.hierarchyManager.getStatistics()
-            // orbits: removed - orbitManager no longer owned by MarkerManager
-        };
-
-        // Count markers with fade methods
-        this.markers.forEach(marker => {
-            if (marker && typeof marker.fadeIn === 'function') {
-                stats.markersWithFadeIn++;
-            }
-            if (marker && typeof marker.fadeOut === 'function') {
-                stats.markersWithFadeOut++;
-            }
-        });
-
-        return stats;
-    }
 
     // Orbit clearing removed - handled directly by external systems
 

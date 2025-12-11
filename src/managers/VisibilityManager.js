@@ -276,12 +276,12 @@ export class VisibilityManager {
             if (item && typeof item.reenableInteraction === 'function') {
                 item.reenableInteraction();
             }
-            if (item && item.opacity < 0.9 && typeof item.fadeIn === 'function') {
-                item.fadeIn();
+            if (item && typeof item.show === 'function') {
+                item.show();
             }
         } else if (type === 'orbitTrail') {
-            if (item && item.setOrbitTrailVisible) {
-                item.setOrbitTrailVisible(true);
+            if (item && typeof item.show === 'function') {
+                item.show();
             }
         }
     }
@@ -297,12 +297,12 @@ export class VisibilityManager {
                 item.hide();
             }
         } else if (type === 'marker') {
-            if (item && item.opacity > 0.1 && typeof item.fadeOut === 'function') {
-                item.fadeOut();
+            if (item && typeof item.hide === 'function') {
+                item.hide();
             }
         } else if (type === 'orbitTrail') {
-            if (item && item.setOrbitTrailVisible) {
-                item.setOrbitTrailVisible(false);
+            if (item && typeof item.hide === 'function') {
+                item.hide();
             }
         }
     }

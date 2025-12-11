@@ -904,6 +904,24 @@ class Body {
     }
 
     /**
+     * Hide the orbit trail
+     */
+    hide() {
+        if (this.orbitTrail) {
+            this.orbitTrail.hide();
+        }
+    }
+
+    /**
+     * Show the orbit trail
+     */
+    show() {
+        if (this.orbitTrail) {
+            this.orbitTrail.show();
+        }
+    }
+
+    /**
      * Set orbit trail enabled state
      * @param {boolean} enabled - Whether the trail should be enabled
      */
@@ -913,13 +931,6 @@ class Body {
         }
     }
 
-    /**
-     * Get orbit trail statistics
-     * @returns {Object|null} Trail statistics or null if no trail
-     */
-    getOrbitTrailStats() {
-        return this.orbitTrail ? this.orbitTrail.getStats() : null;
-    }
 
     /**
      * Clean up body resources to prevent memory leaks

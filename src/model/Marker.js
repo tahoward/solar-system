@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader';
-import { Tween, Easing } from '@tweenjs/tween.js';
+// Tween imports removed - no longer needed for instant marker visibility changes
 import markerSVG from '../../assets/marker.svg'
 import SceneManager from '../managers/SceneManager.js';
 import { MARKER, TARGETING } from '../constants.js';
@@ -121,7 +121,7 @@ class Marker {
         this.scale = scale;
         this.targetScreenSize = targetScreenSize; // Target size as fraction of screen height
         this.opacity = MARKER.FULL_OPACITY; // Current opacity
-        this.fadeTween = null; // Current fade animation
+        // fadeTween removed - no longer using animations
         this.group = null; // Will be set when SVG loads
         this.isReady = false;
         this.interactionDisabled = false; // Track interaction state
@@ -308,82 +308,32 @@ class Marker {
         return shouldBeInteractive;
     }
 
-    fadeOut(duration = MARKER.FADE_DURATION) {
-        // Disable interaction immediately when starting to fade out
+    hide() {
+        // Disable interaction immediately when hiding
         this.disableInteraction();
 
-        // Stop any existing fade animation
-        if (this.fadeTween) {
-            this.fadeTween.stop();
-            // Explicitly remove from tween group
-            SceneManager.tweenGroup.remove(this.fadeTween);
-        }
-
-        const startOpacity = { value: this.opacity };
-        const endOpacity = { value: MARKER.ZERO_OPACITY };
-
-        this.fadeTween = new Tween(startOpacity)
-            .to(endOpacity, duration)
-            .easing(Easing.Quadratic.Out)
-            .onUpdate(() => {
-                this.opacity = startOpacity.value;
-                // Update all material opacities
-                if (this.materials) {
-                    this.materials.forEach(material => {
-                        material.opacity = this.opacity;
-                    });
-                }
-            })
-            .onComplete(() => {
-                // Explicitly remove from tween group
-                if (this.fadeTween) {
-                    SceneManager.tweenGroup.remove(this.fadeTween);
-                }
-                this.fadeTween = null;
+        // Instantly hide the marker
+        this.opacity = MARKER.ZERO_OPACITY;
+        if (this.materials) {
+            this.materials.forEach(material => {
+                material.opacity = this.opacity;
             });
-
-        SceneManager.tweenGroup.add(this.fadeTween);
-        this.fadeTween.start();
+        }
     }
 
-    fadeIn(duration = MARKER.FADE_DURATION) {
-        // Stop any existing fade animation
-        if (this.fadeTween) {
-            this.fadeTween.stop();
-            // Explicitly remove from tween group
-            SceneManager.tweenGroup.remove(this.fadeTween);
+    show() {
+        // Instantly show the marker
+        this.opacity = MARKER.FULL_OPACITY;
+        if (this.materials) {
+            this.materials.forEach(material => {
+                material.opacity = this.opacity;
+            });
         }
 
-        const startOpacity = { value: this.opacity };
-        const endOpacity = { value: MARKER.FULL_OPACITY };
-
-        this.fadeTween = new Tween(startOpacity)
-            .to(endOpacity, duration)
-            .easing(Easing.Quadratic.Out)
-            .onUpdate(() => {
-                this.opacity = startOpacity.value;
-                // Update all material opacities
-                if (this.materials) {
-                    this.materials.forEach(material => {
-                        material.opacity = this.opacity;
-                    });
-                }
-            })
-            .onComplete(() => {
-                // Re-enable interaction when fully visible (only if not manually disabled)
-                if (!this.interactionDisabled) {
-                    this.enableInteraction();
-                }
-
-                // Explicitly remove from tween group
-                if (this.fadeTween) {
-                    SceneManager.tweenGroup.remove(this.fadeTween);
-                }
-                this.fadeTween = null;
-            });
-
-        SceneManager.tweenGroup.add(this.fadeTween);
-        this.fadeTween.start();
+        // Re-enable interaction when fully visible (only if not manually disabled)
+        if (!this.interactionDisabled) {
+            this.enableInteraction();
+        }
     }
 
     /**
@@ -427,14 +377,6 @@ class Marker {
      * Clean up marker resources and unregister from SceneManager
      */
     dispose() {
-        // Stop any running fade animation
-        if (this.fadeTween) {
-            this.fadeTween.stop();
-            // Explicitly remove from tween group
-            SceneManager.tweenGroup.remove(this.fadeTween);
-            this.fadeTween = null;
-        }
-
         // Dispose of materials to prevent memory leaks
         if (this.materials) {
             this.materials.forEach(material => {

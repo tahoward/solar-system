@@ -120,33 +120,6 @@ export class OrbitManager {
         console.log(`OrbitManager: Cleared all orbit registrations (${count} orbits removed)`);
     }
 
-    /**
-     * Get orbit statistics for debugging
-     * @returns {Object} Object containing orbit statistics
-     */
-    getStatistics() {
-        const stats = {
-            totalOrbits: this.orbits.size,
-            orbitsWithShow: 0,
-            orbitsWithHide: 0,
-            visibleOrbits: 0
-        };
-
-        // Count orbits with show/hide methods and visible orbits
-        this.orbits.forEach(orbit => {
-            if (orbit && typeof orbit.show === 'function') {
-                stats.orbitsWithShow++;
-            }
-            if (orbit && typeof orbit.hide === 'function') {
-                stats.orbitsWithHide++;
-            }
-            if (orbit && orbit.getVisibility && orbit.getVisibility()) {
-                stats.visibleOrbits++;
-            }
-        });
-
-        return stats;
-    }
 
     // Global visibility check moved to VisibilityManager
 

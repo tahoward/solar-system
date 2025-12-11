@@ -128,30 +128,6 @@ export class OrbitTrailManager {
         return null;
     }
 
-    /**
-     * Get statistics for all orbit trails
-     * @returns {Object} Statistics object
-     */
-    getStatistics() {
-        const stats = {
-            total: this.orbitTrails.size,
-            enabled: 0,
-            visible: 0,
-            totalPoints: 0
-        };
-
-        this.orbitTrails.forEach(body => {
-            if (body.orbitTrail) {
-                if (body.orbitTrail.enabled) stats.enabled++;
-                if (body.orbitTrail.visible && body.orbitTrail.enabled) stats.visible++;
-                if (body.orbitTrail.getPointCount) {
-                    stats.totalPoints += body.orbitTrail.getPointCount();
-                }
-            }
-        });
-
-        return stats;
-    }
 
     /**
      * Get orbit trail for a specific body
