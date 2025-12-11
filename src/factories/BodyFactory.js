@@ -143,26 +143,6 @@ export class BodyFactory {
     }
 
     /**
-     * Detect if the current device is a mobile device
-     * @returns {boolean} True if mobile device detected
-     * @private
-     */
-    static isMobileDevice() {
-        if (typeof window === 'undefined' || typeof navigator === 'undefined') {
-            return false;
-        }
-
-        const userAgent = navigator.userAgent.toLowerCase();
-        const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
-
-        // Also check for touch capability and screen size
-        const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-        const isSmallScreen = window.innerWidth <= 768 || window.innerHeight <= 768;
-
-        return isMobile || (isTouchDevice && isSmallScreen);
-    }
-
-    /**
      * Add star-specific visual effects to a body
      * @param {Body} body - The body to add effects to
      * @param {Object} bodyData - The celestial body data

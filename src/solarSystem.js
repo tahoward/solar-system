@@ -92,11 +92,7 @@ async function initializeScene(loadedTextures) {
 
     // Create the solar system using the factory
     // Use unified structure that supports both physics modes for runtime toggling
-    let orbits, hierarchy;
-
-    const result = SolarSystemFactory.createSolarSystem(SceneManager.scale);
-    orbits = result.orbits;
-    hierarchy = result.hierarchy;
+    const hierarchy = SolarSystemFactory.createSolarSystem(SceneManager.scale);
 
     log.info('SolarSystem', `Initialized unified structure supporting both physics modes`);
     log.info('SolarSystem', `Current physics mode: ${SIMULATION.getPhysicsMode()}`);
@@ -110,7 +106,7 @@ async function initializeScene(loadedTextures) {
     // N-body system is now handled functionally, no separate object to register
 
     // Initialize animation manager
-    const animationManager = new AnimationManager(orbits, stats);
+    const animationManager = new AnimationManager(hierarchy, stats);
 
     // Connect hierarchy manager to animation manager for moon shadows
     if (hierarchy) {
@@ -120,7 +116,7 @@ async function initializeScene(loadedTextures) {
     }
 
     // Set up input controls
-    const targetableBodies = SceneManager.getTargetableBodies(orbits);
+    const targetableBodies = SceneManager.getTargetableBodies(animationManager.orbits);
     const inputController = new InputController(targetableBodies, animationManager);
 
     // Make InputController globally accessible for orbit state checking
@@ -140,7 +136,7 @@ async function initializeScene(loadedTextures) {
     SceneManager.onBodySelected(hierarchy.body);
 
     // Register any other stars in the system
-    orbits?.forEach((orbit) => {
+    animationManager.orbits?.forEach((orbit) => {
         if (orbit?.body?.isStar) {
             SceneManager.registerStar(orbit.body.group);
             log.info('SolarSystem', `Registered ${orbit.body.name} for bloom effects`);

@@ -10,13 +10,18 @@ import PerformanceStats from '../utils/PerformanceStats.js';
  * Manages the main animation loop and all animated objects in the solar system
  */
 export class AnimationManager {
-    constructor(orbits, stats) {
+    constructor(hierarchy, stats) {
         // Input validation
-        if (!Array.isArray(orbits)) {
-            throw new Error('AnimationManager constructor: orbits must be an array');
+        if (!hierarchy || typeof hierarchy !== 'object') {
+            throw new Error('AnimationManager constructor: hierarchy must be an object');
         }
 
-        this.orbits = orbits;
+        // Extract orbits from hierarchy
+        this.orbits = [];
+        this._extractOrbits(hierarchy);
+
+        // Store hierarchy reference for future use
+        this.hierarchy = hierarchy;
         this.stats = stats;
         // nBodySystem parameter is deprecated but kept for compatibility
         this.isRunning = false;
@@ -580,7 +585,22 @@ export class AnimationManager {
 
         // Clear references
         this.orbits = [];
+        this.hierarchy = null;
         this.stats = null;
+    }
+
+    /**
+     * Extract all orbits from hierarchy structure into flat array
+     * @private
+     * @param {Object} node - Hierarchy node to traverse
+     */
+    _extractOrbits(node) {
+        if (node.orbit) {
+            this.orbits.push(node.orbit);
+        }
+        if (node.children && Array.isArray(node.children)) {
+            node.children.forEach(child => this._extractOrbits(child));
+        }
     }
 }
 

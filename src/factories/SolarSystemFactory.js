@@ -31,32 +31,7 @@ export class SolarSystemFactory {
         // Create all bodies hierarchically starting from the root
         const { body: rootBody, orbit: rootOrbit, children } = this.createBodyHierarchy(rootData, null, sceneScale);
 
-        // Flatten children to get planets and orbits arrays for backward compatibility
-        const planets = [];
-        const orbits = [];
-
-        // Include the root body's virtual orbit in the orbits array
-        if (rootOrbit) {
-            orbits.push(rootOrbit);
-        }
-
-        function flattenHierarchy(bodyData) {
-            if (bodyData.children) {
-                bodyData.children.forEach(child => {
-                    planets.push(child.body);
-                    if (child.orbit) orbits.push(child.orbit);
-                    flattenHierarchy(child);
-                });
-            }
-        }
-
-        flattenHierarchy({ children });
-
-        return {
-            planets,
-            orbits,
-            hierarchy: { body: rootBody, children } // Include full hierarchy
-        };
+        return { body: rootBody, orbit: rootOrbit, children };
     }
 
     /**
