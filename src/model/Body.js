@@ -5,6 +5,7 @@ import ConfigValidator from '../utils/ConfigValidator.js';
 import { log } from '../utils/Logger.js';
 import { GEOMETRY } from '../constants.js';
 import AtmosphereShaderMaterial from '../shaders/AtmosphereShaderMaterial.js';
+import CloudShaderMaterial from '../shaders/CloudShaderMaterial.js';
 import RingShaderMaterial from '../shaders/RingShaderMaterial.js';
 import VectorUtils from '../utils/VectorUtils.js';
 import OrbitTrail from './OrbitTrail.js';
@@ -551,10 +552,11 @@ class Body {
      * @param {number} cloudConfig.radiusScale - Radius scale relative to body radius
      * @param {number} cloudConfig.opacity - Cloud opacity (0-1)
      * @param {number} cloudConfig.rotationSpeed - Cloud rotation speed multiplier
-     * @returns {THREE.Mesh} The cloud mesh
+     * @param {number} cloudConfig.alphaTest - Alpha test threshold for transparency (0-1)
+     * @returns {THREE.Mesh} The cloud mesh with advanced planet shader material
      */
     createClouds(cloudConfig) {
-        const { texture, radiusScale, opacity, rotationSpeed } = cloudConfig;
+        const { texture, radiusScale, opacity, rotationSpeed, alphaTest } = cloudConfig;
 
         // Create cloud geometry - slightly larger sphere than the planet
         const cloudRadius = this.radius * radiusScale;
@@ -575,22 +577,22 @@ class Body {
         cloudTexture.minFilter = THREE.LinearMipmapLinearFilter;
         cloudTexture.magFilter = THREE.LinearFilter;
 
-        // Create cloud material with transparency
-        const cloudMaterial = new THREE.MeshLambertMaterial({
-            map: cloudTexture,
-            transparent: true,
-            opacity: opacity,
-            depthWrite: false, // Prevent z-fighting with planet surface
-            alphaTest: 0.1 // Skip fully transparent pixels
+        // Create cloud shader material with advanced lighting and shadow support
+        const cloudMaterial = new CloudShaderMaterial({
+            cloudTexture: cloudTexture,
+            opacity: opacity || 0.8,
+            alphaTest: alphaTest || 0.1,
+            lightColor: 0xffffff
         });
 
         // Create cloud mesh
         const cloudMesh = new THREE.Mesh(cloudGeometry, cloudMaterial);
 
-        // Store rotation speed for animation
+        // Store rotation speed for animation and shader material reference
         cloudMesh.userData.rotationSpeed = rotationSpeed || 1.0;
+        cloudMesh.userData.shaderMaterial = cloudMaterial;
 
-        console.log(`Body: Created cloud system for ${this.name} (radius: ${cloudRadius.toFixed(3)}, opacity: ${opacity})`);
+        console.log(`Body: Created cloud system with planet shader for ${this.name} (radius: ${cloudRadius.toFixed(3)}, opacity: ${opacity})`);
 
         return cloudMesh;
     }
@@ -647,6 +649,9 @@ class Body {
             }
         }
 
+        // Also update cloud lighting if clouds use shader material
+        this.updateCloudLighting(lightPosition, lightColor);
+
         // Also update planet material lighting if this body uses planet material
         this.updateRingShadowLighting(lightPosition, lightColor);
 
@@ -678,22 +683,34 @@ class Body {
      * @param {Array<Body>} shadowBodies - Array of Body objects that can cast shadows (moons, planets, etc.)
      */
     updateMoonShadows(shadowBodies) {
-        // Check if this body's material supports celestial body shadows
+        const positions = [];
+        const radii = [];
+
+        // Collect shadow body data if available
+        if (shadowBodies && shadowBodies.length > 0) {
+            shadowBodies.forEach(body => {
+                if (body && body.group && body.group.position && body.radius) {
+                    positions.push(body.group.position.clone());
+                    radii.push(body.radius);
+                }
+            });
+        }
+
+        // Update planet material if it supports celestial body shadows
         if (this.material && typeof this.material.updateMoons === 'function') {
-            if (shadowBodies && shadowBodies.length > 0) {
-                const positions = [];
-                const radii = [];
-
-                shadowBodies.forEach(body => {
-                    if (body && body.group && body.group.position && body.radius) {
-                        positions.push(body.group.position.clone());
-                        radii.push(body.radius);
-                    }
-                });
-
+            if (positions.length > 0) {
                 this.material.updateMoons(positions, radii);
             } else {
                 this.material.clearMoons();
+            }
+        }
+
+        // Update cloud material if it supports celestial body shadows
+        if (this.clouds && this.clouds.userData.shaderMaterial && typeof this.clouds.userData.shaderMaterial.updateMoons === 'function') {
+            if (positions.length > 0) {
+                this.clouds.userData.shaderMaterial.updateMoons(positions, radii);
+            } else {
+                this.clouds.userData.shaderMaterial.clearMoons();
             }
         }
     }
@@ -716,6 +733,24 @@ class Body {
                     }
                 }
             });
+        }
+    }
+
+    /**
+     * Update cloud lighting based on light source
+     * @param {THREE.Vector3} lightPosition - Position of the light source (usually the sun)
+     * @param {THREE.Color} lightColor - Color of the light source
+     */
+    updateCloudLighting(lightPosition, lightColor) {
+        if (this.clouds && this.clouds.userData.shaderMaterial) {
+            // Get the ring rotation from the tilt container for ring shadow calculations
+            const ringRotation = this.tiltContainer ? this.tiltContainer.rotation : null;
+            this.clouds.userData.shaderMaterial.updateLighting(lightPosition, this.group.position, ringRotation);
+
+            // Update cloud light color if provided
+            if (lightColor !== undefined) {
+                this.clouds.userData.shaderMaterial.setLightColor(lightColor);
+            }
         }
     }
 
