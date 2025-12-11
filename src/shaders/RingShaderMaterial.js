@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import BaseCelestialShaderMaterial from './BaseCelestialShaderMaterial.js';
 
 const vertexShader = `
 varying vec2 vUv;
@@ -19,13 +20,12 @@ void main() {
 
 const fragmentShader = `
 uniform sampler2D ringTexture;
-uniform vec3 lightDirection;
-uniform vec3 lightColor;
-uniform vec3 planetCenter;
 uniform float planetRadius;
 uniform float opacity;
 uniform vec3 ringColor;
 uniform bool hasPlanetShadow;
+
+${BaseCelestialShaderMaterial.getCommonUniforms(false)}
 
 varying vec2 vUv;
 varying vec3 vWorldPosition;
@@ -89,14 +89,12 @@ void main() {
 
 /**
  * RingShaderMaterial - A custom shader material for rings with planet shadow casting
+ * Based on BaseCelestialShaderMaterial with ring-specific features
  */
-class RingShaderMaterial extends THREE.ShaderMaterial {
+class RingShaderMaterial extends BaseCelestialShaderMaterial {
     constructor(options = {}) {
-        const uniforms = {
+        const ringSpecificUniforms = {
             ringTexture: { value: options.ringTexture || null },
-            lightDirection: { value: new THREE.Vector3(1.0, 0.0, 0.0) },
-            lightColor: { value: new THREE.Color(options.lightColor || 0xffffff) },
-            planetCenter: { value: new THREE.Vector3(0.0, 0.0, 0.0) },
             planetRadius: { value: options.planetRadius || 1.0 },
             opacity: { value: options.opacity || 1.0 },
             ringColor: { value: new THREE.Color(options.ringColor || 0xffffff) },
@@ -104,38 +102,20 @@ class RingShaderMaterial extends THREE.ShaderMaterial {
         };
 
         super({
-            uniforms: uniforms,
-            vertexShader: vertexShader,
-            fragmentShader: fragmentShader,
-            transparent: true,
-            side: THREE.FrontSide, // Match original ring material
-            alphaTest: 0.1
+            ...options,
+            supportsShadows: false, // Rings don't need the complex shadow system
+            additionalUniforms: ringSpecificUniforms,
+            materialOptions: {
+                vertexShader: vertexShader,
+                fragmentShader: fragmentShader,
+                transparent: true,
+                side: THREE.FrontSide, // Match original ring material
+                alphaTest: 0.1
+            }
         });
     }
 
-    /**
-     * Update lighting parameters
-     * @param {THREE.Vector3} lightPosition - Position of the light source (sun)
-     * @param {THREE.Vector3} planetPosition - Position of the planet center
-     */
-    updateLighting(lightPosition, planetPosition) {
-        // Calculate light direction from planet to sun
-        const direction = new THREE.Vector3().subVectors(lightPosition, planetPosition).normalize();
-        this.uniforms.lightDirection.value.copy(direction);
-        this.uniforms.planetCenter.value.copy(planetPosition);
-    }
-
-    /**
-     * Set light color
-     * @param {THREE.Color|number} color - Light color
-     */
-    setLightColor(color) {
-        if (typeof color === 'number') {
-            this.uniforms.lightColor.value.setHex(color);
-        } else {
-            this.uniforms.lightColor.value.copy(color);
-        }
-    }
+    // Inherited methods: updateLighting(), setLightColor()
 
     /**
      * Set planet parameters for shadow casting
