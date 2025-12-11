@@ -117,7 +117,7 @@ export class AnimationManager {
 
             // Update star rotation and effects using unified clock (after orbit positions are updated)
             const star = this.getFirstStar()
-            this.hierarchy.body.updateRecursive(
+            this.hierarchy.body.update(
                 clockManager.getRotationDeltaTime(),
                 1,
                 star.starPosition,
