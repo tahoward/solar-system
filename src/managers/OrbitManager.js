@@ -137,15 +137,10 @@ export class OrbitManager {
         // Use appropriate physics system based on SIMULATION.USE_N_BODY_PHYSICS
         if (SIMULATION.USE_N_BODY_PHYSICS) {
             // Use functional n-body physics with current speed multiplier from ClockManager
-            const speedMultiplier = clockManager.getSpeedMultiplier() * 100.0; // Convert to n-body scale
-            const options = { speedMultiplier };
-            updateHierarchyNBodyPhysics(this.hierarchy, timestamp, sceneScale, options);
+            updateHierarchyNBodyPhysics(this.hierarchy);
         } else {
             // Use Kepler system to update all body positions in the hierarchy
             updateHierarchyPositions(this.hierarchy, timestamp, sceneScale);
-
-            // Update body rotations for all bodies (n-body handles this internally)
-            this.updateBodyRotations();
         }
     }
 

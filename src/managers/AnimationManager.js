@@ -32,15 +32,13 @@ export class AnimationManager {
         // Initialize performance stats tracker
         this.performanceStats = new PerformanceStats(60); // 60 samples = ~1 second
 
-        // Physics timing
+        // Physics timing - simplified for adaptive timestep
         this.lastTime = 0;
-        this.accumulator = 0;
-        this.fixedTimeStep = 1 / 60; // 60 FPS physics updates
         this.lastFrameTime = 0; // For rotation deltaTime calculation
-
 
         // Kepler system accumulated time
         this.keplerAccumulatedTime = 0;
+
 
         // Bind the animate method to preserve 'this' context
         this.animate = this.animate.bind(this);
@@ -142,6 +140,7 @@ export class AnimationManager {
             // Update debug overlay with live data
             updateDebugOverlay();
 
+
             // Record frame for development tools
             devUtils.recordFrame();
 
@@ -152,27 +151,17 @@ export class AnimationManager {
     }
 
     /**
-     * Update all planetary orbits or physics bodies using unified clock
+     * Update all planetary orbits or physics bodies using unified clock with adaptive timestep
      */
     updateOrbits() {
-            // Use same timestep accumulator approach as n-body for perfect synchronization
-            const keplerDeltaTime = clockManager.getDeltaTime();
+        // Get adaptive timestep increment from ClockManager
+        const timeIncrement = clockManager.getKeplerTimeIncrement();
+        this.keplerAccumulatedTime += timeIncrement;
 
-            // Use same accumulator pattern as n-body
-            this.accumulator += keplerDeltaTime;
-
-            // Update Kepler orbits with same fixed timestep as n-body
-            while (this.accumulator >= this.fixedTimeStep) {
-                // Use centralized time calculation from ClockManager
-                const timeIncrement = clockManager.getKeplerTimeIncrement(this.fixedTimeStep);
-                this.keplerAccumulatedTime += timeIncrement;
-
-                // Update all Kepler orbit positions using OrbitManager
-                this.orbitManager.updateBodyPositions(this.keplerAccumulatedTime, SceneManager.scale);
-
-                this.accumulator -= this.fixedTimeStep;
-            }
+        // Update all Kepler orbit positions using OrbitManager
+        this.orbitManager.updateBodyPositions(this.keplerAccumulatedTime, SceneManager.scale);
     }
+
 
     /**
      * Update atmosphere lighting for all bodies with atmospheres

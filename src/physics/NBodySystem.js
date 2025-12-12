@@ -12,18 +12,17 @@ import { log } from '../utils/Logger.js';
  * Update all body positions using n-body physics for a given hierarchy
  * This is the n-body equivalent to updateHierarchyPositions in kepler.js
  * @param {Object} hierarchy - The hierarchical solar system data
- * @param {number} deltaTime - Time step for physics update
+ * @param {number} timestamp - Current timestamp (for compatibility, not used with adaptive timestep)
  * @param {number} sceneScale - Scene scale factor for visual scaling
  * @param {Object} options - Physics simulation options
  */
-export function updateHierarchyNBodyPhysics(hierarchy, deltaTime, sceneScale = 0.1, options = {}) {
+export function updateHierarchyNBodyPhysics(hierarchy, options = {}) {
     // Default physics constants
     const G = options.gravitationalConstant || 39.478; // AU³ M_sun⁻¹ year⁻²
-    const speedMultiplier = options.speedMultiplier || 100.0;
     const dampingFactor = options.dampingFactor || 1.0;
 
-    // Get physics time step using clockManager
-    const dt = clockManager.getNBodyTimeIncrement(deltaTime, speedMultiplier);
+    // Get physics time step using clockManager (adaptive timestep)
+    const dt = clockManager.getNBodyTimeIncrement();
 
     // Collect all bodies from hierarchy
     const bodies = [];
@@ -39,16 +38,6 @@ export function updateHierarchyNBodyPhysics(hierarchy, deltaTime, sceneScale = 0
 
     // Update positions using Leapfrog integration
     updateNBodyPositions(bodies, dt, dampingFactor);
-
-    // Get rotation deltaTime from unified clock
-    const rotationDeltaTime = clockManager.getRotationDeltaTime();
-
-    // Update body rotations
-    bodies.forEach(body => {
-        if (body.updateRotation) {
-            body.updateRotation(rotationDeltaTime, 1); // Speed already included in deltaTime
-        }
-    });
 }
 
 /**

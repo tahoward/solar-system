@@ -34,7 +34,21 @@ export class ClockManager {
         this.pausedTime = 0;            // Accumulated paused time
         this.lastPauseStart = 0;        // When current pause started
 
-        log.init('ClockManager', 'Initialized unified clock system');
+        // Adaptive timestep system
+        this.adaptiveTimestep = {
+            enabled: true,                    // Enable adaptive timestep
+            targetFPS: 60,                   // Target frame rate
+            minTimestep: 1/120,              // Minimum timestep (120 FPS)
+            maxTimestep: 1/30,               // Maximum timestep (30 FPS)
+            smoothingFactor: 0.1,            // Delta time smoothing (0.1 = 10% new, 90% old)
+            smoothedDeltaTime: 1/60,         // Smoothed delta time for stable physics
+            frameTimeHistory: [],            // Frame time history for analysis
+            historyLength: 10,               // Number of frames to keep in history
+            adaptationRate: 0.05,            // How quickly to adapt timestep (5%)
+            performanceThreshold: 0.016      // 60 FPS threshold in seconds
+        };
+
+        log.init('ClockManager', 'Initialized unified clock system with adaptive timestep');
     }
 
     /**
@@ -66,11 +80,17 @@ export class ClockManager {
         this.deltaTime = Math.min(rawDeltaTime, this.maxDeltaTime);
         this.lastFrameTime = timestamp;
 
+        // Update adaptive timestep system
+        this.updateAdaptiveTimestep(this.deltaTime);
+
         // Update real time (wall clock time since start, excluding pauses)
         this.realTime = (timestamp - this.startTime - this.pausedTime) / 1000;
 
-        // Update simulation time (affected by speed multiplier and time scale)
-        const simulationDelta = this.deltaTime * this.speedMultiplier * this.timeScale;
+        // Update simulation time using adaptive timestep if enabled
+        const effectiveDeltaTime = this.adaptiveTimestep.enabled ?
+            this.adaptiveTimestep.smoothedDeltaTime : this.deltaTime;
+
+        const simulationDelta = effectiveDeltaTime * this.speedMultiplier * this.timeScale;
         this.simulationTime += simulationDelta;
     }
 
@@ -116,7 +136,57 @@ export class ClockManager {
     reset() {
         const currentTimestamp = performance.now();
         this.start(currentTimestamp);
+
+        // Reset adaptive timestep history
+        this.adaptiveTimestep.frameTimeHistory = [];
+        this.adaptiveTimestep.smoothedDeltaTime = 1/60;
+
         log.debug('ClockManager', 'Clock reset');
+    }
+
+    /**
+     * Update the adaptive timestep system
+     * @param {number} currentDeltaTime - Current frame delta time
+     */
+    updateAdaptiveTimestep(currentDeltaTime) {
+        if (!this.adaptiveTimestep.enabled) {
+            return;
+        }
+
+        const adaptive = this.adaptiveTimestep;
+
+        // Add current frame time to history
+        adaptive.frameTimeHistory.push(currentDeltaTime);
+        if (adaptive.frameTimeHistory.length > adaptive.historyLength) {
+            adaptive.frameTimeHistory.shift();
+        }
+
+        // Calculate average frame time over history
+        const avgFrameTime = adaptive.frameTimeHistory.reduce((sum, time) => sum + time, 0) /
+                            adaptive.frameTimeHistory.length;
+
+        // Determine target timestep based on performance
+        let targetTimestep;
+        if (avgFrameTime > adaptive.performanceThreshold) {
+            // Performance is poor, use larger timestep for stability
+            targetTimestep = Math.min(avgFrameTime * 0.8, adaptive.maxTimestep);
+        } else {
+            // Performance is good, use smaller timestep for accuracy
+            targetTimestep = Math.max(avgFrameTime, adaptive.minTimestep);
+        }
+
+        // Smoothly adapt towards target timestep
+        const timestepDifference = targetTimestep - adaptive.smoothedDeltaTime;
+        adaptive.smoothedDeltaTime += timestepDifference * adaptive.adaptationRate;
+
+        // Clamp to min/max bounds
+        adaptive.smoothedDeltaTime = Math.max(adaptive.minTimestep,
+            Math.min(adaptive.maxTimestep, adaptive.smoothedDeltaTime));
+
+        // Apply additional smoothing for stability
+        const smoothingFactor = adaptive.smoothingFactor;
+        adaptive.smoothedDeltaTime = (1 - smoothingFactor) * adaptive.smoothedDeltaTime +
+                                    smoothingFactor * currentDeltaTime;
     }
 
     /**
@@ -171,6 +241,15 @@ export class ClockManager {
      * @returns {number} Delta time in seconds
      */
     getDeltaTime() {
+        return this.adaptiveTimestep.enabled ?
+            this.adaptiveTimestep.smoothedDeltaTime : this.deltaTime;
+    }
+
+    /**
+     * Get raw frame delta time (unprocessed by adaptive timestep)
+     * @returns {number} Raw delta time in seconds
+     */
+    getRawDeltaTime() {
         return this.deltaTime;
     }
 
@@ -179,7 +258,9 @@ export class ClockManager {
      * @returns {number} Delta time scaled for physics
      */
     getPhysicsDeltaTime() {
-        return this.deltaTime * this.speedMultiplier * this.timeScale;
+        const effectiveDeltaTime = this.adaptiveTimestep.enabled ?
+            this.adaptiveTimestep.smoothedDeltaTime : this.deltaTime;
+        return effectiveDeltaTime * this.speedMultiplier * this.timeScale;
     }
 
     /**
@@ -187,27 +268,29 @@ export class ClockManager {
      * @returns {number} Delta time scaled for orbital motion
      */
     getOrbitalDeltaTime() {
-        return this.deltaTime * this.speedMultiplier * this.orbitalTimeScale;
+        const effectiveDeltaTime = this.adaptiveTimestep.enabled ?
+            this.adaptiveTimestep.smoothedDeltaTime : this.deltaTime;
+        return effectiveDeltaTime * this.speedMultiplier * this.orbitalTimeScale;
     }
 
     /**
-     * Get time increment for Kepler orbits (calibrated to match n-body)
-     * @param {number} fixedTimeStep - The fixed timestep from accumulator
+     * Get time increment for Kepler orbits (adaptive timestep version)
      * @returns {number} Time increment for Kepler system
      */
-    getKeplerTimeIncrement(fixedTimeStep) {
-        const speedMultiplier = this.speedMultiplier * 100.0;
-        return fixedTimeStep * speedMultiplier * 0.0000002; // Calibrated factor
+    getKeplerTimeIncrement() {
+        const effectiveDeltaTime = this.adaptiveTimestep.enabled ?
+            this.adaptiveTimestep.smoothedDeltaTime : this.deltaTime;
+        return effectiveDeltaTime * this.speedMultiplier * 0.00002; // Calibrated factor
     }
 
     /**
-     * Get time increment for n-body physics (calibrated)
-     * @param {number} deltaTime - The delta time
-     * @param {number} nBodySpeedMultiplier - N-body internal speed
+     * Get time increment for n-body physics (adaptive timestep version)
      * @returns {number} Time increment for n-body system
      */
-    getNBodyTimeIncrement(deltaTime, nBodySpeedMultiplier) {
-        return deltaTime * nBodySpeedMultiplier * 0.00002; // Calibrated factor
+    getNBodyTimeIncrement() {
+        const effectiveDeltaTime = this.adaptiveTimestep.enabled ?
+            this.adaptiveTimestep.smoothedDeltaTime : this.deltaTime;
+        return effectiveDeltaTime * this.speedMultiplier * 0.002; // Calibrated factor
     }
 
     /**
@@ -217,7 +300,9 @@ export class ClockManager {
     getRotationDeltaTime() {
         // Scale rotation time to match orbital time scaling
         // Need to find balance: visible rotation but ~27-30 rotations per Moon orbit
-        return this.deltaTime * this.speedMultiplier * 0.2;
+        const effectiveDeltaTime = this.adaptiveTimestep.enabled ?
+            this.adaptiveTimestep.smoothedDeltaTime : this.deltaTime;
+        return effectiveDeltaTime * this.speedMultiplier * 0.1;
     }
 
     /**
@@ -225,7 +310,9 @@ export class ClockManager {
      * @returns {number} Delta time scaled for effects
      */
     getEffectsDeltaTime() {
-        return this.deltaTime * this.speedMultiplier;
+        const effectiveDeltaTime = this.adaptiveTimestep.enabled ?
+            this.adaptiveTimestep.smoothedDeltaTime : this.deltaTime;
+        return effectiveDeltaTime * this.speedMultiplier;
     }
 
     /**
@@ -263,6 +350,60 @@ export class ClockManager {
     }
 
     /**
+     * Enable or disable adaptive timestep
+     * @param {boolean} enabled - Whether to enable adaptive timestep
+     */
+    setAdaptiveTimestep(enabled) {
+        this.adaptiveTimestep.enabled = enabled;
+        if (enabled) {
+            log.debug('ClockManager', 'Adaptive timestep enabled');
+        } else {
+            log.debug('ClockManager', 'Adaptive timestep disabled');
+        }
+    }
+
+    /**
+     * Configure adaptive timestep parameters
+     * @param {Object} config - Configuration object
+     */
+    configureAdaptiveTimestep(config) {
+        if (config.targetFPS !== undefined) {
+            this.adaptiveTimestep.targetFPS = config.targetFPS;
+            this.adaptiveTimestep.performanceThreshold = 1 / config.targetFPS;
+        }
+        if (config.minTimestep !== undefined) {
+            this.adaptiveTimestep.minTimestep = config.minTimestep;
+        }
+        if (config.maxTimestep !== undefined) {
+            this.adaptiveTimestep.maxTimestep = config.maxTimestep;
+        }
+        if (config.smoothingFactor !== undefined) {
+            this.adaptiveTimestep.smoothingFactor = config.smoothingFactor;
+        }
+        if (config.adaptationRate !== undefined) {
+            this.adaptiveTimestep.adaptationRate = config.adaptationRate;
+        }
+
+        log.debug('ClockManager', 'Adaptive timestep configured', config);
+    }
+
+    /**
+     * Get adaptive timestep information
+     * @returns {Object} Adaptive timestep status
+     */
+    getAdaptiveTimestepInfo() {
+        return {
+            enabled: this.adaptiveTimestep.enabled,
+            smoothedDeltaTime: this.adaptiveTimestep.smoothedDeltaTime,
+            targetFPS: this.adaptiveTimestep.targetFPS,
+            currentFPS: this.adaptiveTimestep.smoothedDeltaTime > 0 ? 1 / this.adaptiveTimestep.smoothedDeltaTime : 0,
+            avgFrameTime: this.adaptiveTimestep.frameTimeHistory.length > 0 ?
+                this.adaptiveTimestep.frameTimeHistory.reduce((sum, time) => sum + time, 0) /
+                this.adaptiveTimestep.frameTimeHistory.length : 0
+        };
+    }
+
+    /**
      * Get clock status for debugging
      * @returns {Object} Clock status information
      */
@@ -275,7 +416,8 @@ export class ClockManager {
             speedMultiplier: this.speedMultiplier,
             timeScale: this.timeScale,
             orbitalTimeScale: this.orbitalTimeScale,
-            fps: this.deltaTime > 0 ? 1 / this.deltaTime : 0
+            fps: this.deltaTime > 0 ? 1 / this.deltaTime : 0,
+            adaptiveTimestep: this.getAdaptiveTimestepInfo()
         };
     }
 
@@ -285,6 +427,87 @@ export class ClockManager {
     logStatus() {
         const status = this.getStatus();
         log.info('ClockManager', `Status: ${JSON.stringify(status, null, 2)}`);
+    }
+
+    /**
+     * Get orbital progress for a specific body using mean anomaly
+     * @param {Object} hierarchy - The solar system hierarchy
+     * @param {string} bodyName - Name of the body to track (e.g., "Moon")
+     * @returns {Object|null} Orbital progress information or null if not found
+     */
+    getOrbitalProgress(hierarchy, bodyName) {
+        const body = this.findBodyInHierarchy(hierarchy, bodyName);
+        if (!body || !body.orbit) {
+            return null;
+        }
+
+        // Convert simulation time to the same time units used by orbital calculations
+        // The orbital calculations use a different time scale than raw simulation time
+        const currentTime = this.getSimulationTime();
+        const orbitalTime = currentTime * 0.00002; // Use same conversion as getKeplerTimeIncrement
+
+        // Calculate current mean anomaly: M = M0 + n*t (where t is in orbital time units)
+        const meanAnomaly = body.orbit.meanAnomalyAtEpochRadians + body.orbit.n * orbitalTime;
+
+        // Calculate progress metrics
+        const meanAnomalyDegrees = (meanAnomaly * 180 / Math.PI) % 360;
+        const orbitsCompleted = Math.floor(meanAnomaly / (2 * Math.PI));
+        const orbitalProgress = (meanAnomaly % (2 * Math.PI)) / (2 * Math.PI);
+
+        return {
+            bodyName: body.name,
+            meanAnomalyDegrees: meanAnomalyDegrees < 0 ? meanAnomalyDegrees + 360 : meanAnomalyDegrees,
+            orbitsCompleted,
+            orbitalProgress: orbitalProgress < 0 ? orbitalProgress + 1 : orbitalProgress,
+            totalDegrees: meanAnomaly * 180 / Math.PI,
+            orbitalPeriod: body.orbit.orbitalPeriod,
+            meanMotion: body.orbit.n
+        };
+    }
+
+    /**
+     * Find a body by name in the hierarchy
+     * @param {Object} hierarchy - The solar system hierarchy
+     * @param {string} bodyName - Name of the body to find
+     * @returns {Object|null} The body object or null if not found
+     */
+    findBodyInHierarchy(hierarchy, bodyName) {
+        // Check current node
+        if (hierarchy.body && hierarchy.body.name === bodyName) {
+            return hierarchy.body;
+        }
+
+        // Recursively search children
+        if (hierarchy.children && Array.isArray(hierarchy.children)) {
+            for (const child of hierarchy.children) {
+                const found = this.findBodyInHierarchy(child, bodyName);
+                if (found) {
+                    return found;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Get Earth's actual rotation count in degrees from the mesh rotation
+     * @param {Object} hierarchy - The solar system hierarchy
+     * @returns {number|null} Total degrees Earth has rotated or null if not found
+     */
+    getEarthRotationDegrees(hierarchy) {
+        const earth = this.findBodyInHierarchy(hierarchy, 'Earth');
+        if (!earth || !earth.mesh) {
+            return null;
+        }
+
+        // Get the actual rotation from the Earth's mesh (in radians)
+        const meshRotationRadians = earth.mesh.rotation.y;
+
+        // Convert radians to degrees
+        const meshRotationDegrees = meshRotationRadians * (180 / Math.PI);
+
+        return Math.abs(meshRotationDegrees);
     }
 }
 
