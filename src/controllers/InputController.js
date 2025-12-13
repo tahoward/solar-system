@@ -301,42 +301,10 @@ export class InputController {
      * Toggle bloom effect
      */
     toggleBloom() {
-        const isEnabled = SceneManager.toggleBloom();
-        const message = isEnabled ? 'Bloom enabled' : 'Bloom disabled';
-        this.displayBloomInfo(message);
+        SceneManager.toggleBloom();
+        // Message display removed per user request
     }
 
-    /**
-     * Display bloom-related information
-     */
-    displayBloomInfo(message) {
-        // Create or update bloom display
-        let bloomDisplay = document.getElementById('bloom-display');
-        if (!bloomDisplay) {
-            bloomDisplay = document.createElement('div');
-            bloomDisplay.id = 'bloom-display';
-            bloomDisplay.style.position = 'fixed';
-            bloomDisplay.style.bottom = '100px';  // Above marker display
-            bloomDisplay.style.right = '20px';
-            bloomDisplay.style.color = 'white';
-            bloomDisplay.style.fontFamily = 'monospace';
-            bloomDisplay.style.fontSize = '16px';
-            bloomDisplay.style.background = 'rgba(0, 0, 0, 0.7)';
-            bloomDisplay.style.padding = '10px';
-            bloomDisplay.style.borderRadius = '5px';
-            bloomDisplay.style.zIndex = '100';
-            document.body.appendChild(bloomDisplay);
-        }
-
-        bloomDisplay.textContent = message;
-
-        // Fade out after 3 seconds
-        bloomDisplay.style.opacity = '1';
-        clearTimeout(bloomDisplay.fadeTimeout);
-        bloomDisplay.fadeTimeout = setTimeout(() => {
-            bloomDisplay.style.opacity = '0.3';
-        }, 3000);
-    }
 
     /**
      * Handle planet selection from marker clicks

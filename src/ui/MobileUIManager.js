@@ -193,6 +193,9 @@ class MobileUIManager {
                 case 'togglePhysics':
                     this.togglePhysics();
                     break;
+                case 'toggleBloom':
+                    this.toggleBloom();
+                    break;
                 default:
                     log.warn('MobileUI', `Unknown action: ${action}`);
                     return;
@@ -290,6 +293,11 @@ class MobileUIManager {
 
     togglePhysics() {
         const event = new KeyboardEvent('keydown', { code: 'KeyP', key: 'p' });
+        document.dispatchEvent(event);
+    }
+
+    toggleBloom() {
+        const event = new KeyboardEvent('keydown', { code: 'KeyB', key: 'b' });
         document.dispatchEvent(event);
     }
 

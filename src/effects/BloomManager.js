@@ -17,8 +17,9 @@ export class BloomManager {
 
         // Bloom enable/disable flag - disable on mobile devices for performance
         const isMobile = this.isMobileDevice();
-        this.enabled = !isMobile;
-        this.manuallyDisabled = false;  // Track if user manually disabled bloom
+        this.enabled = !isMobile;  // Actual bloom state (controlled by distance and user preference)
+        this.userEnabled = !isMobile;  // User's preference for bloom (what they want when not close to stars)
+        this.manuallyControlled = false;  // Track if user has manually overridden bloom (either enabled or disabled)
         this.mobileDevice = isMobile;   // Store mobile status to prevent re-enabling
 
         log.info('BloomManager', '🌟 BloomManager initialized', {
@@ -235,22 +236,26 @@ export class BloomManager {
             bloomStrength = 0;
         }
 
-        // Only apply distance-based bloom control if not manually overridden
-        if (!this.manuallyDisabled) {
-            // Disable entire bloom system when within scaled disable distance of stars
-            const shouldDisable = closestScaledDistance <= scaledDisableDistance;
+        // Distance-based bloom control - always disable when close to stars
+        const shouldDisable = closestScaledDistance <= scaledDisableDistance;
 
-            if (shouldDisable && this.enabled) {
-                this.enabled = false;  // Disable bloom completely when close to stars
-            } else if (!shouldDisable && !this.enabled && !this.mobileDevice) {
-                // Only enable bloom when far from stars AND not on mobile device
-                this.enabled = true;   // Enable bloom when far from stars
+        if (shouldDisable) {
+            // ALWAYS disable bloom when close to stars, regardless of user preference
+            this.enabled = false;
+        } else {
+            // When far from stars, use user's preference (if manually controlled) or automatic control
+            if (this.manuallyControlled) {
+                // User has manually controlled bloom - use their preference (allow on mobile if user wants it)
+                this.enabled = this.userEnabled;
+            } else {
+                // No manual control - use automatic distance-based control (disabled on mobile by default for performance)
+                this.enabled = !this.mobileDevice;
             }
+        }
 
-            // Always set strength if enabled
-            if (this.enabled) {
-                this.bloomPass.strength = bloomStrength;  // Set appropriate strength
-            }
+        // Always set strength if enabled
+        if (this.enabled) {
+            this.bloomPass.strength = bloomStrength;  // Use calculated strength
         }
 
     }
@@ -396,35 +401,33 @@ export class BloomManager {
      * @returns {boolean} True if bloom is now enabled, false if disabled
      */
     toggleBloom() {
-        this.enabled = !this.enabled;
-        this.manuallyDisabled = !this.enabled;  // Track manual control
-        return this.enabled;
+        this.userEnabled = !this.userEnabled;
+        this.manuallyControlled = true;  // User has manually overridden bloom
+        return this.userEnabled;  // Return user's preference
     }
 
     /**
-     * Enable bloom effect (but not on mobile devices)
+     * Enable bloom effect (allows on mobile if explicitly called)
      */
     enableBloom() {
-        if (!this.mobileDevice) {
-            this.enabled = true;
-        } else {
-            log.info('BloomManager', '🌟 Bloom enable ignored - mobile device detected');
-        }
+        this.userEnabled = true;
+        this.manuallyControlled = true;
     }
 
     /**
      * Disable bloom effect
      */
     disableBloom() {
-        this.enabled = false;
+        this.userEnabled = false;
+        this.manuallyControlled = true;
     }
 
     /**
-     * Check if bloom is currently enabled
-     * @returns {boolean} True if bloom is enabled
+     * Check if bloom is currently enabled (user's preference)
+     * @returns {boolean} True if bloom is enabled by user
      */
     isBloomEnabled() {
-        return this.enabled;
+        return this.userEnabled;  // Return user's preference, not actual state
     }
 
     /**
