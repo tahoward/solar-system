@@ -72,14 +72,18 @@ class Orbit {
         this.#updateOrbitCenter();
 
         // Add orbit line based on body's equatorialOrbit attribute
+        console.log(`[Orbit] ${this.body.name}: equatorialOrbit = ${this.body.equatorialOrbit}, parentBody = ${this.parentBody?.name}`);
         if (this.parentBody && this.parentBody.tiltContainer && this.body.equatorialOrbit) {
             // Body wants to orbit in parent's equatorial plane - add to parent's tiltContainer
+            console.log(`[Orbit] Adding ${this.body.name} to ${this.parentBody.name}'s tiltContainer (equatorial orbit)`);
             this.parentBody.tiltContainer.add(this.orbitLine);
         } else if (this.parentBody && this.parentBody.group) {
             // Body wants to orbit in ecliptic plane - add to parent's main group (untilted)
+            console.log(`[Orbit] Adding ${this.body.name} to ${this.parentBody.name}'s main group (ecliptic orbit)`);
             this.parentBody.group.add(this.orbitLine);
         } else {
             // No parent - add to scene (root body like Sun)
+            console.log(`[Orbit] Adding ${this.body.name} to scene (root body)`);
             SceneManager.scene.add(this.orbitLine);
         }
 

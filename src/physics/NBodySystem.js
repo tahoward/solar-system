@@ -228,9 +228,9 @@ function initializeChildPhysics(parent, parentBody, sceneScale) {
             // Calculate position and velocity with centralized transformations
             const mu = 39.478 * parentBody.mass; // Gravitational parameter
 
-            // Prepare transformation options
+            // Prepare transformation options based on child body's equatorialOrbit attribute
             const transformOptions = {
-                applyTilt: parentBody.axialTilt !== undefined && !parentBody.ecliptic,
+                applyTilt: parentBody.axialTilt !== undefined && child.body.equatorialOrbit,
                 axialTilt: parentBody.axialTilt || 0
             };
 

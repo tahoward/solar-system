@@ -214,7 +214,6 @@ export const CELESTIAL_DATA = [{
   mass: 1.0,  // 1 solar mass by definition
   rotationPeriod: 609.12,  // Rotation period in Earth hours (~25.4 Earth days)
   axialTilt: 7.25,  // Axial tilt in degrees (relative to orbital plane)
-  equatorialOrbit: false,  // If true, direct children orbit in this body's equatorial plane; if false, they orbit in ecliptic plane
   star: {
     // Star physical properties
     temperature: 5778,     // Surface temperature in Kelvin (G-type yellow star - our Sun)
@@ -331,7 +330,6 @@ export const CELESTIAL_DATA = [{
       mass: 3.00348e-6,
       rotationPeriod: 23.93,  // Rotation period in Earth hours
       axialTilt: 23.44,  // Axial tilt in degrees (causes seasons)
-      equatorialOrbit: false,  // If true, direct children orbit in this body's equatorial plane; if false, they orbit in ecliptic plane
       lightIntensity: null,  // No light emission
       surfaceTexture: TEXTURES.earth,  // High-resolution Earth surface texture
       // Earth's atmospheric cloud layer
@@ -364,7 +362,6 @@ export const CELESTIAL_DATA = [{
           axialTilt: 1.54,  // Axial tilt in degrees
           rotationOffset: -Math.PI / 2,  // 90 degree rotation offset (π/2 radians) to show a different face
           tidallyLocked: true,  // Moon always shows same face to Earth
-          equatorialOrbit: true,  // Moon orbits in Earth's equatorial plane
           lightIntensity: null,  // No light emission
           surfaceTexture: TEXTURES.moon,  // Moon surface texture
           parent: 'Earth',
