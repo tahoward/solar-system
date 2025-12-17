@@ -303,9 +303,9 @@ function updateChildrenPositions(parent, parentBody, timestamp) {
             // Use centralized functions for position and velocity with transformations
             const mu = parentBody.mass * 39.478;
 
-            // Determine transformation options based on parent body
+            // Determine transformation options based on child body's equatorialOrbit attribute
             const transformOptions = {
-                applyTilt: parentBody && parentBody.tiltContainer && !parentBody.ecliptic,
+                applyTilt: parentBody && parentBody.tiltContainer && child.body.equatorialOrbit,
                 axialTilt: parentBody?.axialTilt || 0
             };
 

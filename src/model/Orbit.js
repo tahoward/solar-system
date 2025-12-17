@@ -71,12 +71,12 @@ class Orbit {
         // Calculate and cache orbit center position for LOD calculations
         this.#updateOrbitCenter();
 
-        // Add orbit line based on parent's ecliptic attribute
-        if (this.parentBody && this.parentBody.tiltContainer && !this.parentBody.ecliptic) {
-            // Parent wants children in equatorial plane - add to parent's tiltContainer
+        // Add orbit line based on body's equatorialOrbit attribute
+        if (this.parentBody && this.parentBody.tiltContainer && this.body.equatorialOrbit) {
+            // Body wants to orbit in parent's equatorial plane - add to parent's tiltContainer
             this.parentBody.tiltContainer.add(this.orbitLine);
         } else if (this.parentBody && this.parentBody.group) {
-            // Parent wants children in ecliptic plane - add to parent's main group (untilted)
+            // Body wants to orbit in ecliptic plane - add to parent's main group (untilted)
             this.parentBody.group.add(this.orbitLine);
         } else {
             // No parent - add to scene (root body like Sun)
@@ -122,12 +122,8 @@ class Orbit {
                 meanMotion: this.n
             };
 
-            // Note: calculateKeplerianPosition uses the current auScale from kepler.js
-            // which should match this.sceneScale
+            // Calculate base orbital position
             const pos = calculateKeplerianPosition(t, orbitalElements);
-
-            // Orbit line coordinates are always relative to parent
-            // The container (tiltContainer vs scene) determines the coordinate space
 
             points.push(pos.x, pos.y, pos.z);
         }

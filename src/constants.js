@@ -214,7 +214,7 @@ export const CELESTIAL_DATA = [{
   mass: 1.0,  // 1 solar mass by definition
   rotationPeriod: 609.12,  // Rotation period in Earth hours (~25.4 Earth days)
   axialTilt: 7.25,  // Axial tilt in degrees (relative to orbital plane)
-  ecliptic: true,  // If true, direct children orbit in ecliptic plane; if false, they orbit in this body's equatorial plane
+  equatorialOrbit: false,  // If true, direct children orbit in this body's equatorial plane; if false, they orbit in ecliptic plane
   star: {
     // Star physical properties
     temperature: 5778,     // Surface temperature in Kelvin (G-type yellow star - our Sun)
@@ -331,7 +331,7 @@ export const CELESTIAL_DATA = [{
       mass: 3.00348e-6,
       rotationPeriod: 23.93,  // Rotation period in Earth hours
       axialTilt: 23.44,  // Axial tilt in degrees (causes seasons)
-      ecliptic: true,  // If true, direct children orbit in ecliptic plane; if false, they orbit in this body's equatorial plane
+      equatorialOrbit: false,  // If true, direct children orbit in this body's equatorial plane; if false, they orbit in ecliptic plane
       lightIntensity: null,  // No light emission
       surfaceTexture: TEXTURES.earth,  // High-resolution Earth surface texture
       // Earth's atmospheric cloud layer
@@ -364,6 +364,7 @@ export const CELESTIAL_DATA = [{
           axialTilt: 1.54,  // Axial tilt in degrees
           rotationOffset: -Math.PI / 2,  // 90 degree rotation offset (π/2 radians) to show a different face
           tidallyLocked: true,  // Moon always shows same face to Earth
+          equatorialOrbit: true,  // Moon orbits in Earth's equatorial plane
           lightIntensity: null,  // No light emission
           surfaceTexture: TEXTURES.moon,  // Moon surface texture
           parent: 'Earth',
@@ -434,6 +435,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 42.46,  // Tidally locked (1.77 Earth days)
           axialTilt: 0.05,  // Nearly no tilt
           tidallyLocked: true,  // Always faces Jupiter
+          equatorialOrbit: true,  // Orbits in Jupiter's equatorial plane
           lightIntensity: null,
           parent: 'Jupiter',
           a: 0.002819,  // Semi-major axis in AU (421,700 km)
@@ -453,6 +455,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 85.23,  // Tidally locked (3.55 Earth days)
           axialTilt: 0.1,   // Nearly no tilt
           tidallyLocked: true,  // Always faces Jupiter
+          equatorialOrbit: true,  // Orbits in Jupiter's equatorial plane
           lightIntensity: null,
           surfaceTexture: TEXTURES.europa,
           parent: 'Jupiter',
@@ -472,6 +475,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 171.71,  // Tidally locked (7.15 Earth days)
           axialTilt: 0.33,  // Small tilt
           tidallyLocked: true,  // Always faces Jupiter
+          equatorialOrbit: true,  // Orbits in Jupiter's equatorial plane
           lightIntensity: null,
           surfaceTexture: TEXTURES.ganymede,
           parent: 'Jupiter',
@@ -491,6 +495,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 400.54,  // Tidally locked (16.69 Earth days)
           axialTilt: 0.51,  // Small tilt
           tidallyLocked: true,  // Always faces Jupiter
+          equatorialOrbit: true,  // Orbits in Jupiter's equatorial plane
           lightIntensity: null,
           surfaceTexture: TEXTURES.callisto,
           parent: 'Jupiter',
@@ -541,6 +546,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 22.62, // Tidally locked (0.942 Earth days)
           axialTilt: 0.02, // Nearly aligned with Saturn's equator
           tidallyLocked: true,  // Always faces Saturn
+          equatorialOrbit: true,  // Orbits in Saturn's equatorial plane
           lightIntensity: null,
           surfaceTexture: TEXTURES.mimas,
           parent: 'Saturn',
@@ -560,6 +566,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 32.88, // Tidally locked (1.37 Earth days)
           axialTilt: 0.0, // No significant tilt
           tidallyLocked: true,  // Always faces Saturn
+          equatorialOrbit: true,  // Orbits in Saturn's equatorial plane
           lightIntensity: null,
           surfaceTexture: TEXTURES.enceladus,
           parent: 'Saturn',
@@ -579,6 +586,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 45.31, // Tidally locked (1.89 Earth days)
           axialTilt: 0.02, // Nearly aligned with Saturn's equator
           tidallyLocked: true,  // Always faces Saturn
+          equatorialOrbit: true,  // Orbits in Saturn's equatorial plane
           lightIntensity: null,
           surfaceTexture: TEXTURES.tethys,
           parent: 'Saturn',
@@ -598,6 +606,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 65.69, // Tidally locked (2.74 Earth days)
           axialTilt: 0.02, // Nearly no tilt
           tidallyLocked: true,  // Always faces Saturn
+          equatorialOrbit: true,  // Orbits in Saturn's equatorial plane
           lightIntensity: null,
           surfaceTexture: TEXTURES.dione,
           parent: 'Saturn',
@@ -617,6 +626,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 382.69, // Tidally locked (15.95 Earth days)
           axialTilt: 0.02, // Nearly aligned with Saturn's equator
           tidallyLocked: true,  // Always faces Saturn
+          equatorialOrbit: true,  // Orbits in Saturn's equatorial plane
           lightIntensity: null,
           surfaceTexture: TEXTURES.titan,
           // Titan's thick methane atmosphere
@@ -735,6 +745,7 @@ export const CELESTIAL_DATA = [{
           rotationPeriod: 153.29, // Tidally locked to Pluto (same as Pluto's rotation - they're mutually tidally locked)
           axialTilt: 0.08, // Nearly no tilt relative to orbital plane
           tidallyLocked: true,  // Always faces Pluto (mutually tidally locked system)
+          equatorialOrbit: true,  // Orbits in Pluto's equatorial plane (mutually tidally locked)
           lightIntensity: null, // No light emission
           surfaceTexture: TEXTURES.charon,
           parent: 'Pluto',

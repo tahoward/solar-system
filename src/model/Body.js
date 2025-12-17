@@ -77,8 +77,8 @@ class Body {
         this.isTarget = false;
         this.thisBody = null;
 
-        // Store ecliptic attribute from celestial data
-        this.ecliptic = bodyData.ecliptic !== undefined ? bodyData.ecliptic : false;
+        // Store equatorialOrbit attribute from celestial data
+        this.equatorialOrbit = bodyData.equatorialOrbit !== undefined ? bodyData.equatorialOrbit : false;
 
         // Store radiusScale from bodyData for bloom and other distance-based effects
         this.radiusScale = bodyData.radiusScale || 1.0;
