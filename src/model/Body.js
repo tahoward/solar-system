@@ -320,29 +320,27 @@ class Body {
 
     /**
      * Update body rotation (call this every frame)
-     * @param {number} deltaTime - Time elapsed since last frame in seconds
-     * @param {number} speedMultiplier - Current simulation speed multiplier
+     * @param {number} simulationTime - Absolute simulation time in seconds
      */
-    updateRotation(deltaTime = 1/60, speedMultiplier = 1) {
-        BodyPhysics.updateRotation(this, deltaTime, speedMultiplier);
+    updateRotation(simulationTime = 0) {
+        BodyPhysics.updateRotation(this, simulationTime);
     }
 
     /**
      * Update rotation for this body and all its children recursively
      * This replaces the OrbitManager's iteration pattern with direct hierarchical updates
-     * @param {number} deltaTime - Time elapsed since last frame in seconds
-     * @param {number} speedMultiplier - Current simulation speed multiplier
+     * @param {number} simulationTime - Absolute simulation time in seconds
      */
-    updateRotationRecursive(deltaTime = 1/60, speedMultiplier = 1) {
+    updateRotationRecursive(simulationTime = 0) {
         // Update this body's rotation
-        this.updateRotation(deltaTime, speedMultiplier);
+        this.updateRotation(simulationTime);
 
         // Recursively update rotation for all children
         if (this.children && this.children.length > 0) {
             this.children.forEach(childHierarchy => {
                 const childBody = childHierarchy.body;
                 if (childBody && typeof childBody.updateRotationRecursive === 'function') {
-                    childBody.updateRotationRecursive(deltaTime, speedMultiplier);
+                    childBody.updateRotationRecursive(simulationTime);
                 }
             });
         }
@@ -482,8 +480,8 @@ class Body {
         }
     }
 
-    update(deltaTime = 1/60, speedMultiplier = 1, starPosition, starLightColor) {
-        this.updateRotation(deltaTime, speedMultiplier);
+    update(simulationTime = 0, starPosition, starLightColor) {
+        this.updateRotation(simulationTime);
         this.updateDirectShadows();
         this.updateLighting(starPosition, starLightColor);
         this.updateLOD(SceneManager.camera)
@@ -549,14 +547,14 @@ class Body {
                 if (this.mesh) this.mesh.visible = true;
 
                 this.sunGlare.update(effectsDeltaTime, camera, starPosition);
-            }        
+            }
         }
 
         if (this.children && this.children.length > 0) {
             this.children.forEach(childHierarchy => {
                 const childBody = childHierarchy.body;
                 if (childBody && typeof childBody.update === 'function') {
-                    childBody.update(deltaTime, speedMultiplier, starPosition, starLightColor);
+                    childBody.update(simulationTime, starPosition, starLightColor);
                 }
             });
         }

@@ -116,10 +116,10 @@ export class AnimationManager {
             this.updateOrbits();
 
             // Update star rotation and effects using unified clock (after orbit positions are updated)
+            // Use the same accumulated time as orbital positions for synchronized rotation
             const star = this.getFirstStar()
             this.hierarchy.body.update(
-                clockManager.getRotationDeltaTime(),
-                1,
+                this.keplerAccumulatedTime,
                 star.starPosition,
                 star.starLightColor,
             )

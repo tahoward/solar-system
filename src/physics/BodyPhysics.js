@@ -40,33 +40,42 @@ class BodyPhysics {
     /**
      * Update body rotation (call this every frame)
      * @param {Object} body - The body instance
-     * @param {number} deltaTime - Time elapsed since last frame in seconds
-     * @param {number} speedMultiplier - Current simulation speed multiplier
+     * @param {number} orbitalTime - Absolute orbital time (same time used for Kepler calculations)
      */
-    static updateRotation(body, deltaTime = 1/60, speedMultiplier = 1) {
+    static updateRotation(body, orbitalTime = 0) {
         if (body.tidallyLocked && body.parentBody) {
             // TIDAL LOCKING: Always face the parent body
             BodyPhysics.updateTidalLockRotation(body);
         } else {
-            // NORMAL ROTATION: Spin based on rotation period
-            // Calculate rotation increment: radians/second * seconds * speed multiplier
-            const rotationIncrement = body.rotationSpeed * deltaTime * speedMultiplier;
+            // NORMAL ROTATION: Calculate absolute rotation from orbital time
+            // This keeps rotation synchronized with orbital motion
+            //
+            // The orbital time and rotation need to use the same time base.
+            // rotationSpeed is in radians/second and has been calibrated for visual scaling
+            // orbitalTime comes from Kepler calculations and uses the same time scale as orbital motion
+            //
+            // To synchronize: we need to convert orbital time (which advances slowly) to rotation time
+            // The Kepler time uses a factor of 0.00002, while the original rotation used 0.1
+            // So we need to scale by (0.1 / 0.00002) = 5000 to maintain the same rotation speed
+            const rotationTimeScale = 5000; // Scale factor to match rotation speed with orbital time
+            const absoluteRotation = body.rotationSpeed * orbitalTime * rotationTimeScale;
 
-            // Rotate main mesh (rotation offset was applied at initialization)
+            // Apply absolute rotation (rotation offset was applied at initialization)
             if (body.mesh) {
-                body.mesh.rotation.y += rotationIncrement;
+                body.mesh.rotation.y = body.rotationOffset + absoluteRotation;
             }
 
             // Also rotate LOD mesh to keep them synchronized
             if (body.lodMesh) {
-                body.lodMesh.rotation.y += rotationIncrement;
+                body.lodMesh.rotation.y = body.rotationOffset + absoluteRotation;
             }
         }
 
         // Rotate clouds independently at their own speed (always applies)
         if (body.clouds && body.clouds.userData.rotationSpeed) {
-            const cloudRotationIncrement = body.rotationSpeed * deltaTime * speedMultiplier * body.clouds.userData.rotationSpeed;
-            body.clouds.rotation.y += cloudRotationIncrement;
+            const rotationTimeScale = 5000; // Same scale factor as main rotation
+            const cloudRotation = body.rotationSpeed * orbitalTime * rotationTimeScale * body.clouds.userData.rotationSpeed;
+            body.clouds.rotation.y = cloudRotation;
         }
     }
 

@@ -150,11 +150,12 @@ export class OrbitManager {
      * @private
      */
     updateBodyRotations() {
-        const rotationDeltaTime = clockManager.getRotationDeltaTime();
+        // Use absolute simulation time for synchronized rotation with orbital motion
+        const simulationTime = clockManager.getSimulationTime();
 
         // Use hierarchy root body for recursive rotation updates
         if (this.hierarchy && this.hierarchy.body) {
-            this.hierarchy.body.updateRotationRecursive(rotationDeltaTime, 1);
+            this.hierarchy.body.updateRotationRecursive(simulationTime);
         }
     }
 
