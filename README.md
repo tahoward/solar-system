@@ -2,6 +2,8 @@
 
 An interactive 3D solar system simulation built with Three.js, featuring realistic physics and beautiful visual effects.
 
+**[Live Demo](https://tahoward.github.io/solar-system/)**
+
 ## Features
 
 - Real orbital mechanics with two physics modes (N-Body and Kepler)
