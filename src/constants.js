@@ -75,7 +75,7 @@ export const ANIMATION = {
 export const BLOOM = {
   // Resolution multiplier for bloom effect
   // Higher values = better quality but lower performance
-  RESOLUTION_MULTIPLIER: 4.0,  // 4x screen resolution for high-quality bloom
+  RESOLUTION_MULTIPLIER: 2.0,  // 2x screen resolution for balanced quality/performance (reduced from 4.0)
 
   // Bloom effect parameters
   STRENGTH: .5,    // Bloom strength (reduced to prevent washout)

@@ -39,6 +39,8 @@ export class AnimationManager {
         // Kepler system accumulated time
         this.keplerAccumulatedTime = 0;
 
+        // Frame counter for UI update throttling (optimization)
+        this.frameCount = 0;
 
         // Bind the animate method to preserve 'this' context
         this.animate = this.animate.bind(this);
@@ -128,18 +130,20 @@ export class AnimationManager {
             // Render the scene
             this.render();
 
-            // Update performance stats
-            this.updateStats();
+            // Increment frame counter for UI update throttling
+            this.frameCount++;
 
-            // Update state overlay with current system state
-            updateStateDisplay(this);
+            // Update UI overlays less frequently (every 3 frames) for performance
+            if (this.frameCount % 3 === 0) {
+                // Update state overlay with current system state
+                updateStateDisplay(this);
 
-            // Update stats overlay with performance data
-            updateStatsDisplay(this.performanceStats);
+                // Update stats overlay with performance data
+                updateStatsDisplay(this.performanceStats);
 
-            // Update debug overlay with live data
-            updateDebugOverlay();
-
+                // Update debug overlay with live data
+                updateDebugOverlay();
+            }
 
             // Record frame for development tools
             devUtils.recordFrame();
@@ -204,12 +208,8 @@ export class AnimationManager {
 
     /**
      * Update performance statistics
+     * Note: Removed duplicate - stats.update() is called at start of animate() loop
      */
-    updateStats() {
-        if (this.stats && typeof this.stats.update === 'function') {
-            this.stats.update();
-        }
-    }
 
     /**
      * Pause the animation loop (keeps it registered but stops updates)

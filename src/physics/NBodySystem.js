@@ -231,7 +231,8 @@ function initializeChildPhysics(parent, parentBody, sceneScale) {
             // Prepare transformation options based on child body's equatorialOrbit attribute
             const transformOptions = {
                 applyTilt: parentBody.axialTilt !== undefined && child.body.equatorialOrbit,
-                axialTilt: parentBody.axialTilt || 0
+                axialTilt: parentBody.axialTilt || 0,
+                tiltMatrix: child.orbit?.tiltMatrix || null  // Use pre-computed tilt matrix (optimization)
             };
 
             // Use centralized kepler.js functions that handle tilt and parent transformations

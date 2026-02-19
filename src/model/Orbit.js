@@ -52,6 +52,13 @@ class Orbit {
         this.n = orbitalMotion.meanMotion; // Mean motion in radians/year
         this.orbitalPeriod = orbitalMotion.orbitalPeriod; // Period in years
 
+        // Pre-compute tilt matrix for performance (optimization)
+        // Only create if parent has axial tilt and this is an equatorial orbit
+        this.tiltMatrix = null;
+        if (parentBody && parentBody.axialTilt && body.equatorialOrbit && parentBody.axialTilt !== 0) {
+            this.tiltMatrix = new THREE.Matrix4();
+            this.tiltMatrix.makeRotationZ(parentBody.axialTilt * Math.PI / 180);
+        }
 
         // Moon inclinations are relative to parent's equatorial plane
         // The orbit line will inherit the parent's axial tilt via the tiltContainer hierarchy

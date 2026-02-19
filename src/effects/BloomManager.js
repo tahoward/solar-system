@@ -113,23 +113,37 @@ export class BloomManager {
         let baseEmissiveIntensity = 2.0; // Default fallback
         let starRays = null;
         let starFlares = null;
+        const meshes = []; // Cache mesh references for visibility updates (optimization)
+        const lights = []; // Cache light references (optimization)
+        const orbitLines = []; // Cache orbit line references (optimization)
 
-        // Look for the star material in the object hierarchy
+        // Look for the star material in the object hierarchy (done once during registration)
         starObject.traverse((child) => {
+            // Cache meshes for later visibility updates
             if (child.isMesh && child.material) {
+                meshes.push(child);
+
                 // Check for regular materials with emissiveIntensity property
                 if (child.material.emissiveIntensity !== undefined) {
                     starMaterial = child.material;
                     baseEmissiveIntensity = child.material.emissiveIntensity;
-                    return;
                 }
 
                 // Check for shader materials with setEmissiveIntensity method (like SunShaderMaterial)
                 if (typeof child.material.setEmissiveIntensity === 'function' && child.material.uEmissiveIntensity) {
                     starMaterial = child.material;
                     baseEmissiveIntensity = child.material.uEmissiveIntensity.value;
-                    return;
                 }
+            }
+
+            // Cache lights for later visibility preservation
+            if (child.isLight) {
+                lights.push(child);
+            }
+
+            // Cache orbit lines for visibility preservation
+            if (child.isLine2 || child.type === 'Line2' || child.constructor.name === 'Line2') {
+                orbitLines.push(child);
             }
         });
 
@@ -160,7 +174,10 @@ export class BloomManager {
                 flares: starFlares,
                 baseRaysIntensity: starRays ? starRays.getEmissiveIntensity() : null,
                 baseFlaresIntensity: starFlares ? starFlares.getEmissiveIntensity() : null,
-                radiusScale: radiusScale  // Store for distance scaling
+                radiusScale: radiusScale,  // Store for distance scaling
+                meshes: meshes,  // Cached mesh references (optimization)
+                lights: lights,  // Cached light references (optimization)
+                orbitLines: orbitLines  // Cached orbit line references (optimization)
             });
         } else {
             log.warn('BloomManager', 'Could not find star material for bloom control in:', starObject.name || 'unnamed');
@@ -289,41 +306,42 @@ export class BloomManager {
             starMeshOpacity = 1.0;
         }
 
-        // Apply visibility to star mesh but NOT glare effects, lights, or orbit lines
-        starObject.traverse((child) => {
-            // Preserve orbit lines (Line2 objects) but don't override user's 'L' key toggle
-            if (child.isLine2 || child.type === 'Line2' || child.constructor.name === 'Line2') {
-                // Only ensure visibility if the orbit line was intended to be visible
-                // Don't override if user has toggled them off with 'L' key
-                if (child.visible) {
-                    child.visible = true; // Keep it visible (don't let star hiding affect it)
+        // Apply visibility using cached references instead of traverse (optimization)
+
+        // Preserve orbit lines visibility (don't override user's 'L' key toggle)
+        if (starData.orbitLines) {
+            for (const line of starData.orbitLines) {
+                if (line.visible) {
+                    line.visible = true; // Keep it visible
                 }
-                return; // Skip other processing for orbit lines
             }
+        }
 
-            // Always preserve lights
-            if (child.isLight) {
-                child.visible = true;
-                return;
+        // Always preserve lights
+        if (starData.lights) {
+            for (const light of starData.lights) {
+                light.visible = true;
             }
+        }
 
-            // Only affect star mesh materials, not glare effects
-            if (child.isMesh && child.material) {
-                if (child.material === starData.material ||
-                    (child.material.type && !child.material.type.includes('Glare'))) {
+        // Update star mesh materials (not glare effects)
+        if (starData.meshes) {
+            for (const mesh of starData.meshes) {
+                if (mesh.material === starData.material ||
+                    (mesh.material.type && !mesh.material.type.includes('Glare'))) {
 
                     // Set transparency and visibility for star mesh only
                     if (starMeshOpacity < 1.0) {
-                        child.material.transparent = true;
-                        child.material.opacity = starMeshOpacity;
-                        child.visible = starMeshOpacity > 0.01;
+                        mesh.material.transparent = true;
+                        mesh.material.opacity = starMeshOpacity;
+                        mesh.visible = starMeshOpacity > 0.01;
                     } else {
-                        child.material.opacity = 1.0;
-                        child.visible = true;
+                        mesh.material.opacity = 1.0;
+                        mesh.visible = true;
                     }
                 }
             }
-        });
+        }
 
         // Also ensure the emittedLight property is always visible
         if (starObject.emittedLight) {

@@ -200,6 +200,7 @@ export function calculateKeplerianVelocity(t, orbitalElements, mu = 39.478) {
  * @param {Object} options - Additional options for transformations
  * @param {boolean} options.applyTilt - Whether to apply parent axial tilt
  * @param {number} options.axialTilt - Parent axial tilt in degrees
+ * @param {THREE.Matrix4} options.tiltMatrix - Pre-computed tilt matrix (optimization)
  * @returns {THREE.Vector3} Final position including all transformations
  */
 export function calculateKeplerianPositionWithTransforms(t, orbitalElements, parentBody = null, options = {}) {
@@ -209,9 +210,15 @@ export function calculateKeplerianPositionWithTransforms(t, orbitalElements, par
     // Apply tilt transformation if specified
     let finalPosition = orbitPosition.clone();
     if (options.applyTilt && options.axialTilt !== undefined && options.axialTilt !== 0) {
-        const tiltMatrix = new THREE.Matrix4();
-        tiltMatrix.makeRotationZ(options.axialTilt * Math.PI / 180);
-        finalPosition.applyMatrix4(tiltMatrix);
+        // Use pre-computed tilt matrix if available (optimization)
+        if (options.tiltMatrix) {
+            finalPosition.applyMatrix4(options.tiltMatrix);
+        } else {
+            // Fallback: compute on-the-fly (legacy support)
+            const tiltMatrix = new THREE.Matrix4();
+            tiltMatrix.makeRotationZ(options.axialTilt * Math.PI / 180);
+            finalPosition.applyMatrix4(tiltMatrix);
+        }
     }
 
     // Add parent position if specified
@@ -231,6 +238,7 @@ export function calculateKeplerianPositionWithTransforms(t, orbitalElements, par
  * @param {Object} options - Additional options for transformations
  * @param {boolean} options.applyTilt - Whether to apply parent axial tilt
  * @param {number} options.axialTilt - Parent axial tilt in degrees
+ * @param {THREE.Matrix4} options.tiltMatrix - Pre-computed tilt matrix (optimization)
  * @returns {THREE.Vector3} Final velocity including all transformations
  */
 export function calculateKeplerianVelocityWithTransforms(t, orbitalElements, mu, parentBody = null, options = {}) {
@@ -240,9 +248,15 @@ export function calculateKeplerianVelocityWithTransforms(t, orbitalElements, mu,
     // Apply tilt transformation if specified
     let finalVelocity = orbitVelocity.clone();
     if (options.applyTilt && options.axialTilt !== undefined && options.axialTilt !== 0) {
-        const tiltMatrix = new THREE.Matrix4();
-        tiltMatrix.makeRotationZ(options.axialTilt * Math.PI / 180);
-        finalVelocity.applyMatrix4(tiltMatrix);
+        // Use pre-computed tilt matrix if available (optimization)
+        if (options.tiltMatrix) {
+            finalVelocity.applyMatrix4(options.tiltMatrix);
+        } else {
+            // Fallback: compute on-the-fly (legacy support)
+            const tiltMatrix = new THREE.Matrix4();
+            tiltMatrix.makeRotationZ(options.axialTilt * Math.PI / 180);
+            finalVelocity.applyMatrix4(tiltMatrix);
+        }
     }
 
     // Add parent velocity if specified
@@ -306,7 +320,8 @@ function updateChildrenPositions(parent, parentBody, timestamp) {
             // Determine transformation options based on child body's equatorialOrbit attribute
             const transformOptions = {
                 applyTilt: parentBody && parentBody.tiltContainer && child.body.equatorialOrbit,
-                axialTilt: parentBody?.axialTilt || 0
+                axialTilt: parentBody?.axialTilt || 0,
+                tiltMatrix: orbit.tiltMatrix || null  // Use pre-computed tilt matrix (optimization)
             };
 
             // Create parent body object for centralized functions
