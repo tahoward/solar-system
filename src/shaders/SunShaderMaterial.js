@@ -2,19 +2,69 @@ import * as THREE from 'three';
 import ShaderLoader from './ShaderLoader.js';
 
 const vertexShader = `
+uniform float uTime;
+uniform float uNoiseScale;
+
 varying vec2 vUv;
 varying vec3 vNormal;
 varying vec3 vNormalModel;
 varying vec3 vNormalView;
 varying vec3 vPosition;
+varying vec3 vModelPosition;
+
+// Hash function for Voronoi
+vec3 hash3(vec3 p) {
+    p = vec3(
+        dot(p, vec3(127.1, 311.7, 74.7)),
+        dot(p, vec3(269.5, 183.3, 246.1)),
+        dot(p, vec3(113.5, 271.9, 124.6))
+    );
+    return fract(sin(p) * 43758.5453123);
+}
+
+// Voronoi distance for corn kernel displacement
+float voronoiBump(vec3 p, float scale) {
+    p *= scale;
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+
+    float minDist = 1.0;
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            for (int z = -1; z <= 1; z++) {
+                vec3 neighbor = vec3(float(x), float(y), float(z));
+                vec3 point = hash3(i + neighbor);
+                vec3 diff = neighbor + point - f;
+                float dist = length(diff);
+                minDist = min(minDist, dist);
+            }
+        }
+    }
+    return minDist;
+}
 
 void main() {
     vUv = uv;
-    vNormal = normalize(mat3(modelMatrix) * normal);
     vNormalModel = normal;
+    vModelPosition = position;
+
+    // Compute Voronoi-based corn kernel displacement
+    vec3 sphereNormal = normalize(position);
+    float kernelScale = uNoiseScale * 20.0;
+    float bump = voronoiBump(sphereNormal, kernelScale);
+
+    // Very subtle rounded bumps
+    float displacement = 1.0 - smoothstep(0.0, 0.7, bump);
+    displacement = smoothstep(0.0, 1.0, displacement);
+    displacement *= 0.0;
+
+    // Displace along the normal
+    vec3 displacedPos = position + sphereNormal * displacement;
+
+    vNormal = normalize(mat3(modelMatrix) * normal);
     vNormalView = normalize(normalMatrix * normal);
-    vPosition = normalize(vec3(modelViewMatrix * vec4(position, 1.0)).xyz);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vPosition = normalize(vec3(modelViewMatrix * vec4(displacedPos, 1.0)).xyz);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(displacedPos, 1.0);
 }
 `;
 
@@ -33,162 +83,94 @@ varying vec3 vNormal;
 varying vec3 vNormalModel;
 varying vec3 vNormalView;
 varying vec3 vPosition;
+varying vec3 vModelPosition;
 
-// Convert UV coordinates to 3D sphere surface coordinates
-vec3 uvToSphere(vec2 uv) {
-    float lon = uv.x * 2.0 * 3.14159265; // longitude 0 to 2π
-    float lat = (uv.y - 0.5) * 3.14159265; // latitude -π/2 to π/2
+// Hash for Voronoi cells
+vec3 hash3f(vec3 p) {
+    p = vec3(
+        dot(p, vec3(127.1, 311.7, 74.7)),
+        dot(p, vec3(269.5, 183.3, 246.1)),
+        dot(p, vec3(113.5, 271.9, 124.6))
+    );
+    return fract(sin(p) * 43758.5453123);
+}
 
-    float x = cos(lat) * cos(lon);
-    float y = sin(lat);
-    float z = cos(lat) * sin(lon);
+// Voronoi returning edge distance for corn kernel pattern
+// Returns: x = distance to cell edge, y = cell random value
+vec2 voronoiCorn(vec3 p, float scale, float time) {
+    p *= scale;
+    vec3 i = floor(p);
+    vec3 f = fract(p);
 
-    return vec3(x, y, z);
+    float minDist = 1.0;
+    float secondDist = 1.0;
+    float cellId = 0.0;
+
+    // First pass: find nearest cell center
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            for (int z = -1; z <= 1; z++) {
+                vec3 neighbor = vec3(float(x), float(y), float(z));
+                vec3 basePoint = hash3f(i + neighbor);
+                // Each cell point orbits its base position
+                vec3 point = basePoint + 0.15 * sin(time * 0.01 + basePoint * 6.2831);
+                vec3 diff = neighbor + point - f;
+                float dist = length(diff);
+                if (dist < minDist) {
+                    secondDist = minDist;
+                    minDist = dist;
+                    cellId = fract(sin(dot(i + neighbor, vec3(43.34, 81.74, 31.56))) * 4832.37);
+                } else if (dist < secondDist) {
+                    secondDist = dist;
+                }
+            }
+        }
+    }
+    // Edge distance: how close this point is to boundary between two cells
+    float edgeDist = (secondDist - minDist) * 0.5;
+    return vec2(edgeDist, cellId);
 }
 
 void main() {
-    // FULL SUN SHADER WITH WORKING SUNSPOTS
-    // Use model-space normal (which rotates with the mesh) instead of view-space position
-    // This ensures the surface pattern rotates with the sun
     vec3 surfacePos = vNormalModel;
 
-    // Create smooth cycling time values to prevent floating point precision loss
-    // Use sine/cosine functions for naturally periodic animation without jumps
+    // Cyclic time for slow animation
     float cyclicTime1 = sin(uTime * 0.0001) * 5000.0;
-    float cyclicTime2 = cos(uTime * 0.0001 + 1.5708) * 5000.0;  // 90 degree phase offset
-    float cyclicTime3 = sin(uTime * 0.0001 + 3.1416) * 5000.0;  // 180 degree phase offset
-    float cyclicTime4 = cos(uTime * 0.0001 + 4.7124) * 5000.0;  // 270 degree phase offset
+    float cyclicTime2 = cos(uTime * 0.0001 + 1.5708) * 5000.0;
 
-    // Add very slow time-based evolution to the surface patterns
-    // This creates very slow changes in the sun's surface over time, separate from rotation
-    vec3 st = surfacePos + cyclicTime1 * 0.0001;
+    // Corn cob kernel pattern using Voronoi
+    float kernelScale = uNoiseScale * 20.0;
+    vec2 voronoi = voronoiCorn(surfacePos, kernelScale, uTime);
+    float cellDist = voronoi.x;
+    float cellId = voronoi.y;
 
-    // Create domain warping using multiple noise octaves - much slower animation
-    vec3 q = vec3(0.0);
-    q.x = fBm(st + cyclicTime2 * 0.00016, uNoiseScale);
-    q.y = fBm(st + vec3(1.2, 3.2, 1.52) + cyclicTime3 * 0.0001, uNoiseScale);
-    q.z = fBm(st + vec3(0.02, 0.12, 0.152) + cyclicTime4 * 0.0002, uNoiseScale);
+    // cellDist is now edge distance: 0 = at boundary, larger = deep inside cell
+    float edgeFade = smoothstep(0.0, 0.12, cellDist);
 
-    // Create the main noise pattern - very slow evolution
-    float n = fBm(st + q + vec3(1.82, 1.32, 1.09) + cyclicTime1 * 0.00006, uNoiseScale);
+    // Bright orange interior, darker orange at seams
+    vec3 orangeColor = vec3(1.0, 0.5, 0.0);
+    vec3 darkOrange = vec3(0.6, 0.25, 0.0);
 
-    // Create additional noise pattern for darker color variations across all star types
-    float darkerNoise = fBm(st * 1.4 + q * 0.7 + vec3(3.2, 2.1, 4.6) + cyclicTime2 * 0.00004, uNoiseScale * 0.9);
+    // Orange everywhere, just darker at seams
+    vec3 color = mix(darkOrange, orangeColor, edgeFade);
 
-    // Create noise pattern for temperature variations (different scale and evolution)
-    float tempNoise = fBm(st * 0.8 + q * 0.5 + vec3(1.1, 4.3, 2.8) + cyclicTime3 * 0.00002, uNoiseScale * 1.2);
-
-    // Create color gradients for realistic sun appearance using glow color
-    vec3 baseColor = uGlowColor.rgb;         // Use temperature-based color
-    vec3 hotColor = vec3(1.0, 1.0, 1.0);    // White hot
-    vec3 coronaColor = uGlowColor.rgb;       // Same as base color, not brighter
-
-    // Create temperature-shifted color variations for surface depth
-    // Cooler regions (shift dramatically towards red/orange)
-    vec3 coolerColor = baseColor;
-    coolerColor.r = min(coolerColor.r * 1.8, 1.0);  // Strong red enhancement
-    coolerColor.g = coolerColor.g * 0.5;             // Significant green reduction
-    coolerColor.b = coolerColor.b * 0.3;             // Strong blue reduction
-
-    // Warmer regions (shift dramatically towards white/blue)
-    vec3 warmerColor = baseColor;
-    warmerColor.r = min(coolerColor.r * 1.4, 1.0);  // Moderate red increase
-    warmerColor.g = min(baseColor.g * 1.6, 1.0);    // Strong green enhancement
-    warmerColor.b = min(baseColor.b * 2.2, 1.0);    // Very strong blue enhancement
-
-    // Create darker variation of the star color (works for any temperature/color)
-    vec3 darkerColor = coolerColor * 0.4;           // Much darker regions
-    darkerColor = pow(darkerColor, vec3(1.2));      // Increase saturation more dramatically
-    darkerColor = max(darkerColor, vec3(0.05));     // Allow darker regions
-
-    // Mix colors based on noise with enhanced contrast for surface detail
-    vec3 color = mix(baseColor, hotColor, n * n * 1.2); // Increase surface contrast
-    color = mix(color, coronaColor, q.x * 0.3); // Increase domain warping visibility
-
-    // Add temperature-shifted color variations using different noise patterns
-    // Use temperature noise for cooler regions (creates temperature pockets) - much stronger effect
-    color = mix(color, coolerColor, tempNoise * 0.8 * (1.0 - n * 0.3));
-
-    // Use domain warping for warmer regions (follows surface flow) - stronger effect
-    color = mix(color, warmerColor, q.z * 0.7 * n);
-
-    // Add dramatic temperature variations using the dedicated temperature noise
-    color = mix(color, mix(coolerColor, warmerColor, tempNoise), abs(tempNoise - 0.5) * 0.6);
-
-    // Add additional contrast using different noise combinations
-    float contrastNoise = fBm(st * 2.5 + vec3(5.1, 2.3, 7.8), uNoiseScale * 0.6);
-    color = mix(color, coolerColor * 0.8, contrastNoise * 0.4 * (1.0 - tempNoise));
-
-    // Add darker color patches using the additional noise (works for any star color) - much stronger
-    color = mix(color, darkerColor, darkerNoise * 0.9 * (1.0 - n * 0.5));
-
-    // Add some variation for solar flares using temperature color
-    float flare = fBm(st * 2.0 + cyclicTime4 * 0.0004, uNoiseScale * 0.5);
-    color += uGlowColor.rgb * flare * 0.3;
-
-    // ADD SUNSPOTS generated using noise patterns like the surface
-    vec3 sunspotCoords = surfacePos; // Fixed to surface positions
-
-    // Create sunspot noise coordinate system similar to surface
-    float timeEvolution = cyclicTime1 * 0.0006; // Slower evolution for sunspots
-    vec3 sunspotSt = sunspotCoords + timeEvolution * vec3(0.001, 0.002, 0.0015);
-
-    // Create domain warping for sunspot generation (similar to surface)
-    vec3 sunspotQ = vec3(0.0);
-    sunspotQ.x = fBm(sunspotSt + timeEvolution * 0.1, uNoiseScale * 0.8);
-    sunspotQ.y = fBm(sunspotSt + vec3(2.1, 4.2, 2.7) + timeEvolution * 0.12, uNoiseScale * 0.8);
-    sunspotQ.z = fBm(sunspotSt + vec3(0.8, 1.4, 0.9) + timeEvolution * 0.08, uNoiseScale * 0.8);
-
-    // Generate sunspot noise pattern using domain warping
-    float sunspotNoise = fBm(sunspotSt + sunspotQ * 0.4 + vec3(3.2, 2.8, 1.9) + timeEvolution * 0.05, uNoiseScale);
-
-    // Create sunspot threshold and intensity - balanced for sparse visibility
-    float sunspotThreshold = 0.4 - uSunspotFrequency * 0.25; // Balanced threshold for sparse but visible sunspots
+    // Sunspots as darker kernels
+    vec3 sunspotSt = surfacePos + cyclicTime1 * 0.0006 * vec3(0.001, 0.002, 0.0015);
+    float sunspotNoise = fBm(sunspotSt + vec3(3.2, 2.8, 1.9), uNoiseScale);
+    float sunspotThreshold = 0.4 - uSunspotFrequency * 0.25;
     float sunspotRaw = sunspotNoise - sunspotThreshold;
+    float sunspot = smoothstep(0.0, 0.4, sunspotRaw) * (1.0 - smoothstep(0.6, 1.0, sunspotRaw));
+    color *= (1.0 - sunspot * uSunspotIntensity * 0.7);
 
-    // Create smooth sunspot blending with better visibility
-    float combined = 0.0;
-    if (sunspotRaw > 0.0) {
-        // Create organic sunspot shape with smooth falloff and higher intensity
-        float sunspotShape = smoothstep(0.0, 0.4, sunspotRaw) * (1.0 - smoothstep(0.6, 1.0, sunspotRaw));
-        combined = sunspotShape * 2.0; // Increase intensity for visibility
-    }
-
-    // Convert to -1 to 1 range like noise
-    float pseudoNoise = combined;
-
-    // Apply sunspot formula with smooth blending
-    float t1 = pseudoNoise * 1.5 - 0.8;
-    float ss = max(0.0, t1);
-
-    // Create smooth falloff for natural blending
-    float sunspotBlend = smoothstep(0.0, 0.3, ss) * (1.0 - smoothstep(0.7, 1.0, ss));
-
-    // Blend sunspots with existing surface noise instead of just subtracting
-    float surfaceVariation = n * 0.3; // Use some of the existing surface noise
-    float blendedIntensity = sunspotBlend * uSunspotIntensity * (0.8 + surfaceVariation);
-
-    // Apply sunspots as a more visible darkening for better surface texture
-    color *= (1.0 - blendedIntensity * 0.8); // Stronger sunspot contrast
-
-    // Create fresnel effect for glow
+    // Fresnel glow at edges
     float fresnel = 1.0 - abs(dot(vNormalView, vec3(0.0, 0.0, 1.0)));
     fresnel = pow(fresnel, 2.0);
+    color += uGlowColor * fresnel * uGlowIntensity;
 
-    // Add glow effect
-    vec3 glowEffect = uGlowColor * fresnel * uGlowIntensity;
-    color += glowEffect;
-
-    // Apply brightness with surface detail preservation
-    color *= uBrightness * 0.8; // Balanced brightness for surface texture
-
-    // Add emissive bloom boost more subtly to prevent washout
-    // Use a mix approach to preserve base colors while enabling bloom
-    vec3 baseColorPreserved = color;
+    // Brightness and bloom
+    color *= uBrightness * 0.8;
     vec3 bloomBoost = color * uEmissiveIntensity;
-
-    // Blend base color with bloom boost to prevent total washout
-    color = mix(baseColorPreserved, bloomBoost, 0.7);
+    color = mix(color, bloomBoost, 0.7);
 
     gl_FragColor = vec4(color, 1.0);
 }
