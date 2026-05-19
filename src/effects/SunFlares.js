@@ -34,8 +34,8 @@ uniform float uSunspotRadii[8];
 
 vec3 getPosOBJ(float phase, float animPhase){
   float flareIndex = floor(aPos.y * 32.0);
-  float totalLifetime = uTime + aWireRandom.y * 10.0;
-  float flareLifespan = 1.5 + aWireRandom.x * 2.5;
+  float totalLifetime = uTime + aWireRandom.y * 50.0 + flareIndex * 1.7;
+  float flareLifespan = 1.5 + aWireRandom.x * 4.0;
   float lifecycleCount = floor(totalLifetime / flareLifespan);
 
   // Each spot gets up to 4 flare slots; which slot this flare occupies within its spot
@@ -127,8 +127,8 @@ void main(void){
   // All segments of the same line (same flare) should animate together
   float flareIndex = floor(aPos.y * 32.0); // Convert normalized Y back to line index (0-31)
 
-  float flareLifespan = 1.5 + aWireRandom.x * 2.5; // 1.5-4 second lifespan per flare
-  float flareOffset = aWireRandom.y * 10.0; // Random start offset per flare
+  float flareLifespan = 1.5 + aWireRandom.x * 4.0; // 1.5-5.5 second lifespan per flare
+  float flareOffset = aWireRandom.y * 50.0 + floor(aPos.y * 32.0) * 1.7;
   float flareTime = mod(uTime + flareOffset, flareLifespan);
   float animPhase = flareTime / flareLifespan;
 

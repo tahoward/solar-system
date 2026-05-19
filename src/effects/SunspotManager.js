@@ -5,7 +5,7 @@ const TRANSITION_DURATION = 3.0;
 const FLARE_DELAY = 4.0;
 const FLARE_END_BUFFER = 10.0;
 const SPOT_LIFETIME_MIN = 40.0;
-const SPOT_LIFETIME_MAX = 80.0;
+const SPOT_LIFETIME_MAX = 160.0;
 
 class SunspotManager {
     constructor(options = {}) {
