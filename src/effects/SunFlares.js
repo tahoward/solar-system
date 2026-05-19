@@ -29,6 +29,7 @@ uniform float uHue;
 uniform vec3 uBaseColor;
 uniform vec3 uSunspotPositions[8];
 uniform float uSunspotOpacities[8];
+uniform float uSunspotVisual[8];
 
 vec3 getPosOBJ(float phase, float animPhase){
   float flareIndex = floor(aPos.y * 32.0);
@@ -41,17 +42,15 @@ vec3 getPosOBJ(float phase, float animPhase){
   vec3 spotPos = uSunspotPositions[spotIndex];
   float spotOpacity = uSunspotOpacities[spotIndex];
 
-  // Hide flare if its sunspot is not active
-  float flareVisible = step(0.1, spotOpacity);
 
-  // Check if any other active sunspot is close enough to bridge
+  // Check if any other visible sunspot is close enough to bridge
   float bridgeThreshold = 0.25;
   int bridgeIndex = -1;
   float closestDist = 999.0;
   for (int i = 0; i < 8; i++) {
     if (i != spotIndex) {
       float d = distance(spotPos, uSunspotPositions[i]);
-      if (d < bridgeThreshold && uSunspotOpacities[i] > 0.1 && d < closestDist) {
+      if (d < bridgeThreshold && uSunspotVisual[i] > 0.3 && d < closestDist) {
         closestDist = d;
         bridgeIndex = i;
       }
@@ -108,7 +107,7 @@ vec3 getPosOBJ(float phase, float animPhase){
   // Use sun radius as height reference; bridge flares scale with span
   float heightScale = isBridge > 0.5 ? distance(pos0, pos1) * 0.5 : startDepth * 0.05;
   float amp = sin(phase * 3.14159265) * heightScale * uAmp * heightVariation;
-  amp *= animPhase * flareVisible;
+  amp *= animPhase;
 
   p += n * amp;
 
@@ -139,6 +138,16 @@ void main(void){
   } else if (animPhase > 0.8) {
     fadeFactor = smoothstep(1.0, 0.8, animPhase); // Fade out
   }
+
+  // Get spot flareActive for this flare's source spot
+  int spotIdx = int(mod(floor(aPos.y * 32.0) / 4.0, 8.0));
+  float spotActive = uSunspotOpacities[spotIdx];
+  // Don't start new flares when spot is inactive — suppress at fade-in only
+  if (spotActive < 0.1 && animPhase < 0.2) {
+    fadeFactor = 0.0;
+  }
+  // Smooth overall fade with spot activity
+  fadeFactor *= smoothstep(0.0, 0.3, spotActive);
 
   // Get positions along the flare arc
   vec3 pOBJ  = getPosOBJ(aPos.x,        animPhase);
@@ -298,7 +307,8 @@ class SunFlares extends SunEffect {
                 }),
                 uEmissiveIntensity: { value: this.emissiveIntensity },
                 uSunspotPositions: { value: defaultPositions },
-                uSunspotOpacities: { value: new Float32Array(8) }
+                uSunspotOpacities: { value: new Float32Array(8) },
+                uSunspotVisual: { value: new Float32Array(8) }
             }
         });
 
@@ -530,10 +540,11 @@ class SunFlares extends SunEffect {
     /**
      * Update sunspot positions and opacities from SunspotManager
      */
-    updateSunspots(positions, opacities) {
+    updateSunspots(positions, flareActive, visualOpacities) {
         if (!this.material) return;
         this.material.uniforms.uSunspotPositions.value = positions;
-        this.material.uniforms.uSunspotOpacities.value = opacities;
+        this.material.uniforms.uSunspotOpacities.value = flareActive;
+        this.material.uniforms.uSunspotVisual.value = visualOpacities;
     }
 
     /**

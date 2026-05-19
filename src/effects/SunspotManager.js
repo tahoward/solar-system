@@ -3,7 +3,7 @@ import * as THREE from 'three';
 const MAX_SUNSPOTS = 8;
 const TRANSITION_DURATION = 3.0;
 const FLARE_DELAY = 4.0;
-const FLARE_END_BUFFER = 6.0;
+const FLARE_END_BUFFER = 10.0;
 const SPOT_LIFETIME_MIN = 40.0;
 const SPOT_LIFETIME_MAX = 80.0;
 
@@ -64,6 +64,7 @@ class SunspotManager {
     }
 
     _updateArrays() {
+        const maxFlareLifespan = 4.0;
         for (let i = 0; i < this.maxSpots; i++) {
             const spot = this.spots[i];
             this.positions[i].copy(spot.position);
@@ -71,7 +72,20 @@ class SunspotManager {
             this.radii[i] = spot.radius;
             const flareStart = TRANSITION_DURATION + FLARE_DELAY;
             const flareEnd = spot.lifetime - TRANSITION_DURATION - FLARE_END_BUFFER;
-            this.flareActive[i] = (spot.age >= flareStart && spot.age <= flareEnd) ? 1.0 : 0.0;
+
+            let active = 0.0;
+            if (spot.age < flareStart) {
+                active = 0.0;
+            } else if (spot.age < flareStart + maxFlareLifespan) {
+                // Fade in over one flare cycle
+                active = (spot.age - flareStart) / maxFlareLifespan;
+            } else if (spot.age <= flareEnd) {
+                active = 1.0;
+            } else if (spot.age < flareEnd + maxFlareLifespan) {
+                // Fade out over one flare cycle so current flares can finish
+                active = 1.0 - (spot.age - flareEnd) / maxFlareLifespan;
+            }
+            this.flareActive[i] = Math.max(0, Math.min(1, active));
         }
     }
 
