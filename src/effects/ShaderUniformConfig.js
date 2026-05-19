@@ -152,8 +152,8 @@ class ShaderUniformConfig {
 
         return {
             // Flare-specific parameters
-            uWidth: { value: lowres ? 0.01 : 0.005 },
-            uAmp: { value: 0.5 },
+            uWidth: { value: lowres ? 0.003 : 0.0015 },
+            uAmp: { value: 1.0 },
 
             // Resolution parameters
             uResolution: { value: new THREE.Vector4(

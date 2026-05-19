@@ -77,6 +77,9 @@ uniform float uBrightness;
 uniform float uSunspotFrequency;
 uniform float uSunspotIntensity;
 uniform float uEmissiveIntensity;
+uniform vec3 uSunspotPositions[8];
+uniform float uSunspotOpacities[8];
+uniform float uSunspotRadius;
 
 varying vec2 vUv;
 varying vec3 vNormal;
@@ -154,27 +157,18 @@ void main() {
     // cellDist is now edge distance: 0 = at boundary, larger = deep inside cell
     float edgeFade = smoothstep(0.0, 0.12, cellDist);
 
-    // Sunspots: clusters appear in different locations over time
-    // Time-varying seed shifts which noise regions are above threshold
-    float sunspotTime = floor(uTime * 0.0003); // Discrete time steps
-    float sunspotBlend = fract(uTime * 0.0003); // Smooth transition between steps
+    // Sunspots: CPU-driven positions passed as uniforms
+    // Distort distance with noise so boundary isn't a perfect circle
+    float noiseDist = noise(surfacePos * 12.0) * 0.04;
+    float sunspotRegion = 0.0;
+    for (int i = 0; i < 8; i++) {
+        float dist = distance(normalize(surfacePos), uSunspotPositions[i]) + noiseDist;
+        float spot = smoothstep(uSunspotRadius, uSunspotRadius * 0.3, dist);
+        sunspotRegion = max(sunspotRegion, spot * uSunspotOpacities[i]);
+    }
 
-    // Two noise samples at consecutive time steps for crossfade
-    vec3 sunspotSt1 = surfacePos + vec3(sunspotTime * 1.7, sunspotTime * 2.3, sunspotTime * 0.9);
-    vec3 sunspotSt2 = surfacePos + vec3((sunspotTime + 1.0) * 1.7, (sunspotTime + 1.0) * 2.3, (sunspotTime + 1.0) * 0.9);
-
-    float sunspotNoise1 = fBm(sunspotSt1 + vec3(3.2, 2.8, 1.9), uNoiseScale * 1.0);
-    float sunspotNoise2 = fBm(sunspotSt2 + vec3(3.2, 2.8, 1.9), uNoiseScale * 1.0);
-
-    float sunspotThreshold = 0.5 - uSunspotFrequency * 0.2;
-    float region1 = smoothstep(sunspotThreshold, sunspotThreshold + 0.03, sunspotNoise1);
-    float region2 = smoothstep(sunspotThreshold, sunspotThreshold + 0.03, sunspotNoise2);
-
-    // Crossfade between old and new sunspot locations
-    float sunspotRegion = mix(region1, region2, smoothstep(0.3, 0.7, sunspotBlend));
-
-    // Only some cells in the region become dark
-    float cellInSunspot = step(0.55, cellId) * sunspotRegion;
+    // Only cells with certain IDs become dark — creates irregular jagged boundary
+    float cellInSunspot = step(0.4, cellId) * sunspotRegion;
     cellInSunspot *= uSunspotIntensity;
 
     // Pick cell color: orange normally, dark brown for sunspot cells
@@ -210,6 +204,7 @@ class SunShaderMaterial extends THREE.ShaderMaterial {
     constructor(options = {}) {
 
         // Default uniform values
+        const defaultPositions = new Array(8).fill(null).map(() => new THREE.Vector3(0, 1, 0));
         const uniforms = {
             uTime: { value: 0.0 },
             uGlowColor: { value: new THREE.Color(options.glowColor || 0xffaa00) },
@@ -218,7 +213,10 @@ class SunShaderMaterial extends THREE.ShaderMaterial {
             uBrightness: { value: options.brightness || 1.6 },
             uSunspotFrequency: { value: options.sunspotFrequency || 0.15 },
             uSunspotIntensity: { value: options.sunspotIntensity || 0.9 },
-            uEmissiveIntensity: { value: options.emissiveIntensity || 1.3 }  // For runtime bloom control (reduced from 2.0)
+            uEmissiveIntensity: { value: options.emissiveIntensity || 1.3 },
+            uSunspotPositions: { value: defaultPositions },
+            uSunspotOpacities: { value: new Float32Array(8) },
+            uSunspotRadius: { value: 0.05 }
         };
 
         super({
@@ -322,6 +320,17 @@ class SunShaderMaterial extends THREE.ShaderMaterial {
 
     }
 
+
+    /**
+     * Update sunspot positions and opacities from SunspotManager
+     */
+    updateSunspots(positions, opacities, radius) {
+        this.uniforms.uSunspotPositions.value = positions;
+        this.uniforms.uSunspotOpacities.value = opacities;
+        if (radius !== undefined) {
+            this.uniforms.uSunspotRadius.value = radius;
+        }
+    }
 
     /**
      * Dispose of the material and its resources

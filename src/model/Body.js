@@ -11,6 +11,7 @@ import BodyRenderer from '../rendering/BodyRenderer.js';
 import BodyPhysics from '../physics/BodyPhysics.js';
 import ResourceManager from '../utils/ResourceManager.js';
 import MaterialFactory from '../factories/MaterialFactory.js';
+import SunspotManager from '../effects/SunspotManager.js';
 
 
 /**
@@ -491,10 +492,30 @@ class Body {
         }
 
         if (this.isStar) {
+            // Initialize sunspot manager on first update
+            if (!this.sunspotManager) {
+                this.sunspotManager = new SunspotManager();
+            }
+
+            // Update sunspot positions
+            const effectsDelta = clockManager.getEffectsDeltaTime();
+            this.sunspotManager.update(effectsDelta);
+            const spotPositions = this.sunspotManager.positions;
+            const spotOpacities = this.sunspotManager.opacities;
+            const spotRadius = this.sunspotManager.getSpotRadius();
+
             // Update star shader animation if it's using a shader material
             if (this.isShaderMaterial && this.material.updateTime) {
                 const currentTime = clockManager.getSimulationTime();
                 this.material.updateTime(currentTime);
+                if (this.material.updateSunspots) {
+                    this.material.updateSunspots(spotPositions, spotOpacities, spotRadius);
+                }
+            }
+
+            // Update flares with same sunspot positions
+            if (this.sunFlares && this.sunFlares.updateSunspots) {
+                this.sunFlares.updateSunspots(spotPositions, spotOpacities);
             }
 
             // Update star corona effect using unified clock
