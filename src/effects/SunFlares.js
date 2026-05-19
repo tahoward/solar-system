@@ -27,92 +27,91 @@ uniform float uOpacity;
 uniform float uHueSpread;
 uniform float uHue;
 uniform vec3 uBaseColor;
-
-// Generate new flare position based on flare lifecycle
-vec2 generateNewFlarePosition(float flareIndex, float lifecycleCount) {
-  // Use flare index and lifecycle count to generate deterministic but varied positions
-  float seed1 = sin(flareIndex * 43.758 + lifecycleCount * 12.9898) * 43758.5453;
-  float seed2 = sin(flareIndex * 78.233 + lifecycleCount * 19.134) * 43758.5453;
-
-  // Generate spherical coordinates for new position
-  float theta = fract(seed1) * 6.28318; // 0 to 2π
-  float phi = acos(1.0 - 2.0 * fract(seed2)); // 0 to π (uniform distribution on sphere)
-
-  return vec2(theta, phi);
-}
-
-// Convert spherical coordinates to 3D position on sphere
-vec3 sphericalToCartesian(vec2 spherical, float radius) {
-  float theta = spherical.x;
-  float phi = spherical.y;
-  return vec3(
-    radius * sin(phi) * cos(theta),
-    radius * sin(phi) * sin(theta),
-    radius * cos(phi)
-  );
-}
+uniform vec3 uSunspotPositions[8];
+uniform float uSunspotOpacities[8];
+uniform float uSunspotVisual[8];
+uniform float uSunspotRadii[8];
 
 vec3 getPosOBJ(float phase, float animPhase){
-  // Calculate how many complete lifecycle cycles this flare has been through
   float flareIndex = floor(aPos.y * 32.0);
-  float totalLifetime = uTime + aWireRandom.y * 20.0; // Include initial offset
-  float flareLifespan = 5.0 + aWireRandom.x * 5.0;
+  float totalLifetime = uTime + aWireRandom.y * 50.0 + flareIndex * 1.7;
+  float flareLifespan = 1.5 + aWireRandom.x * 4.0;
   float lifecycleCount = floor(totalLifetime / flareLifespan);
 
-  // Create tighter clustering - flares appear in very tight groups
-  float clusterSeed = sin(floor(flareIndex / 8.0) * 29.123 + lifecycleCount * 4.567) * 43758.5453;
-  vec2 clusterCenter = vec2(
-    fract(clusterSeed) * 6.28318, // Cluster theta
-    acos(1.0 - 2.0 * fract(clusterSeed * 1.234)) // Cluster phi
-  );
+  // Each spot gets up to 4 flare slots; which slot this flare occupies within its spot
+  int spotIndex = int(mod(floor(flareIndex / 4.0), 8.0));
+  float slotInSpot = mod(flareIndex, 4.0);
+  vec3 spotPos = uSunspotPositions[spotIndex];
+  float spotOpacity = uSunspotOpacities[spotIndex];
+  float spotRadius = uSunspotRadii[spotIndex];
 
-  // Generate position within cluster (much smaller offset from cluster center)
-  float clusterRadius = 0.3; // Much tighter cluster spread in radians
-  float flareWithinCluster = mod(flareIndex, 8.0); // 0-7 flares per cluster (larger clusters)
+  // Number of active flares scales with spot radius (0.0075 = 1 flare, 0.015 = 4 flares)
+  float maxFlares = clamp(floor((spotRadius - 0.005) / 0.003) + 1.0, 1.0, 4.0);
+  // Hide this flare if its slot exceeds the count for this spot
+  float slotVisible = step(slotInSpot, maxFlares - 0.5);
 
-  vec2 baseSpherical = clusterCenter + vec2(
-    (fract(sin(flareIndex * 43.758 + lifecycleCount * 12.9898) * 43758.5453) - 0.5) * clusterRadius,
-    (fract(sin(flareIndex * 78.233 + lifecycleCount * 19.134) * 43758.5453) - 0.5) * clusterRadius
-  );
 
-  // Generate a second position close to the first (small angular offset)
-  float offsetAngle = (fract(sin(flareIndex * 23.456 + lifecycleCount * 7.891) * 43758.5453) - 0.5) * 0.6; // ±0.3 radians
-  float offsetDirection = fract(sin(flareIndex * 34.567 + lifecycleCount * 8.912) * 43758.5453) * 6.28318; // Random direction
+  // Deterministic bridge target — fixed per flare, never changes mid-animation
+  int bridgeTarget = int(mod(floor(fract(sin(flareIndex * 13.37 + 3.7) * 43758.5453) * 7.0), 7.0));
+  if (bridgeTarget >= spotIndex) bridgeTarget++;
 
-  vec2 spherical1 = baseSpherical + vec2(
-    cos(offsetDirection) * offsetAngle,
-    sin(offsetDirection) * offsetAngle
-  );
+  // Generate position within the sunspot boundary
+  float startDepth = length(aPos0);
+  float clusterRadius = 0.03;
 
-  // Clamp spherical1 to valid ranges
-  spherical1.x = mod(spherical1.x, 6.28318); // Keep theta in [0, 2π]
-  spherical1.y = clamp(spherical1.y, 0.1, 3.04159); // Keep phi in valid range for sphere
+  float seed1 = fract(sin(flareIndex * 43.758 + lifecycleCount * 12.9898) * 43758.5453);
+  float seed2 = fract(sin(flareIndex * 78.233 + lifecycleCount * 19.134) * 43758.5453);
 
-  // Convert to 3D positions on star surface
-  float startDepth = length(aPos0); // Use original radius
-  vec3 pos0 = sphericalToCartesian(baseSpherical, startDepth);
-  vec3 pos1 = sphericalToCartesian(spherical1, startDepth);
+  // Create an offset from spot center using a tangent frame
+  vec3 up = abs(spotPos.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+  vec3 tangent = normalize(cross(spotPos, up));
+  vec3 bitangent = normalize(cross(spotPos, tangent));
 
-  // Calculate size and normal from generated endpoints
+  vec3 offset = tangent * (seed1 - 0.5) * clusterRadius + bitangent * (seed2 - 0.5) * clusterRadius;
+  vec3 pos0 = normalize(spotPos + offset) * startDepth;
+
+  // Always compute local endpoint
+  float offsetAngle = (fract(sin(flareIndex * 23.456 + lifecycleCount * 7.891) * 43758.5453) - 0.5) * 0.04;
+  float offsetDir = fract(sin(flareIndex * 34.567 + lifecycleCount * 8.912) * 43758.5453) * 6.28318;
+  vec3 offset2 = tangent * cos(offsetDir) * offsetAngle + bitangent * sin(offsetDir) * offsetAngle;
+  vec3 localPos1 = normalize(spotPos + offset + offset2) * startDepth;
+
+  // Always compute bridge endpoint
+  vec3 targetSpot = uSunspotPositions[bridgeTarget];
+  vec3 upT = abs(targetSpot.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+  vec3 tanT = normalize(cross(targetSpot, upT));
+  vec3 bitT = normalize(cross(targetSpot, tanT));
+  float s1 = fract(sin(flareIndex * 67.891 + lifecycleCount * 5.432) * 43758.5453);
+  float s2 = fract(sin(flareIndex * 91.234 + lifecycleCount * 3.210) * 43758.5453);
+  vec3 offsetT = tanT * (s1 - 0.5) * clusterRadius + bitT * (s2 - 0.5) * clusterRadius;
+  vec3 bridgePos1 = normalize(targetSpot + offsetT) * startDepth;
+
+  // Smooth blend factor: 1.0 = full bridge, 0.0 = local
+  float bridgeDist = distance(spotPos, targetSpot);
+  float bridgeProximity = smoothstep(0.3, 0.15, bridgeDist);
+  float targetVisible = smoothstep(0.0, 0.5, uSunspotVisual[bridgeTarget]);
+  float isBridgeCandidate = step(2.0, mod(flareIndex, 4.0)); // half the flares can bridge
+  float isBridge = bridgeProximity * targetVisible * (1.0 - isBridgeCandidate);
+
+  vec3 pos1 = mix(localPos1, bridgePos1, isBridge);
+
   float size = distance(pos0, pos1);
   vec3  n    = normalize((pos0 + pos1) * 0.5);
 
   vec3 p = mix(pos0, pos1, phase);
 
-  // Base height variation per flare (consistent across all segments)
   float heightSeed = sin(flareIndex * 17.432 + lifecycleCount * 3.789) * 43758.5453;
-  float baseHeightVariation = 0.4 + fract(heightSeed) * 1.2; // Base height from 40% to 160%
-
-  // Add subtle segment-wise variation for volume (much smaller than before)
-  float segmentVariation = 0.85 + aWireRandom.w * 0.3; // 85% to 115% of base height
+  float baseHeightVariation = 0.4 + fract(heightSeed) * 1.2;
+  float segmentVariation = 0.85 + aWireRandom.w * 0.3;
   float heightVariation = baseHeightVariation * segmentVariation;
 
-  float amp = sin(phase * 3.14159265) * size * uAmp * heightVariation;
-  amp *= animPhase;
+  // Use sun radius as height reference; bridge flares scale with span
+  float heightScale = isBridge > 0.5 ? distance(pos0, pos1) * 0.5 : startDepth * 0.05;
+  float amp = sin(phase * 3.14159265) * heightScale * uAmp * heightVariation;
+  amp *= animPhase * slotVisible;
 
   p += n * amp;
 
-  // Add twisted noise for organic flare movement
   p += twistedSineNoise(vec4(p * uNoiseFrequency, uTime), 0.707).xyz
        * (amp * uNoiseAmplitude);
 
@@ -128,10 +127,8 @@ void main(void){
   // All segments of the same line (same flare) should animate together
   float flareIndex = floor(aPos.y * 32.0); // Convert normalized Y back to line index (0-31)
 
-  // Use the stored random values for consistent timing across all segments of this flare
-  // aWireRandom contains the same random values for all segments of the same line
-  float flareLifespan = 5.0 + aWireRandom.x * 5.0; // 5-10 second lifespan per flare (using first random value)
-  float flareOffset = aWireRandom.y * 20.0; // Random start offset per flare (using second random value)
+  float flareLifespan = 1.5 + aWireRandom.x * 4.0; // 1.5-5.5 second lifespan per flare
+  float flareOffset = aWireRandom.y * 50.0 + floor(aPos.y * 32.0) * 1.7;
   float flareTime = mod(uTime + flareOffset, flareLifespan);
   float animPhase = flareTime / flareLifespan;
 
@@ -142,6 +139,16 @@ void main(void){
   } else if (animPhase > 0.8) {
     fadeFactor = smoothstep(1.0, 0.8, animPhase); // Fade out
   }
+
+  // Get spot flareActive for this flare's source spot
+  int spotIdx = int(mod(floor(aPos.y * 32.0) / 4.0, 8.0));
+  float spotActive = uSunspotOpacities[spotIdx];
+  // Don't start new flares when spot is inactive — suppress at fade-in only
+  if (spotActive < 0.1 && animPhase < 0.2) {
+    fadeFactor = 0.0;
+  }
+  // Smooth overall fade with spot activity
+  fadeFactor *= smoothstep(0.0, 0.3, spotActive);
 
   // Get positions along the flare arc
   vec3 pOBJ  = getPosOBJ(aPos.x,        animPhase);
@@ -280,6 +287,7 @@ class SunFlares extends SunEffect {
         // Use the centralized geometry creation method
         const geometry = this.createFlaresGeometry();
 
+        const defaultPositions = new Array(8).fill(null).map(() => new THREE.Vector3(0, 1, 0));
         // Create material with shader using centralized uniform configuration
         const material = new THREE.ShaderMaterial({
             vertexShader: ShaderLoader.createVertexShader(vertexShaderMainCode),
@@ -290,7 +298,7 @@ class SunFlares extends SunEffect {
             depthTest: true,
             blending: THREE.NormalBlending,
             side: THREE.DoubleSide,
-            toneMapped: false,  // Required for emissive > 1.0 to work with bloom
+            toneMapped: false,
             uniforms: {
                 ...ShaderUniformConfig.createCompleteFlareUniforms({
                     lowres: this.lowres,
@@ -298,7 +306,11 @@ class SunFlares extends SunEffect {
                     lineCount: this.lineCount,
                     opacity: this.flareOpacity
                 }),
-                uEmissiveIntensity: { value: this.emissiveIntensity }
+                uEmissiveIntensity: { value: this.emissiveIntensity },
+                uSunspotPositions: { value: defaultPositions },
+                uSunspotOpacities: { value: new Float32Array(8) },
+                uSunspotVisual: { value: new Float32Array(8) },
+                uSunspotRadii: { value: new Float32Array(8) }
             }
         });
 
@@ -525,6 +537,17 @@ class SunFlares extends SunEffect {
             }
         }
         this.emissiveIntensity = intensity;
+    }
+
+    /**
+     * Update sunspot positions and opacities from SunspotManager
+     */
+    updateSunspots(positions, flareActive, visualOpacities, radii) {
+        if (!this.material) return;
+        this.material.uniforms.uSunspotPositions.value = positions;
+        this.material.uniforms.uSunspotOpacities.value = flareActive;
+        this.material.uniforms.uSunspotVisual.value = visualOpacities;
+        if (radii) this.material.uniforms.uSunspotRadii.value = radii;
     }
 
     /**
