@@ -85,14 +85,14 @@ varying vec3 vNormalView;
 varying vec3 vPosition;
 varying vec3 vModelPosition;
 
-// Hash for Voronoi cells
+// Hash for Voronoi cells (sin-free to avoid concentric banding)
 vec3 hash3f(vec3 p) {
-    p = vec3(
+    vec3 q = vec3(
         dot(p, vec3(127.1, 311.7, 74.7)),
         dot(p, vec3(269.5, 183.3, 246.1)),
         dot(p, vec3(113.5, 271.9, 124.6))
     );
-    return fract(sin(p) * 43758.5453123);
+    return fract(q * fract(q * 0.3183099 + 0.1) * 17.0);
 }
 
 // Voronoi returning edge distance for corn kernel pattern
@@ -134,33 +134,60 @@ vec2 voronoiCorn(vec3 p, float scale, float time) {
 void main() {
     vec3 surfacePos = vNormalModel;
 
+    // Gentle noise warp to break concentric circle artifacts
+    vec3 warpedPos = surfacePos + vec3(
+        noise(surfacePos * 3.0 + vec3(0.0, 3.3, 7.7)),
+        noise(surfacePos * 3.0 + vec3(4.4, 0.0, 2.2)),
+        noise(surfacePos * 3.0 + vec3(8.8, 6.6, 0.0))
+    ) * 0.08;
+
     // Cyclic time for slow animation
     float cyclicTime1 = sin(uTime * 0.0001) * 5000.0;
     float cyclicTime2 = cos(uTime * 0.0001 + 1.5708) * 5000.0;
 
     // Corn cob kernel pattern using Voronoi
     float kernelScale = uNoiseScale * 20.0;
-    vec2 voronoi = voronoiCorn(surfacePos, kernelScale, uTime);
+    vec2 voronoi = voronoiCorn(warpedPos, kernelScale, uTime);
     float cellDist = voronoi.x;
     float cellId = voronoi.y;
 
     // cellDist is now edge distance: 0 = at boundary, larger = deep inside cell
     float edgeFade = smoothstep(0.0, 0.12, cellDist);
 
-    // Bright orange interior, darker orange at seams
+    // Sunspots: clusters appear in different locations over time
+    // Time-varying seed shifts which noise regions are above threshold
+    float sunspotTime = floor(uTime * 0.0003); // Discrete time steps
+    float sunspotBlend = fract(uTime * 0.0003); // Smooth transition between steps
+
+    // Two noise samples at consecutive time steps for crossfade
+    vec3 sunspotSt1 = surfacePos + vec3(sunspotTime * 1.7, sunspotTime * 2.3, sunspotTime * 0.9);
+    vec3 sunspotSt2 = surfacePos + vec3((sunspotTime + 1.0) * 1.7, (sunspotTime + 1.0) * 2.3, (sunspotTime + 1.0) * 0.9);
+
+    float sunspotNoise1 = fBm(sunspotSt1 + vec3(3.2, 2.8, 1.9), uNoiseScale * 1.0);
+    float sunspotNoise2 = fBm(sunspotSt2 + vec3(3.2, 2.8, 1.9), uNoiseScale * 1.0);
+
+    float sunspotThreshold = 0.5 - uSunspotFrequency * 0.2;
+    float region1 = smoothstep(sunspotThreshold, sunspotThreshold + 0.03, sunspotNoise1);
+    float region2 = smoothstep(sunspotThreshold, sunspotThreshold + 0.03, sunspotNoise2);
+
+    // Crossfade between old and new sunspot locations
+    float sunspotRegion = mix(region1, region2, smoothstep(0.3, 0.7, sunspotBlend));
+
+    // Only some cells in the region become dark
+    float cellInSunspot = step(0.55, cellId) * sunspotRegion;
+    cellInSunspot *= uSunspotIntensity;
+
+    // Pick cell color: orange normally, dark brown for sunspot cells
     vec3 orangeColor = vec3(1.0, 0.5, 0.0);
     vec3 darkOrange = vec3(0.6, 0.25, 0.0);
+    vec3 sunspotColor = vec3(0.25, 0.12, 0.03);
+    vec3 sunspotEdge = vec3(0.15, 0.07, 0.01);
 
-    // Orange everywhere, just darker at seams
-    vec3 color = mix(darkOrange, orangeColor, edgeFade);
+    // Apply cell coloring with edges
+    vec3 normalCell = mix(darkOrange, orangeColor, edgeFade);
+    vec3 spotCell = mix(sunspotEdge, sunspotColor, edgeFade);
 
-    // Sunspots as darker kernels
-    vec3 sunspotSt = surfacePos + cyclicTime1 * 0.0006 * vec3(0.001, 0.002, 0.0015);
-    float sunspotNoise = fBm(sunspotSt + vec3(3.2, 2.8, 1.9), uNoiseScale);
-    float sunspotThreshold = 0.4 - uSunspotFrequency * 0.25;
-    float sunspotRaw = sunspotNoise - sunspotThreshold;
-    float sunspot = smoothstep(0.0, 0.4, sunspotRaw) * (1.0 - smoothstep(0.6, 1.0, sunspotRaw));
-    color *= (1.0 - sunspot * uSunspotIntensity * 0.7);
+    vec3 color = mix(normalCell, spotCell, cellInSunspot);
 
     // Fresnel glow at edges
     float fresnel = 1.0 - abs(dot(vNormalView, vec3(0.0, 0.0, 1.0)));
