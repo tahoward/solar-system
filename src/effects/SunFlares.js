@@ -43,19 +43,9 @@ vec3 getPosOBJ(float phase, float animPhase){
   float spotOpacity = uSunspotOpacities[spotIndex];
 
 
-  // Check if any other visible sunspot is close enough to bridge
-  float bridgeThreshold = 0.25;
-  int bridgeIndex = -1;
-  float closestDist = 999.0;
-  for (int i = 0; i < 8; i++) {
-    if (i != spotIndex) {
-      float d = distance(spotPos, uSunspotPositions[i]);
-      if (d < bridgeThreshold && uSunspotVisual[i] > 0.3 && d < closestDist) {
-        closestDist = d;
-        bridgeIndex = i;
-      }
-    }
-  }
+  // Deterministic bridge target — fixed per flare, never changes mid-animation
+  int bridgeTarget = int(mod(floor(fract(sin(flareIndex * 13.37 + 3.7) * 43758.5453) * 7.0), 7.0));
+  if (bridgeTarget >= spotIndex) bridgeTarget++;
 
   // Generate position within the sunspot boundary
   float startDepth = length(aPos0);
@@ -72,27 +62,30 @@ vec3 getPosOBJ(float phase, float animPhase){
   vec3 offset = tangent * (seed1 - 0.5) * clusterRadius + bitangent * (seed2 - 0.5) * clusterRadius;
   vec3 pos0 = normalize(spotPos + offset) * startDepth;
 
-  // If a nearby spot exists and this flare is in the bridging group, arc to the other spot
-  vec3 pos1;
-  float isBridge = 0.0;
-  if (bridgeIndex >= 0 && mod(flareIndex, 4.0) < 2.0) {
-    // Bridge flare: end at the neighboring sunspot
-    vec3 targetSpot = uSunspotPositions[bridgeIndex];
-    vec3 upT = abs(targetSpot.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-    vec3 tanT = normalize(cross(targetSpot, upT));
-    vec3 bitT = normalize(cross(targetSpot, tanT));
-    float s1 = fract(sin(flareIndex * 67.891 + lifecycleCount * 5.432) * 43758.5453);
-    float s2 = fract(sin(flareIndex * 91.234 + lifecycleCount * 3.210) * 43758.5453);
-    vec3 offsetT = tanT * (s1 - 0.5) * clusterRadius + bitT * (s2 - 0.5) * clusterRadius;
-    pos1 = normalize(targetSpot + offsetT) * startDepth;
-    isBridge = 1.0;
-  } else {
-    // Normal flare: second point within same sunspot
-    float offsetAngle = (fract(sin(flareIndex * 23.456 + lifecycleCount * 7.891) * 43758.5453) - 0.5) * 0.04;
-    float offsetDir = fract(sin(flareIndex * 34.567 + lifecycleCount * 8.912) * 43758.5453) * 6.28318;
-    vec3 offset2 = tangent * cos(offsetDir) * offsetAngle + bitangent * sin(offsetDir) * offsetAngle;
-    pos1 = normalize(spotPos + offset + offset2) * startDepth;
-  }
+  // Always compute local endpoint
+  float offsetAngle = (fract(sin(flareIndex * 23.456 + lifecycleCount * 7.891) * 43758.5453) - 0.5) * 0.04;
+  float offsetDir = fract(sin(flareIndex * 34.567 + lifecycleCount * 8.912) * 43758.5453) * 6.28318;
+  vec3 offset2 = tangent * cos(offsetDir) * offsetAngle + bitangent * sin(offsetDir) * offsetAngle;
+  vec3 localPos1 = normalize(spotPos + offset + offset2) * startDepth;
+
+  // Always compute bridge endpoint
+  vec3 targetSpot = uSunspotPositions[bridgeTarget];
+  vec3 upT = abs(targetSpot.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+  vec3 tanT = normalize(cross(targetSpot, upT));
+  vec3 bitT = normalize(cross(targetSpot, tanT));
+  float s1 = fract(sin(flareIndex * 67.891 + lifecycleCount * 5.432) * 43758.5453);
+  float s2 = fract(sin(flareIndex * 91.234 + lifecycleCount * 3.210) * 43758.5453);
+  vec3 offsetT = tanT * (s1 - 0.5) * clusterRadius + bitT * (s2 - 0.5) * clusterRadius;
+  vec3 bridgePos1 = normalize(targetSpot + offsetT) * startDepth;
+
+  // Smooth blend factor: 1.0 = full bridge, 0.0 = local
+  float bridgeDist = distance(spotPos, targetSpot);
+  float bridgeProximity = smoothstep(0.3, 0.15, bridgeDist);
+  float targetVisible = smoothstep(0.0, 0.5, uSunspotVisual[bridgeTarget]);
+  float isBridgeCandidate = step(2.0, mod(flareIndex, 4.0)); // half the flares can bridge
+  float isBridge = bridgeProximity * targetVisible * (1.0 - isBridgeCandidate);
+
+  vec3 pos1 = mix(localPos1, bridgePos1, isBridge);
 
   float size = distance(pos0, pos1);
   vec3  n    = normalize((pos0 + pos1) * 0.5);
