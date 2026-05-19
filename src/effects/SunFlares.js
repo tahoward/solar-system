@@ -30,6 +30,7 @@ uniform vec3 uBaseColor;
 uniform vec3 uSunspotPositions[8];
 uniform float uSunspotOpacities[8];
 uniform float uSunspotVisual[8];
+uniform float uSunspotRadii[8];
 
 vec3 getPosOBJ(float phase, float animPhase){
   float flareIndex = floor(aPos.y * 32.0);
@@ -37,10 +38,17 @@ vec3 getPosOBJ(float phase, float animPhase){
   float flareLifespan = 1.5 + aWireRandom.x * 2.5;
   float lifecycleCount = floor(totalLifetime / flareLifespan);
 
-  // Pick which sunspot this flare belongs to based on flare group index
+  // Each spot gets up to 4 flare slots; which slot this flare occupies within its spot
   int spotIndex = int(mod(floor(flareIndex / 4.0), 8.0));
+  float slotInSpot = mod(flareIndex, 4.0);
   vec3 spotPos = uSunspotPositions[spotIndex];
   float spotOpacity = uSunspotOpacities[spotIndex];
+  float spotRadius = uSunspotRadii[spotIndex];
+
+  // Number of active flares scales with spot radius (0.0075 = 1 flare, 0.015 = 4 flares)
+  float maxFlares = clamp(floor((spotRadius - 0.005) / 0.003) + 1.0, 1.0, 4.0);
+  // Hide this flare if its slot exceeds the count for this spot
+  float slotVisible = step(slotInSpot, maxFlares - 0.5);
 
 
   // Deterministic bridge target — fixed per flare, never changes mid-animation
@@ -100,7 +108,7 @@ vec3 getPosOBJ(float phase, float animPhase){
   // Use sun radius as height reference; bridge flares scale with span
   float heightScale = isBridge > 0.5 ? distance(pos0, pos1) * 0.5 : startDepth * 0.05;
   float amp = sin(phase * 3.14159265) * heightScale * uAmp * heightVariation;
-  amp *= animPhase;
+  amp *= animPhase * slotVisible;
 
   p += n * amp;
 
@@ -301,7 +309,8 @@ class SunFlares extends SunEffect {
                 uEmissiveIntensity: { value: this.emissiveIntensity },
                 uSunspotPositions: { value: defaultPositions },
                 uSunspotOpacities: { value: new Float32Array(8) },
-                uSunspotVisual: { value: new Float32Array(8) }
+                uSunspotVisual: { value: new Float32Array(8) },
+                uSunspotRadii: { value: new Float32Array(8) }
             }
         });
 
@@ -533,11 +542,12 @@ class SunFlares extends SunEffect {
     /**
      * Update sunspot positions and opacities from SunspotManager
      */
-    updateSunspots(positions, flareActive, visualOpacities) {
+    updateSunspots(positions, flareActive, visualOpacities, radii) {
         if (!this.material) return;
         this.material.uniforms.uSunspotPositions.value = positions;
         this.material.uniforms.uSunspotOpacities.value = flareActive;
         this.material.uniforms.uSunspotVisual.value = visualOpacities;
+        if (radii) this.material.uniforms.uSunspotRadii.value = radii;
     }
 
     /**
