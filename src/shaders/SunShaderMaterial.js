@@ -79,7 +79,7 @@ uniform float uSunspotIntensity;
 uniform float uEmissiveIntensity;
 uniform vec3 uSunspotPositions[8];
 uniform float uSunspotOpacities[8];
-uniform float uSunspotRadius;
+uniform float uSunspotRadii[8];
 
 varying vec2 vUv;
 varying vec3 vNormal;
@@ -157,13 +157,21 @@ void main() {
     // cellDist is now edge distance: 0 = at boundary, larger = deep inside cell
     float edgeFade = smoothstep(0.0, 0.12, cellDist);
 
-    // Sunspots: CPU-driven positions passed as uniforms
-    // Distort distance with noise so boundary isn't a perfect circle
-    float noiseDist = noise(surfacePos * 12.0) * 0.04;
+    // Sunspots: CPU-driven positions with per-spot radius and heavy warp
+    vec3 nSurf = normalize(surfacePos);
     float sunspotRegion = 0.0;
     for (int i = 0; i < 8; i++) {
-        float dist = distance(normalize(surfacePos), uSunspotPositions[i]) + noiseDist;
-        float spot = smoothstep(uSunspotRadius, uSunspotRadius * 0.3, dist);
+        float r = uSunspotRadii[i];
+        // Strong directional warp seeded per-spot — low frequency for elongated blobs
+        vec3 warpSeed = nSurf * 3.0 + uSunspotPositions[i] * 7.0;
+        vec3 warp = vec3(
+            noise(warpSeed + vec3(1.2, 3.4, 5.6)) - 0.5,
+            noise(warpSeed + vec3(6.5, 2.1, 8.3)) - 0.5,
+            noise(warpSeed + vec3(4.7, 9.0, 1.8)) - 0.5
+        ) * r * 1.5;
+        vec3 warpedSurf = normalize(nSurf + warp);
+        float dist = distance(warpedSurf, uSunspotPositions[i]);
+        float spot = smoothstep(r, r * 0.1, dist);
         sunspotRegion = max(sunspotRegion, spot * uSunspotOpacities[i]);
     }
 
@@ -216,7 +224,7 @@ class SunShaderMaterial extends THREE.ShaderMaterial {
             uEmissiveIntensity: { value: options.emissiveIntensity || 1.3 },
             uSunspotPositions: { value: defaultPositions },
             uSunspotOpacities: { value: new Float32Array(8) },
-            uSunspotRadius: { value: 0.05 }
+            uSunspotRadii: { value: new Float32Array(8).fill(0.05) }
         };
 
         super({
@@ -322,13 +330,13 @@ class SunShaderMaterial extends THREE.ShaderMaterial {
 
 
     /**
-     * Update sunspot positions and opacities from SunspotManager
+     * Update sunspot positions, opacities, and radii from SunspotManager
      */
-    updateSunspots(positions, opacities, radius) {
+    updateSunspots(positions, opacities, radii) {
         this.uniforms.uSunspotPositions.value = positions;
         this.uniforms.uSunspotOpacities.value = opacities;
-        if (radius !== undefined) {
-            this.uniforms.uSunspotRadius.value = radius;
+        if (radii !== undefined) {
+            this.uniforms.uSunspotRadii.value = radii;
         }
     }
 

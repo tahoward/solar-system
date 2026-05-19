@@ -502,14 +502,14 @@ class Body {
             this.sunspotManager.update(effectsDelta);
             const spotPositions = this.sunspotManager.positions;
             const spotOpacities = this.sunspotManager.opacities;
-            const spotRadius = this.sunspotManager.getSpotRadius();
+            const spotRadii = this.sunspotManager.radii;
 
             // Update star shader animation if it's using a shader material
             if (this.isShaderMaterial && this.material.updateTime) {
                 const currentTime = clockManager.getSimulationTime();
                 this.material.updateTime(currentTime);
                 if (this.material.updateSunspots) {
-                    this.material.updateSunspots(spotPositions, spotOpacities, spotRadius);
+                    this.material.updateSunspots(spotPositions, spotOpacities, spotRadii);
                 }
             }
 
