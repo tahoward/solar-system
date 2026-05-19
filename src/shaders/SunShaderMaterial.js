@@ -116,7 +116,7 @@ vec2 voronoiCorn(vec3 p, float scale, float time) {
                 vec3 neighbor = vec3(float(x), float(y), float(z));
                 vec3 basePoint = hash3f(i + neighbor);
                 // Each cell point orbits its base position
-                vec3 point = basePoint + 0.15 * sin(time * 0.01 + basePoint * 6.2831);
+                vec3 point = basePoint + 0.15 * sin(time * 0.1 + basePoint * 6.2831);
                 vec3 diff = neighbor + point - f;
                 float dist = length(diff);
                 if (dist < minDist) {
