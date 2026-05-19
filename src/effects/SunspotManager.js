@@ -2,6 +2,8 @@ import * as THREE from 'three';
 
 const MAX_SUNSPOTS = 8;
 const TRANSITION_DURATION = 3.0;
+const FLARE_DELAY = 4.0;
+const FLARE_END_BUFFER = 6.0;
 const SPOT_LIFETIME_MIN = 40.0;
 const SPOT_LIFETIME_MAX = 80.0;
 
@@ -13,6 +15,7 @@ class SunspotManager {
         this.spots = [];
         this.positions = new Array(this.maxSpots).fill(null).map(() => new THREE.Vector3());
         this.opacities = new Float32Array(this.maxSpots);
+        this.flareActive = new Float32Array(this.maxSpots);
 
         for (let i = 0; i < this.maxSpots; i++) {
             this.spots.push(this._createSpot());
@@ -22,11 +25,33 @@ class SunspotManager {
     }
 
     _createSpot() {
-        const pos = new THREE.Vector3(
-            Math.random() * 2 - 1,
-            Math.random() * 2 - 1,
-            Math.random() * 2 - 1
-        ).normalize();
+        let pos;
+        // 60% chance to spawn near an existing active spot
+        if (this.spots && this.spots.length > 0 && Math.random() < 0.6) {
+            const activeSpots = this.spots.filter(s => s.opacity > 0.5);
+            if (activeSpots.length > 0) {
+                const parent = activeSpots[Math.floor(Math.random() * activeSpots.length)];
+                // Offset by 0.05–0.15 from the parent spot
+                const offset = new THREE.Vector3(
+                    Math.random() * 2 - 1,
+                    Math.random() * 2 - 1,
+                    Math.random() * 2 - 1
+                ).normalize().multiplyScalar(0.05 + Math.random() * 0.1);
+                pos = parent.position.clone().add(offset).normalize();
+            } else {
+                pos = new THREE.Vector3(
+                    Math.random() * 2 - 1,
+                    Math.random() * 2 - 1,
+                    Math.random() * 2 - 1
+                ).normalize();
+            }
+        } else {
+            pos = new THREE.Vector3(
+                Math.random() * 2 - 1,
+                Math.random() * 2 - 1,
+                Math.random() * 2 - 1
+            ).normalize();
+        }
 
         return {
             position: pos,
@@ -38,8 +63,13 @@ class SunspotManager {
 
     _updateArrays() {
         for (let i = 0; i < this.maxSpots; i++) {
-            this.positions[i].copy(this.spots[i].position);
-            this.opacities[i] = this.spots[i].opacity;
+            const spot = this.spots[i];
+            this.positions[i].copy(spot.position);
+            this.opacities[i] = spot.opacity;
+            // Flares only active after spot fully appears, and stop before spot fades
+            const flareStart = TRANSITION_DURATION + FLARE_DELAY;
+            const flareEnd = spot.lifetime - TRANSITION_DURATION - FLARE_END_BUFFER;
+            this.flareActive[i] = (spot.age >= flareStart && spot.age <= flareEnd) ? 1.0 : 0.0;
         }
     }
 

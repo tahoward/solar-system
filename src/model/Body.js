@@ -513,9 +513,9 @@ class Body {
                 }
             }
 
-            // Update flares with same sunspot positions
+            // Update flares with same sunspot positions but flareActive for timing
             if (this.sunFlares && this.sunFlares.updateSunspots) {
-                this.sunFlares.updateSunspots(spotPositions, spotOpacities);
+                this.sunFlares.updateSunspots(spotPositions, this.sunspotManager.flareActive);
             }
 
             // Update star corona effect using unified clock
