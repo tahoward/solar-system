@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import clockManager from '../managers/ClockManager.js';
+import { NBODY, MATH } from '../constants.js';
 import { calculateKeplerianPositionWithTransforms, calculateKeplerianVelocityWithTransforms } from './kepler.js';
 import { log } from '../utils/Logger.js';
 
@@ -8,12 +9,23 @@ import { log } from '../utils/Logger.js';
  * Functional approach similar to kepler.js for hierarchy-based physics
  */
 
+// Bodies to integrate, gathered once per frame into an array that is reused
+const _bodies = [];
+const _separation = new THREE.Vector3();
+
 /**
  * Update all body positions using n-body physics for a given hierarchy
  * This is the n-body equivalent to updateHierarchyPositions in kepler.js
+ *
+ * The time the clock asks for is covered in as many steps as accuracy demands rather than in one
+ * stride, so raising the time compression costs work instead of costing stability. What the step
+ * size has to respect is the fastest thing in the system: Saturn's inner moons come round in
+ * under a day, and a step anywhere near that long pumps energy into their orbits until they are
+ * thrown clear of the planet - which used to happen to every inner moon somewhere above a
+ * thousand times real time. When even the step budget cannot cover the requested time, the clock
+ * is asked to slow to a speed that can be integrated; see ClockManager#setPhysicsSpeedLimit.
+ *
  * @param {Object} hierarchy - The hierarchical solar system data
- * @param {number} timestamp - Current timestamp (for compatibility, not used with adaptive timestep)
- * @param {number} sceneScale - Scene scale factor for visual scaling
  * @param {Object} options - Physics simulation options
  */
 export function updateHierarchyNBodyPhysics(hierarchy, options = {}) {
@@ -21,11 +33,12 @@ export function updateHierarchyNBodyPhysics(hierarchy, options = {}) {
     const G = options.gravitationalConstant || 39.478; // AU³ M_sun⁻¹ year⁻²
     const dampingFactor = options.dampingFactor || 1.0;
 
-    // Get physics time step using clockManager (adaptive timestep)
-    const dt = clockManager.getNBodyTimeIncrement();
+    // Time the clock would like covered this frame
+    const requestedStep = clockManager.getNBodyTimeIncrement();
 
     // Collect all bodies from hierarchy
-    const bodies = [];
+    const bodies = _bodies;
+    bodies.length = 0;
     collectBodiesFromHierarchy(hierarchy, bodies);
 
     if (bodies.length === 0) {
@@ -33,11 +46,27 @@ export function updateHierarchyNBodyPhysics(hierarchy, options = {}) {
         return;
     }
 
-    // Calculate forces between all bodies
-    calculateNBodyForces(bodies, G);
+    // Accelerations where the bodies are now, along with how long the closest-orbiting pair in
+    // the system takes to come round, which is what limits the step
+    const shortestOrbitTime = calculateNBodyAccelerations(bodies, G);
+    const maxStep = shortestOrbitTime / NBODY.MIN_STEPS_PER_ORBIT;
 
-    // Update positions using Leapfrog integration
-    updateNBodyPositions(bodies, dt, dampingFactor);
+    // Time the step budget can cover, and the speed that corresponds to - the requested step is
+    // proportional to the speed multiplier, so the two scale together
+    const affordableStep = maxStep * NBODY.MAX_STEPS_PER_FRAME;
+    clockManager.setPhysicsSpeedLimit(requestedStep > 0
+        ? clockManager.speedMultiplier * affordableStep / requestedStep
+        : Infinity);
+
+    const steps = Math.max(1, Math.min(NBODY.MAX_STEPS_PER_FRAME,
+        Math.ceil(requestedStep / maxStep)));
+    const step = Math.min(requestedStep / steps, maxStep);
+
+    for (let i = 0; i < steps; i++) {
+        integrateStep(bodies, step, dampingFactor, G);
+    }
+
+    applyPositions(bodies);
 }
 
 /**
@@ -58,102 +87,127 @@ function collectBodiesFromHierarchy(hierarchy, bodies) {
 }
 
 /**
- * Calculate gravitational forces between all bodies
+ * Whether a body carries everything the integrator needs to move it
+ * @param {Object} body - Body to check
+ * @returns {boolean} True if the body can be integrated
+ */
+function isIntegrable(body) {
+    return !!(body.position && body.velocity && body.acceleration && typeof body.mass === 'number');
+}
+
+/**
+ * Calculate the gravitational acceleration of every body at its current position, and report
+ * how quickly the system is moving.
+ *
  * @param {Array} bodies - Array of Body objects
  * @param {number} G - Gravitational constant
+ * @returns {number} Time the closest-orbiting pair takes to go round, in simulation time units
  */
-function calculateNBodyForces(bodies, G) {
-    // Reset all forces
-    bodies.forEach(body => {
-        if (body.force) {
-            body.force.set(0, 0, 0);
-        }
-    });
-
-    // Temporary vectors for calculations
-    const tempVector1 = new THREE.Vector3();
-    const tempVector2 = new THREE.Vector3();
-
-    // Calculate pairwise forces
+function calculateNBodyAccelerations(bodies, G) {
     for (let i = 0; i < bodies.length; i++) {
-        for (let j = i + 1; j < bodies.length; j++) {
-            const body1 = bodies[i];
-            const body2 = bodies[j];
-
-            calculatePairwiseForce(body1, body2, G, tempVector1, tempVector2);
-        }
+        if (bodies[i].acceleration) bodies[i].acceleration.set(0, 0, 0);
+        if (bodies[i].force) bodies[i].force.set(0, 0, 0);
     }
+
+    let shortestOrbitTime = Infinity;
+
+    for (let i = 0; i < bodies.length; i++) {
+        const body1 = bodies[i];
+        if (!isIntegrable(body1)) continue;
+
+        for (let j = i + 1; j < bodies.length; j++) {
+            const body2 = bodies[j];
+            if (!isIntegrable(body2)) continue;
+
+            _separation.subVectors(body2.position, body1.position);
+            const distanceSquared = _separation.lengthSq();
+
+            // Softened below the size of the bodies themselves, where treating them as points is
+            // meaningless anyway: gravity then levels off instead of running away to infinity as
+            // two bodies pass through one another
+            const softening = Math.max(NBODY.MIN_SOFTENING,
+                NBODY.SOFTENING_RADII * ((body1.radius || 0) + (body2.radius || 0)));
+            const softDistanceSquared = distanceSquared + softening * softening;
+            const softDistance = Math.sqrt(softDistanceSquared);
+
+            // a = G * m / r², shared out along the line between the two bodies
+            const pull = G / (softDistanceSquared * softDistance);
+            body1.acceleration.addScaledVector(_separation, pull * body2.mass);
+            body2.acceleration.addScaledVector(_separation, -pull * body1.mass);
+
+            // How long these two would take to circle one another at this separation. The same
+            // softening applies, so a body passing clean through another cannot demand an
+            // infinitely short step.
+            const totalMass = body1.mass + body2.mass;
+            if (totalMass > 0) {
+                const orbitTime = MATH.TWO_PI * Math.sqrt(softDistanceSquared * softDistance / (G * totalMass));
+                if (orbitTime < shortestOrbitTime) shortestOrbitTime = orbitTime;
+            }
+        }
+
+        // Kept for anything reading a body's force, which the integrator no longer needs itself
+        if (body1.force) body1.force.copy(body1.acceleration).multiplyScalar(body1.mass);
+    }
+
+    return shortestOrbitTime;
 }
 
 /**
- * Calculate gravitational force between two bodies
- * @param {Object} body1 - First body
- * @param {Object} body2 - Second body
- * @param {number} G - Gravitational constant
- * @param {THREE.Vector3} tempVector1 - Temporary vector for calculations
- * @param {THREE.Vector3} tempVector2 - Temporary vector for calculations
- */
-function calculatePairwiseForce(body1, body2, G, tempVector1, tempVector2) {
-    // Calculate distance vector
-    tempVector1.subVectors(body2.position, body1.position);
-    const distance = tempVector1.length();
-
-    // Avoid singularities by adding a small softening parameter
-    const softeningParameter = 0.001;
-    const softDistance = Math.sqrt(distance * distance + softeningParameter * softeningParameter);
-
-    // Calculate force magnitude: F = G * m1 * m2 / r²
-    const forceMagnitude = G * body1.mass * body2.mass / (softDistance * softDistance);
-
-    // Calculate unit vector
-    tempVector1.normalize();
-
-    // Calculate force vector
-    tempVector2.copy(tempVector1).multiplyScalar(forceMagnitude);
-
-    // Apply forces (Newton's third law: F12 = -F21)
-    if (body1.force) body1.force.add(tempVector2);
-    if (body2.force) body2.force.sub(tempVector2);
-}
-
-/**
- * Update body positions using Leapfrog integration
+ * Advance the system by one step of leapfrog integration, kicking the velocities by half a step
+ * either side of the drift.
+ *
+ * Splitting the kick this way costs nothing - the accelerations worked out for the second half
+ * kick are the ones the next step opens with, so there is still only one force evaluation per
+ * step - and in exchange the error per step falls with the square of the step rather than
+ * linearly, while the energy of a closed orbit stays put instead of creeping in one direction.
+ *
  * @param {Array} bodies - Array of Body objects
  * @param {number} dt - Time step
  * @param {number} dampingFactor - Damping factor for numerical stability
+ * @param {number} G - Gravitational constant
  */
-function updateNBodyPositions(bodies, dt, dampingFactor) {
-    const tempVector1 = new THREE.Vector3();
-    const tempVector2 = new THREE.Vector3();
+function integrateStep(bodies, dt, dampingFactor, G) {
+    const halfStep = dt * 0.5;
 
-    bodies.forEach(body => {
-        if (!body.velocity || !body.position || !body.force || typeof body.mass !== 'number') {
-            return; // Skip bodies without required physics properties
-        }
+    for (let i = 0; i < bodies.length; i++) {
+        const body = bodies[i];
+        if (!isIntegrable(body)) continue;
 
-        // Calculate acceleration: a = F / m
-        tempVector1.copy(body.force).divideScalar(body.mass);
-
-        // Update velocity: v(t+dt/2) = v(t-dt/2) + a(t) * dt
-        body.velocity.add(tempVector1.multiplyScalar(dt));
+        body.velocity.addScaledVector(body.acceleration, halfStep);
 
         // Apply damping to prevent numerical instabilities (only if enabled)
         if (dampingFactor !== 1.0) {
             body.velocity.multiplyScalar(dampingFactor);
         }
 
-        // Update position: x(t+dt) = x(t) + v(t+dt/2) * dt
-        tempVector2.copy(body.velocity).multiplyScalar(dt);
-        body.position.add(tempVector2);
+        body.position.addScaledVector(body.velocity, dt);
+    }
 
-        // Update the visual position using Body's updatePosition method
+    calculateNBodyAccelerations(bodies, G);
+
+    for (let i = 0; i < bodies.length; i++) {
+        const body = bodies[i];
+        if (!isIntegrable(body)) continue;
+
+        body.velocity.addScaledVector(body.acceleration, halfStep);
+    }
+}
+
+/**
+ * Show where the integration has left the bodies
+ * @param {Array} bodies - Array of Body objects
+ */
+function applyPositions(bodies) {
+    for (let i = 0; i < bodies.length; i++) {
+        const body = bodies[i];
+        if (!isIntegrable(body)) continue;
+
         body.updatePosition(body.position);
 
-        // Update orbital trail
         if (body.updateOrbitTrail) {
             body.updateOrbitTrail();
         }
-    });
+    }
 }
 
 /**
@@ -225,8 +279,13 @@ function initializeChildPhysics(parent, parentBody, sceneScale) {
                 meanMotion: child.orbit.n // Use mean motion from orbit object
             };
 
-            // Calculate position and velocity with centralized transformations
-            const mu = 39.478 * parentBody.mass; // Gravitational parameter
+            // Calculate position and velocity with centralized transformations. Both masses count
+            // towards the gravitational parameter, because the n-body integrator lets the parent
+            // move too: launching a moon at the speed it would need to circle a fixed parent
+            // leaves it too slow for the pair's real motion, which showed as Charon - an eighth of
+            // Pluto's mass - starting off on an orbit of eccentricity 0.11 rather than its
+            // catalogued 0.0002.
+            const mu = 39.478 * (parentBody.mass + childBody.mass); // Gravitational parameter
 
             // Prepare transformation options based on child body's equatorialOrbit attribute
             const transformOptions = {

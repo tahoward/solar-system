@@ -139,6 +139,10 @@ export class OrbitManager {
             // Use functional n-body physics with current speed multiplier from ClockManager
             updateHierarchyNBodyPhysics(this.hierarchy);
         } else {
+            // Kepler orbits are solved outright rather than stepped, so no speed troubles the
+            // accuracy and any limit the n-body integrator left behind no longer applies
+            clockManager.setPhysicsSpeedLimit(Infinity);
+
             // Use Kepler system to update all body positions in the hierarchy
             updateHierarchyPositions(this.hierarchy, timestamp, sceneScale);
         }

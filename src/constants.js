@@ -21,6 +21,37 @@ export const SIMULATION = {
   }
 };
 
+// N-Body Integration Configuration
+export const NBODY = {
+  // Steps the integrator insists on taking per orbit of the fastest-orbiting pair in the system.
+  // Leapfrog conserves energy over a closed orbit as long as the step stays a small fraction of
+  // the period; take steps comparable to the period and a moon gains energy every time round
+  // until it is thrown clear. Saturn's inner moons go round in under a day, so they are what
+  // sets the pace for everything else.
+  MIN_STEPS_PER_ORBIT: 60,
+
+  // Ceiling on the work one frame may do. The simulation is stepped as many times per frame as
+  // it takes to cover the time the clock asks for, so time compression costs steps rather than
+  // accuracy; past this many the clock is asked to slow down instead - see ClockManager's
+  // physics speed limit - because running out of steps means integrating garbage.
+  MAX_STEPS_PER_FRAME: 256,
+
+  // Gravity is softened below this multiple of the sum of the two bodies' radii, so that a pass
+  // close enough to be a collision cannot fling a body off at infinite speed. Tying it to the
+  // bodies rather than fixing it keeps it clear of the tightest real orbits: a fixed softening of
+  // a third of Charon's orbital radius left it circling Pluto on 11% less gravity than it should
+  // have, and so on a visibly eccentric orbit from the moment the simulation started.
+  //
+  // It has to be a good deal smaller than the bodies as well, because softened gravity is not
+  // quite an inverse square law, and an ellipse only stays put under an inverse square law. The
+  // Sun sets the softening for every planet and Mercury is only eighty-odd solar radii out, so at
+  // a tenth of the Sun's radius its perihelion crept backwards by 1270 arcseconds a century -
+  // more than twice the real advance the other planets give it, and in the wrong direction. The
+  // error falls with the square of the softening length, so a hundredth leaves around 13.
+  SOFTENING_RADII: 0.01,
+  MIN_SOFTENING: 1e-9
+};
+
 // Scene Configuration
 export const SCENE = {
   SCALE: 0.1,

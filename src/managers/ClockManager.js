@@ -25,6 +25,7 @@ export class ClockManager {
         this.speedMultiplier = 1.0;     // Global simulation speed (1.0 = normal)
         this.timeScale = 1.0;           // Time compression for orbital mechanics
         this.maxDeltaTime = 0.1;        // Cap frame time to prevent large jumps
+        this.physicsSpeedLimit = Infinity; // Fastest speed the physics can currently integrate
 
         // Orbital time scaling (for realistic orbital periods)
         this.orbitalTimeScale = 1.0;    // Separate scale for orbital motion vs rotation
@@ -195,9 +196,32 @@ export class ClockManager {
      */
     setSpeedMultiplier(multiplier) {
         // Use ORBIT constants for consistent speed limits across systems
-        const maxClockSpeed = ORBIT.MAX_SPEED_MULTIPLIER / 100.0; // Convert display scale to ClockManager scale
+        const maxClockSpeed = Math.min(ORBIT.MAX_SPEED_MULTIPLIER / 100.0, this.physicsSpeedLimit);
         this.speedMultiplier = Math.max(ORBIT.MIN_SPEED_MULTIPLIER / 100.0, Math.min(multiplier, maxClockSpeed));
         log.debug('ClockManager', `Speed multiplier set to ${this.speedMultiplier}x`);
+    }
+
+    /**
+     * Report the fastest speed the physics can keep up with, and slow the clock to it if it is
+     * already going faster.
+     *
+     * Asking for more time than the integrator can cover in the steps it is allowed used to be
+     * answered with a stride so long that the closest moons were flung out of their orbits. The
+     * limit means the simulation runs as fast as it honestly can instead: the displayed speed is
+     * one that is really being integrated, and it comes back up on its own when whatever tightened
+     * it - a close approach, a slow frame - passes.
+     *
+     * @param {number} limit - Speed multiplier ceiling, or Infinity for no limit
+     */
+    setPhysicsSpeedLimit(limit) {
+        this.physicsSpeedLimit = Number.isFinite(limit) ? Math.max(0, limit) : Infinity;
+
+        if (this.speedMultiplier > this.physicsSpeedLimit) {
+            const requested = this.speedMultiplier;
+            this.setSpeedMultiplier(this.physicsSpeedLimit);
+            log.debug('ClockManager', `Physics cannot keep up with ${(requested * 100).toFixed(0)}x, ` +
+                `holding at ${(this.speedMultiplier * 100).toFixed(0)}x`);
+        }
     }
 
     /**
