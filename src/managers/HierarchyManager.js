@@ -143,6 +143,41 @@ export class HierarchyManager {
     }
 
     /**
+     * Move a body under a different parent, for when it stops going round the one it started
+     * with - a moon flung clear of its planet becomes a child of whatever it now orbits, so
+     * that it is listed, shown and hidden along with that body's other children.
+     *
+     * @param {string} bodyName - Name of the body that has changed hands
+     * @param {string} parentName - Name of the body it now orbits
+     * @returns {boolean} True if the hierarchy changed
+     */
+    setParent(bodyName, parentName) {
+        const bodyData = this.hierarchyMap.get(bodyName);
+        const newParentData = this.hierarchyMap.get(parentName);
+
+        if (!bodyData || !newParentData || bodyData.parent === parentName) return false;
+        if (bodyName === parentName) {
+            log.error('HierarchyManager', `${bodyName} cannot become a child of itself`);
+            return false;
+        }
+
+        const oldParentData = this.hierarchyMap.get(bodyData.parent);
+        if (oldParentData) {
+            const index = oldParentData.children.indexOf(bodyName);
+            if (index !== -1) oldParentData.children.splice(index, 1);
+        }
+
+        if (!newParentData.children.includes(bodyName)) {
+            newParentData.children.push(bodyName);
+        }
+
+        log.info('HierarchyManager', `${bodyName} now orbits ${parentName}, was ${bodyData.parent}`);
+        bodyData.parent = parentName;
+
+        return true;
+    }
+
+    /**
      * Check if a body is a direct child of another body
      * @param {string} childName - Name of the potential child body
      * @param {string} parentName - Name of the potential parent body

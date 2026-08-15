@@ -24,14 +24,26 @@ Open `http://localhost:3000` in your browser.
 ## Controls
 
 ### Keyboard
-- **Space**: Focus on Sun
-- **[ / ]**: Navigate between bodies
-- **P**: Toggle physics mode
-- **+ / -**: Adjust simulation speed
+
+Navigation
+- **← / →**: Previous / next body
+- **Space**: Return to the Sun
+- **S**: Smoothly re-centre on the current body
+- **Backspace**: Reset the camera to its starting position
+
+Simulation
+- **Q**: Speed up
+- **A**: Slow down
+- **W**: Reset to normal speed
+- **P**: Toggle physics mode (Kepler / N-Body)
+
+Display
 - **T**: Toggle orbit trails
-- **O**: Toggle orbit lines
+- **L**: Toggle orbit lines
 - **M**: Toggle markers
 - **B**: Toggle bloom effect
+- **+ / -**: Increase / decrease marker size
+- **F3**: Toggle all overlays
 
 ### Mouse
 - **Left drag**: Rotate camera

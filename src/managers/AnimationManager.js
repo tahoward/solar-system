@@ -171,7 +171,24 @@ export class AnimationManager {
      * Update atmosphere lighting for all bodies with atmospheres
      */
     getFirstStar() {
-        // Find the first star in the orbits array to use as light source
+        // This is read every frame, but the star and its light colour don't change, and
+        // the traverse() below walks the whole star group. So the result is cached and
+        // only recomputed when the set of orbits changes.
+        if (!this._starCache || this._starCache.orbitCount !== this.orbits.length) {
+            this._starCache = this.#findFirstStar();
+        }
+
+        // starPosition is a live reference to the star's group position, which is copied
+        // into rather than replaced, so the cached vector stays current.
+        return this._starCache;
+    }
+
+    /**
+     * Locate the first star in the orbit list and read its light colour
+     * @returns {{starLightColor: number, starPosition: THREE.Vector3|null, orbitCount: number}}
+     * @private
+     */
+    #findFirstStar() {
         let starPosition = null;
         let starLightColor = 0xffffff; // Default white
 
@@ -189,7 +206,7 @@ export class AnimationManager {
             }
         }
 
-        return { starLightColor, starPosition }
+        return { starLightColor, starPosition, orbitCount: this.orbits.length };
     }
 
     /**
@@ -247,7 +264,7 @@ export class AnimationManager {
      */
     getTrailsVisibility() {
         // Get orbit trails state from SceneManager's VisibilityManager
-        if (SceneManager && typeof SceneManager.areMarkersVisible === 'function') {
+        if (SceneManager && typeof SceneManager.areOrbitTrailsVisible === 'function') {
             return SceneManager.areOrbitTrailsVisible();
         }
 

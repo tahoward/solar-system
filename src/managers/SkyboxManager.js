@@ -45,14 +45,20 @@ class SkyboxManager {
       // Create a large sphere geometry for the skybox
       const geometry = new THREE.SphereGeometry(SKYBOX.RADIUS, SKYBOX.SEGMENTS, SKYBOX.SEGMENTS / 2);
 
-      // Create material with the texture - dimmed for better contrast
-      // Ensure no emissive properties to exclude from bloom processing
+      // Create material with the texture - dimmed for better contrast.
+      //
+      // The dimming is a colour multiply, NOT a low opacity. Alpha blending happens in
+      // whatever encoding the current render target uses: with bloom on the scene is drawn
+      // into the composer's linear float buffer, with bloom off it goes straight to the
+      // sRGB canvas. A 0.1 alpha blend therefore produced srgb(0.1 * c) in one path and
+      // 0.1 * srgb(c) in the other, leaving the night sky roughly three times darker
+      // whenever bloom was switched off. Scaling material.color is a linear-space multiply
+      // either way, so both paths now match.
       const material = new THREE.MeshBasicMaterial({
         map: texture,
+        color: new THREE.Color().setScalar(SKYBOX.DEFAULT_BRIGHTNESS),
         side: THREE.BackSide, // Render inside faces so we see it from within
         fog: false, // Don't let fog affect the skybox
-        opacity: SKYBOX.DEFAULT_OPACITY, // Use configurable opacity
-        transparent: true, // Enable transparency for opacity control
         toneMapped: false, // Exclude from tone mapping to avoid bloom interference
         depthWrite: false, // Don't write to depth buffer to avoid conflicts with markers
         depthTest: true // But still test depth to ensure proper ordering
@@ -197,24 +203,24 @@ class SkyboxManager {
   }
 
   /**
-   * Set skybox opacity/brightness
-   * @param {number} opacity - Opacity value (0.0 to 1.0)
+   * Set skybox brightness by scaling the material colour
+   * @param {number} brightness - Brightness value (0.0 to 1.0)
    */
-  setOpacity(opacity) {
+  setBrightness(brightness) {
     if (this.skybox && this.skybox.material) {
-      const clampedOpacity = MathUtils.clamp(opacity, SKYBOX.MIN_OPACITY, SKYBOX.MAX_OPACITY);
-      this.skybox.material.opacity = clampedOpacity;
-      log.info('SkyboxManager', `🌌 Skybox opacity set to: ${clampedOpacity.toFixed(2)}`);
+      const clamped = MathUtils.clamp(brightness, SKYBOX.MIN_BRIGHTNESS, SKYBOX.MAX_BRIGHTNESS);
+      this.skybox.material.color.setScalar(clamped);
+      log.info('SkyboxManager', `🌌 Skybox brightness set to: ${clamped.toFixed(2)}`);
     }
   }
 
   /**
-   * Get current skybox opacity
-   * @returns {number} Current opacity value
+   * Get current skybox brightness
+   * @returns {number} Current brightness value
    */
-  getOpacity() {
+  getBrightness() {
     if (this.skybox && this.skybox.material) {
-      return this.skybox.material.opacity;
+      return this.skybox.material.color.r;
     }
     return 0;
   }
@@ -225,8 +231,7 @@ class SkyboxManager {
    */
   brighten(amount = 0.1) {
     if (this.skybox) {
-      const currentOpacity = this.getOpacity();
-      this.setOpacity(currentOpacity + amount);
+      this.setBrightness(this.getBrightness() + amount);
     }
   }
 
@@ -236,8 +241,7 @@ class SkyboxManager {
    */
   dim(amount = 0.1) {
     if (this.skybox) {
-      const currentOpacity = this.getOpacity();
-      this.setOpacity(currentOpacity - amount);
+      this.setBrightness(this.getBrightness() - amount);
     }
   }
 }

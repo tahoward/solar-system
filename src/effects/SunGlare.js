@@ -18,8 +18,23 @@ class SunGlare extends SunEffect {
         this.glareSize = options.size || 5.0;  // Size multiplier relative to sun radius
         this.glareOpacity = options.opacity || 1.0;
         this.glareColor = options.color || 0xffaa00;
-        this.emissiveIntensity = options.emissiveIntensity || 25.0;
-        this.brightnessMult = options.brightnessMult || 15.0; // Additional brightness multiplier for visual effect (increased default)
+
+        // The glare is drawn as two layers so that it reads correctly with or without bloom:
+        //
+        //  - a broad halo whose brightness stays inside the displayable 0-1 range, so its
+        //    falloff survives on the plain 8-bit canvas the renderer uses when bloom is off;
+        //  - a small over-range core (emissiveIntensity) that pushes past the bloom pass's
+        //    1.0 threshold so the post-process still has something to bleed when bloom is on.
+        //
+        // Previously the whole billboard was multiplied by emissiveIntensity, so every pixel
+        // with any alpha at all saturated to flat yellow and the shape collapsed into a hard
+        // cross the moment the bloom pass stopped smearing it.
+        this.emissiveIntensity = options.emissiveIntensity || 25.0;  // Over-range core, feeds bloom
+        this.glowIntensity = options.glowIntensity || 1.35;          // Displayable halo brightness
+        this.haloRadius = options.haloRadius || 0.5;                 // Halo extent, fraction of billboard
+        this.haloFalloff = options.haloFalloff || 3.0;               // Higher = tighter halo
+        this.haloStrength = options.haloStrength || 0.55;            // Peak halo alpha
+        this.coreWhiteness = options.coreWhiteness !== undefined ? options.coreWhiteness : 0.8;
 
 
         // Distance-based scaling parameters
@@ -92,10 +107,6 @@ class SunGlare extends SunEffect {
         const size = this.sunRadius * this.glareSize;
         const geometry = new THREE.PlaneGeometry(size, size);
 
-        // Apply brightness multiplier to color for visual brightness
-        const brightenedColor = new THREE.Color(this.glareColor);
-        brightenedColor.multiplyScalar(this.brightnessMult);
-
         // Create shader material for procedural star spikes
         const material = new THREE.ShaderMaterial({
             transparent: true,
@@ -105,10 +116,14 @@ class SunGlare extends SunEffect {
             side: THREE.DoubleSide,
             uniforms: {
                 uTime: { value: 0.0 },
-                uColor: { value: brightenedColor },
                 uEmissiveColor: { value: new THREE.Color(this.glareColor) },
                 uOpacity: { value: this.glareOpacity },
-                uEmissiveIntensity: { value: this.emissiveIntensity },
+                uCoreIntensity: { value: this.emissiveIntensity }, // Over-range core (drives bloom)
+                uCoreWhiteness: { value: this.coreWhiteness }, // How far the core desaturates to white
+                uGlowIntensity: { value: this.glowIntensity }, // Displayable halo brightness
+                uHaloRadius: { value: this.haloRadius }, // Halo extent as a fraction of the billboard
+                uHaloFalloff: { value: this.haloFalloff }, // Halo falloff exponent
+                uHaloStrength: { value: this.haloStrength }, // Peak halo alpha
                 uSpikeLength: { value: 0.65 }, // Length of star spikes
                 uSpikeWidth: { value: 0.02 }, // Width of star spikes
                 uCenterRadius: { value: 0.05 }, // Central star core radius
@@ -127,10 +142,14 @@ class SunGlare extends SunEffect {
             `,
             fragmentShader: `
                 uniform float uTime;
-                uniform vec3 uColor;
                 uniform vec3 uEmissiveColor;
                 uniform float uOpacity;
-                uniform float uEmissiveIntensity;
+                uniform float uCoreIntensity;
+                uniform float uCoreWhiteness;
+                uniform float uGlowIntensity;
+                uniform float uHaloRadius;
+                uniform float uHaloFalloff;
+                uniform float uHaloStrength;
                 uniform float uSpikeLength;
                 uniform float uSpikeWidth;
                 uniform float uCenterRadius;
@@ -146,13 +165,18 @@ class SunGlare extends SunEffect {
                     vec2 center = vUv - 0.5;
                     float dist = length(center);
 
-                    float alpha = 0.0;
+                    // Broad soft halo. This is what makes the star read as bright at a
+                    // distance without any help from the bloom pass, so it is deliberately
+                    // kept inside the displayable range instead of relying on over-range
+                    // values that an 8-bit target would just clip to a flat disc.
+                    float haloFade = max(0.0, 1.0 - dist / uHaloRadius);
+                    float halo = pow(haloFade, uHaloFalloff) * uHaloStrength;
 
                     // Central bright core - always visible
                     float coreRadius = uCenterRadius * uCenterScale;
-                    if (dist <= coreRadius) {
-                        alpha = smoothstep(coreRadius * 1.2, 0.0, dist);
-                    }
+                    float core = smoothstep(coreRadius * 1.2, 0.0, dist);
+
+                    float alpha = max(halo, core);
 
                     // Create 4 classic star spikes (cross pattern)
                     // Horizontal and vertical spikes for classic star appearance
@@ -223,8 +247,12 @@ class SunGlare extends SunEffect {
 
                     alpha = clamp(alpha, 0.0, 1.0);
 
-                    // Apply emissive color and intensity
-                    vec3 finalColor = uEmissiveColor * uEmissiveIntensity;
+                    // Halo and spikes are tinted and displayable; the core is over-range so the
+                    // bloom pass has something above its threshold to bleed, and desaturates
+                    // towards white the way an over-exposed highlight does.
+                    vec3 haloColor = uEmissiveColor * uGlowIntensity;
+                    vec3 coreColor = mix(uEmissiveColor, vec3(1.0), uCoreWhiteness) * uCoreIntensity;
+                    vec3 finalColor = haloColor + coreColor * core * core;
 
                     gl_FragColor = vec4(finalColor, alpha * uOpacity);
                 }
@@ -300,7 +328,9 @@ class SunGlare extends SunEffect {
             this.material.uniforms.uTime.value = this.time;
             this.material.uniforms.uCenterScale.value = centerScale;
             this.material.uniforms.uOpacity.value = this.glareOpacity * this.currentFadeFactor;
-            this.material.uniforms.uEmissiveIntensity.value = this.emissiveIntensity * this.currentFadeFactor * emissiveBoost;
+            // Only the core takes the distance boost; the halo has to stay displayable.
+            this.material.uniforms.uCoreIntensity.value = this.emissiveIntensity * this.currentFadeFactor * emissiveBoost;
+            this.material.uniforms.uGlowIntensity.value = this.glowIntensity * this.currentFadeFactor;
             this.material.uniforms.uDistanceFactor.value = distanceFactor;
             this.material.uniforms.uTwinkleIntensity.value = this.twinkleIntensity;
             this.material.uniforms.uTwinkleSpeed.value = this.twinkleSpeed;
@@ -379,20 +409,29 @@ class SunGlare extends SunEffect {
     setGlareColor(color) {
         this.glareColor = color;
         if (this.material && this.material.uniforms) {
-            const newColor = new THREE.Color(color);
-            this.material.uniforms.uEmissiveColor.value = newColor;
-            this.material.uniforms.uColor.value = newColor.clone().multiplyScalar(this.brightnessMult);
+            this.material.uniforms.uEmissiveColor.value.set(color);
         }
     }
 
     /**
-     * Set emissive intensity for bloom control
+     * Set the over-range core intensity that drives the bloom pass
      * @param {number} intensity - The emissive intensity (>1.0 for bloom effect)
      */
     setEmissiveIntensity(intensity) {
         this.emissiveIntensity = intensity;
         if (this.material && this.material.uniforms) {
-            this.material.uniforms.uEmissiveIntensity.value = intensity * this.currentFadeFactor;
+            this.material.uniforms.uCoreIntensity.value = intensity * this.currentFadeFactor;
+        }
+    }
+
+    /**
+     * Set the displayable halo brightness, i.e. how bright the glare looks without bloom
+     * @param {number} intensity - Halo brightness multiplier
+     */
+    setGlowIntensity(intensity) {
+        this.glowIntensity = intensity;
+        if (this.material && this.material.uniforms) {
+            this.material.uniforms.uGlowIntensity.value = intensity * this.currentFadeFactor;
         }
     }
 

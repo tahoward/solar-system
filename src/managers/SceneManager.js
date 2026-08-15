@@ -311,14 +311,6 @@ class SceneManager {
   }
 
   /**
-   * Check if orbit trails are currently enabled
-   * @returns {boolean} True if orbit trails are enabled, false if disabled
-   */
-  areOrbitTrailsVisible() {
-    return this.visibilityManager.areOrbitTrailsVisible();
-  }
-
-  /**
    * Clear all orbit trails
    */
   clearAllOrbitTrails() {
@@ -342,6 +334,26 @@ class SceneManager {
   registerOrbitTrail(body) {
     this.orbitTrailManager.registerOrbitTrail(body);
     this.visibilityManager.registerOrbitTrail(body);
+  }
+
+  /**
+   * Record that a body now orbits something other than the body it started out around, as
+   * happens when a moon is thrown clear of its planet. What is shown alongside the current
+   * selection follows the hierarchy, so an ejected moon's orbit line and marker move with it -
+   * appearing with the Sun's other children rather than staying hidden with a planet it has
+   * left behind.
+   *
+   * @param {Body} body - The body that has changed hands
+   * @param {Body} parentBody - The body it now orbits
+   */
+  reparentBody(body, parentBody) {
+    if (!body?.name || !parentBody?.name) return;
+    if (!this.hierarchyManager.setParent(body.name, parentBody.name)) return;
+
+    const selectedBody = this.hierarchyManager.getSelectedBody();
+    if (selectedBody) {
+      this.visibilityManager.updateVisibility(selectedBody);
+    }
   }
 
   /**

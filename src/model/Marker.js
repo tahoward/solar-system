@@ -6,6 +6,9 @@ import SceneManager from '../managers/SceneManager.js';
 import { MARKER, TARGETING } from '../constants.js';
 import { log } from '../utils/Logger.js';
 
+// Scratch vector reused by per-frame marker scaling
+const _worldPosition = new THREE.Vector3();
+
 /**
  * SVG Template Manager - handles loading and caching of marker SVG template
  */
@@ -256,9 +259,8 @@ class Marker {
             camDistance = SceneManager.camera.position.distanceTo(SceneManager.controls.target);
         } else {
             // For non-targeted bodies, use direct distance to body center (world position)
-            const worldPos = new THREE.Vector3();
-            this.body.group.getWorldPosition(worldPos);
-            camDistance = SceneManager.camera.position.distanceTo(worldPos);
+            this.body.group.getWorldPosition(_worldPosition);
+            camDistance = SceneManager.camera.position.distanceTo(_worldPosition);
         }
 
         const globalMultiplier = SceneManager.getMarkerSizeMultiplier();
@@ -366,6 +368,12 @@ class Marker {
 
     update() {
         if (!this.group) return;
+
+        // Nothing here affects anything but appearance, so hidden markers are skipped.
+        // Markers are hidden either by dropping opacity to zero or by clearing
+        // group.visible, and show()/setVisible() both run before the next render, so a
+        // marker never becomes visible with stale orientation or scale.
+        if (this.opacity <= 0 || !this.group.visible) return;
 
         // Keep camera orientation
         this.#orientate();

@@ -32,20 +32,44 @@ export const SCENE = {
 // Orbit Configuration
 export const ORBIT = {
   AU_SCALE_METERS: 215.5,
-  CIRCUMFERENCE_MULTIPLIER: 100,
-  KEPLER_EQUATION_ITERATIONS: 10,
+  KEPLER_EQUATION_ITERATIONS: 8,   // Newton-Raphson cap; typically converges in 2-3
+  KEPLER_EQUATION_TOLERANCE: 1e-10, // Eccentric anomaly residual treated as converged
   // Speed control limits
   MIN_SPEED_MULTIPLIER: 1.0,
   MAX_SPEED_MULTIPLIER: 6553600.0,  // Capped maximum speed
   SPEED_FACTOR: 2.0,  // Use multiplication/division like n-body (replaces SPEED_INCREMENT)
-  // Level-of-detail configuration for orbit lines
+  // Level-of-detail configuration for orbit lines.
+  // Segment counts are chosen in screen space: an orbit only needs enough segments
+  // for each one to be about a pixel long, so detail is driven by how large the
+  // orbit appears rather than by raw camera distance.
   LOD: {
-    MIN_SEGMENTS: 64,        // Minimum segments when very far away
-    MAX_SEGMENTS: 10000,       // Maximum segments when very close
-    CLOSE_DISTANCE: .02,      // Distance considered "close" for max detail
-    FAR_DISTANCE: 7000,      // Distance considered "far" for min detail
-    UPDATE_FREQUENCY: 0.001    // How often to check LOD (0.1 = 10% of frames)
-  }
+    INITIAL_SEGMENTS: 128,     // Segment count before the first LOD pass runs
+    MIN_SEGMENTS: 64,          // Minimum segments when very far away
+    MAX_SEGMENTS: 2048,        // Upper bound per orbit line, even up close
+    TARGET_SEGMENT_PIXELS: 4,  // Desired on-screen length of one segment, in pixels
+    UPDATE_FREQUENCY: 0.05,    // How often to check LOD (0.05 = every 20th update)
+    REBUILD_RATIO: 0.25        // Rebuild only when the count changes by this fraction
+  },
+  // An orbit line is sampled starting from its body and stored relative to that same point,
+  // so that the line passes through the body and so that a float32 vertex buffer never has
+  // to hold absolute coordinates for the outer planets. The error of both grows as the body
+  // moves on, as does the error of drawing an orbit the body has since been perturbed off;
+  // see Orbit#maxAnchorDrift for how this budget turns into a rebuild distance.
+  PRECISION: {
+    JITTER_PIXEL_BUDGET: 0.15   // Error tolerated in the line's position, in pixels
+  },
+  // An orbit is drawn about the body it is really going round, which for a moon thrown clear of
+  // its planet is no longer that planet - see Orbit#selectReferenceBody. Handing it back again
+  // takes an orbit this much of the way inside the planet's Hill sphere, so that a body sitting
+  // on the boundary cannot swap the two every frame.
+  SPHERE_OF_INFLUENCE: {
+    RECAPTURE_RATIO: 0.8
+  },
+  // An orbit line follows the body's own current orbit rather than the catalogue ellipse, so
+  // that its periapsis and apoapsis are the ones the body will really reach. A body thrown
+  // clear of its parent has no apoapsis at all, so its escape path is drawn out to this
+  // multiple of its current distance and no further.
+  OPEN_PATH_RADIUS_RATIO: 6
 };
 
 // Marker Configuration
@@ -73,9 +97,11 @@ export const ANIMATION = {
 
 // Bloom Effect Configuration
 export const BLOOM = {
-  // Resolution multiplier for bloom effect
-  // Higher values = better quality but lower performance
-  RESOLUTION_MULTIPLIER: 2.0,  // 2x screen resolution for balanced quality/performance (reduced from 4.0)
+  // Resolution multiplier for the bloom mip chain, relative to the renderer's drawing
+  // buffer. 1.0 means the bloom is built at full canvas resolution, which is what the
+  // blur kernel is tuned for; going below that widens and coarsens the glow rather than
+  // just making it cheaper. Raise above 1.0 only to supersample.
+  RESOLUTION_MULTIPLIER: 1.0,
 
   // Bloom effect parameters
   STRENGTH: .5,    // Bloom strength (reduced to prevent washout)
@@ -184,9 +210,12 @@ export const TARGETING = {
 
 // Skybox Configuration
 export const SKYBOX = {
-  DEFAULT_OPACITY: 0.1,     // Default skybox opacity (0.0 = invisible, 1.0 = fully opaque)
-  MIN_OPACITY: 0.1,         // Minimum allowed opacity
-  MAX_OPACITY: 1.0,         // Maximum allowed opacity
+  // The night sky is dimmed by scaling the material colour rather than by lowering opacity,
+  // because a colour multiply happens in linear space and so looks identical on every render
+  // target. See SkyboxManager.createSkybox for why alpha was the wrong knob.
+  DEFAULT_BRIGHTNESS: 0.16, // Default night sky brightness (0.0 = black, 1.0 = full texture)
+  MIN_BRIGHTNESS: 0.0,      // Minimum allowed brightness
+  MAX_BRIGHTNESS: 1.0,      // Maximum allowed brightness
   RADIUS: 1000000,             // Skybox sphere radius
   SEGMENTS: 64              // Sphere geometry segments for quality
 };
@@ -195,8 +224,6 @@ export const SKYBOX = {
 export const MATH = {
   PI_OVER_180: Math.PI / 180,
   TWO_PI: 2 * Math.PI,
-  ELLIPSE_FACTOR_A: 3,
-  ELLIPSE_FACTOR_B: 3,
   HALF: 0.5,
   TWO: 2
 };
@@ -267,6 +294,12 @@ export const CELESTIAL_DATA = [{
       opacity: 1,  // Base opacity
       color: 0xffaa00,  // Glare color (will be overridden by temperature)
       // emissiveIntensity: 1.4,  // Commented out to use temperature-based calculation
+      // Halo layer - kept within the displayable range so the star still reads as bright
+      // when bloom is switched off. See SunGlare for how this pairs with the core.
+      glowIntensity: 1.35,  // Halo brightness multiplier
+      haloRadius: 0.5,      // Halo extent as a fraction of the billboard
+      haloFalloff: 3.0,     // Halo falloff exponent (higher = tighter)
+      haloStrength: 0.55,   // Peak halo alpha
       fadeStartDistance: 20,  // Distance where fade begins (scaled by radiusScale)
       fadeEndDistance: 10,  // Distance where glare completely disappears (scaled by radiusScale)
       // Distance-based scaling parameters (all scaled by radiusScale)

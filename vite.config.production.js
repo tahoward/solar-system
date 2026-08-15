@@ -10,8 +10,8 @@ export default defineConfig({
     // Output directory
     outDir: 'dist',
 
-    // Generate source maps for debugging
-    sourcemap: true,
+    // No source maps: they add ~3MB to what visitors download from GitHub Pages
+    sourcemap: false,
 
     // Asset handling
     assetsDir: 'assets',
@@ -34,7 +34,7 @@ export default defineConfig({
   },
 
   // Asset handling configuration
-  assetsInclude: ['**/*.jpg', '**/*.png', '**/*.svg', '**/*.tif'],
+  assetsInclude: ['**/*.jpg', '**/*.png', '**/*.svg'],
 
   // Server configuration for development
   server: {

@@ -4,7 +4,15 @@ import { log } from '../utils/Logger.js';
 
 // Physics constants - we'll get the scale dynamically to avoid circular imports
 let auScale = null;
+const DEFAULT_SCENE_SCALE = 0.1;
 const PI_OVER_180 = MATH.PI_OVER_180;
+
+// Scratch values reused every frame so hierarchy updates allocate nothing
+const _scratchPosition = new THREE.Vector3();
+const _scratchVelocity = new THREE.Vector3();
+const _zeroVector = new THREE.Vector3(0, 0, 0);
+const _scratchTransformOptions = { applyTilt: false, axialTilt: 0, tiltMatrix: null };
+const _scratchParent = { position: null, velocity: null };
 // Use same astronomical units as n-body: G * M_sun in AU³ M_sun⁻¹ year⁻²
 const GM = 4 * Math.PI ** 2; // Standard GM in astronomical units (AU³/year²)
 
@@ -38,7 +46,12 @@ export function calculateOrbitalMotion(semiMajorAxis, parentBody) {
 }
 
 /**
- * Solves Kepler's equation using iterative method.
+ * Solves Kepler's equation (M = E - e*sin(E)) for the eccentric anomaly.
+ *
+ * Uses Newton-Raphson, which converges quadratically and so needs 2-3 iterations
+ * where fixed-point iteration needs dozens - and unlike fixed-point iteration it
+ * stays accurate at high eccentricity.
+ *
  * @param {number} meanAnomaly - Mean anomaly in radians
  * @param {number} eccentricity - Orbital eccentricity
  * @returns {number} Eccentric anomaly in radians
@@ -47,7 +60,13 @@ export function solveKeplerEquation(meanAnomaly, eccentricity) {
     let eccentricAnomaly = meanAnomaly;
 
     for (let i = 0; i < ORBIT.KEPLER_EQUATION_ITERATIONS; i++) {
-        eccentricAnomaly = meanAnomaly + eccentricity * Math.sin(eccentricAnomaly);
+        const residual = eccentricAnomaly - eccentricity * Math.sin(eccentricAnomaly) - meanAnomaly;
+        const derivative = 1 - eccentricity * Math.cos(eccentricAnomaly);
+        const step = residual / derivative;
+
+        eccentricAnomaly -= step;
+
+        if (Math.abs(step) < ORBIT.KEPLER_EQUATION_TOLERANCE) break;
     }
 
     return eccentricAnomaly;
@@ -64,9 +83,10 @@ export function solveKeplerEquation(meanAnomaly, eccentricity) {
  * @param {number} orbitalElements.argumentOfPeriapsisRadians - Argument of periapsis in radians
  * @param {number} orbitalElements.meanAnomalyAtEpochRadians - Mean anomaly at epoch in radians
  * @param {number} orbitalElements.meanMotion - Mean motion in radians/year
+ * @param {THREE.Vector3} [target] - Optional vector to write into, avoiding an allocation
  * @returns {THREE.Vector3} The calculated position vector
  */
-export function calculateKeplerianPosition(t, orbitalElements) {
+export function calculateKeplerianPosition(t, orbitalElements, target) {
     const {
         semiMajorAxis,
         eccentricity,
@@ -109,17 +129,61 @@ export function calculateKeplerianPosition(t, orbitalElements) {
     const z = (sinW * sinInc) * xOrb + (cosW * sinInc) * yOrb;
 
     // For compatibility with existing coordinate system, we might need to adjust axes
-    return new THREE.Vector3(x, z, -y);
+    return target ? target.set(x, z, -y) : new THREE.Vector3(x, z, -y);
+}
+
+/**
+ * Build the orbit's perifocal basis: the two unit vectors that calculateKeplerianPosition
+ * implicitly projects its in-plane coordinates onto. They depend only on the orientation
+ * elements, so an orbit computes them once.
+ *
+ * Because both vectors are unit length and mutually perpendicular, projecting a position
+ * back onto them recovers that position's in-plane coordinates, which is how Orbit reads a
+ * body's place on its own ellipse straight out of its position.
+ *
+ * @param {Object} orbitalElements - Object containing the orientation elements
+ * @param {THREE.Vector3} periapsisAxis - Receives the direction of periapsis
+ * @param {THREE.Vector3} inPlaneAxis - Receives the in-plane direction 90 degrees ahead of it
+ */
+export function computePerifocalBasis(orbitalElements, periapsisAxis, inPlaneAxis) {
+    const {
+        inclinationRadians,
+        longitudeOfAscendingNodeRadians,
+        argumentOfPeriapsisRadians
+    } = orbitalElements;
+
+    const cosOmega = Math.cos(longitudeOfAscendingNodeRadians);
+    const sinOmega = Math.sin(longitudeOfAscendingNodeRadians);
+    const cosInc = Math.cos(inclinationRadians);
+    const sinInc = Math.sin(inclinationRadians);
+    const cosW = Math.cos(argumentOfPeriapsisRadians);
+    const sinW = Math.sin(argumentOfPeriapsisRadians);
+
+    // Columns of the same transformation used above, in the scene's (x, z, -y) axes
+    periapsisAxis.set(
+        cosOmega * cosW - sinOmega * sinW * cosInc,
+        sinW * sinInc,
+        -(sinOmega * cosW + cosOmega * sinW * cosInc)
+    );
+    inPlaneAxis.set(
+        -cosOmega * sinW - sinOmega * cosW * cosInc,
+        cosW * sinInc,
+        -(-sinOmega * sinW + cosOmega * cosW * cosInc)
+    );
 }
 
 /**
  * Gets the AU scale factor for converting astronomical units to visual scale
- * @param {number} sceneScale - Optional scene scale factor, if not provided will use default
+ * @param {number} [sceneScale] - Scene scale factor; when given it always sets the scale,
+ *                                so a caller passing a scale can never silently receive
+ *                                a stale value cached from an earlier call
  * @returns {number} AU scale factor
  */
-export function getAUScale(sceneScale = 0.1) {
-    if (auScale === null) {
+export function getAUScale(sceneScale) {
+    if (sceneScale !== undefined) {
         auScale = ORBIT.AU_SCALE_METERS * sceneScale;
+    } else if (auScale === null) {
+        auScale = ORBIT.AU_SCALE_METERS * DEFAULT_SCENE_SCALE;
     }
     return auScale;
 }
@@ -137,9 +201,10 @@ export function updateAUScale(sceneScale) {
  * @param {number} t - Time parameter in seconds
  * @param {Object} orbitalElements - Object containing orbital elements (same as position calculation)
  * @param {number} mu - Gravitational parameter (G * M) in AU³/year²
+ * @param {THREE.Vector3} [target] - Optional vector to write into, avoiding an allocation
  * @returns {THREE.Vector3} The calculated velocity vector
  */
-export function calculateKeplerianVelocity(t, orbitalElements, mu = 39.478) {
+export function calculateKeplerianVelocity(t, orbitalElements, mu = 39.478, target) {
     const {
         semiMajorAxis,
         eccentricity,
@@ -159,14 +224,17 @@ export function calculateKeplerianVelocity(t, orbitalElements, mu = 39.478) {
     // Calculate radial distance - use same scaling as n-body initialization
     const auScale = getAUScale(); // Get current AU scale factor
     const scaledA = semiMajorAxis * auScale;
-    const r = scaledA * (1 - eccentricity * Math.cos(eccentricAnomaly));
 
-    // Calculate velocity magnitude using vis-viva equation (matching n-body method)
-    const velocityMagnitude = Math.sqrt(mu * (2 / r - 1 / scaledA));
-
-    // Velocity components in orbital plane (perpendicular to radius vector)
-    const vxOrb = -velocityMagnitude * Math.sin(trueAnomaly);
-    const vyOrb = velocityMagnitude * Math.cos(trueAnomaly);
+    // Velocity components in the orbital plane. These are only at right angles to the radius
+    // vector at the apsides - everywhere else the body is also climbing away from or falling
+    // towards the focus, by the flight path angle tan(gamma) = e*sin(nu) / (1 + e*cos(nu)).
+    // Building the components off the semi-latus rectum gets that direction right, and
+    // reproduces the vis-viva speed exactly. Handing over a velocity at right angles instead
+    // put every body onto a different orbit the moment n-body physics took over from Kepler.
+    const semiLatusRectum = scaledA * (1 - eccentricity * eccentricity);
+    const velocityScale = Math.sqrt(mu / semiLatusRectum);
+    const vxOrb = -velocityScale * Math.sin(trueAnomaly);
+    const vyOrb = velocityScale * (eccentricity + Math.cos(trueAnomaly));
 
     // Apply same 3D orbital transformation as position
     const cosOmega = Math.cos(longitudeOfAscendingNodeRadians);
@@ -189,7 +257,7 @@ export function calculateKeplerianVelocity(t, orbitalElements, mu = 39.478) {
     const finalVz = -vyAstro;
 
     // Return velocity without additional scaling (to match n-body initialization method)
-    return new THREE.Vector3(finalVx, finalVy, finalVz);
+    return target ? target.set(finalVx, finalVy, finalVz) : new THREE.Vector3(finalVx, finalVy, finalVz);
 }
 
 /**
@@ -201,14 +269,14 @@ export function calculateKeplerianVelocity(t, orbitalElements, mu = 39.478) {
  * @param {boolean} options.applyTilt - Whether to apply parent axial tilt
  * @param {number} options.axialTilt - Parent axial tilt in degrees
  * @param {THREE.Matrix4} options.tiltMatrix - Pre-computed tilt matrix (optimization)
+ * @param {THREE.Vector3} [target] - Optional vector to write into, avoiding an allocation
  * @returns {THREE.Vector3} Final position including all transformations
  */
-export function calculateKeplerianPositionWithTransforms(t, orbitalElements, parentBody = null, options = {}) {
-    // Get base orbital position
-    const orbitPosition = calculateKeplerianPosition(t, orbitalElements);
+export function calculateKeplerianPositionWithTransforms(t, orbitalElements, parentBody = null, options = {}, target) {
+    // Get base orbital position, written straight into the caller's vector when given
+    const finalPosition = calculateKeplerianPosition(t, orbitalElements, target);
 
     // Apply tilt transformation if specified
-    let finalPosition = orbitPosition.clone();
     if (options.applyTilt && options.axialTilt !== undefined && options.axialTilt !== 0) {
         // Use pre-computed tilt matrix if available (optimization)
         if (options.tiltMatrix) {
@@ -239,14 +307,14 @@ export function calculateKeplerianPositionWithTransforms(t, orbitalElements, par
  * @param {boolean} options.applyTilt - Whether to apply parent axial tilt
  * @param {number} options.axialTilt - Parent axial tilt in degrees
  * @param {THREE.Matrix4} options.tiltMatrix - Pre-computed tilt matrix (optimization)
+ * @param {THREE.Vector3} [target] - Optional vector to write into, avoiding an allocation
  * @returns {THREE.Vector3} Final velocity including all transformations
  */
-export function calculateKeplerianVelocityWithTransforms(t, orbitalElements, mu, parentBody = null, options = {}) {
-    // Get base orbital velocity
-    const orbitVelocity = calculateKeplerianVelocity(t, orbitalElements, mu);
+export function calculateKeplerianVelocityWithTransforms(t, orbitalElements, mu, parentBody = null, options = {}, target) {
+    // Get base orbital velocity, written straight into the caller's vector when given
+    const finalVelocity = calculateKeplerianVelocity(t, orbitalElements, mu, target);
 
     // Apply tilt transformation if specified
-    let finalVelocity = orbitVelocity.clone();
     if (options.applyTilt && options.axialTilt !== undefined && options.axialTilt !== 0) {
         // Use pre-computed tilt matrix if available (optimization)
         if (options.tiltMatrix) {
@@ -273,13 +341,14 @@ export function calculateKeplerianVelocityWithTransforms(t, orbitalElements, mu,
  * @param {number} timestamp - Current time for orbital calculations
  * @param {number} sceneScale - Scene scale factor for visual scaling
  */
-export function updateHierarchyPositions(hierarchy, timestamp, sceneScale = 0.1) {
+export function updateHierarchyPositions(hierarchy, timestamp, sceneScale = DEFAULT_SCENE_SCALE) {
     // Always update AU scale to match the provided scene scale
     auScale = ORBIT.AU_SCALE_METERS * sceneScale;
 
-    // Process the root body (Sun) - it stays at origin
+    // Process the root body (Sun) - it stays at origin.
+    // updatePosition copies the vector, so the shared zero constant is safe to pass.
     if (hierarchy.body) {
-        hierarchy.body.updatePosition(new THREE.Vector3(0, 0, 0));
+        hierarchy.body.updatePosition(_zeroVector);
     }
 
     // Recursively update children
@@ -298,43 +367,41 @@ export function updateHierarchyPositions(hierarchy, timestamp, sceneScale = 0.1)
 function updateChildrenPositions(parent, parentBody, timestamp) {
     if (!parent.children) return;
 
-    parent.children.forEach(child => {
-        if (!child.body || !child.orbit) return;
+    // This runs for every body on every frame, so all of the working state below is
+    // shared and reused rather than rebuilt. It is safe across the recursion because
+    // each child's results are copied into the body before recursing into its children.
+    for (let i = 0; i < parent.children.length; i++) {
+        const child = parent.children[i];
+        if (!child.body || !child.orbit) continue;
 
         try {
-            // Get the orbit's orbital elements
+            // Orbital elements are fixed, so the orbit caches them at construction
             const orbit = child.orbit;
-            const orbitalElements = {
-                semiMajorAxis: orbit.semiMajorAxis,
-                eccentricity: orbit.eccentricity,
-                inclinationRadians: orbit.inclinationRadians,
-                longitudeOfAscendingNodeRadians: orbit.longitudeOfAscendingNodeRadians,
-                argumentOfPeriapsisRadians: orbit.argumentOfPeriapsisRadians,
-                meanAnomalyAtEpochRadians: orbit.meanAnomalyAtEpochRadians,
-                meanMotion: orbit.n
-            };
+            const orbitalElements = orbit.elements;
 
             // Use centralized functions for position and velocity with transformations
             const mu = parentBody.mass * 39.478;
 
             // Determine transformation options based on child body's equatorialOrbit attribute
-            const transformOptions = {
-                applyTilt: parentBody && parentBody.tiltContainer && child.body.equatorialOrbit,
-                axialTilt: parentBody?.axialTilt || 0,
-                tiltMatrix: orbit.tiltMatrix || null  // Use pre-computed tilt matrix (optimization)
-            };
+            _scratchTransformOptions.applyTilt = !!(parentBody && parentBody.tiltContainer && child.body.equatorialOrbit);
+            _scratchTransformOptions.axialTilt = parentBody?.axialTilt || 0;
+            _scratchTransformOptions.tiltMatrix = orbit.tiltMatrix || null; // Pre-computed (optimization)
 
-            // Create parent body object for centralized functions
-            const parentForTransform = parentBody ? {
-                position: parentBody.group.position,
-                velocity: parentBody.velocity || new THREE.Vector3(0, 0, 0)
-            } : null;
+            // Describe the parent for the centralized functions
+            let parentForTransform = null;
+            if (parentBody) {
+                _scratchParent.position = parentBody.group.position;
+                _scratchParent.velocity = parentBody.velocity || _zeroVector;
+                parentForTransform = _scratchParent;
+            }
 
             // Calculate position and velocity with all transformations
-            const finalPosition = calculateKeplerianPositionWithTransforms(timestamp, orbitalElements, parentForTransform, transformOptions);
-            const finalVelocity = calculateKeplerianVelocityWithTransforms(timestamp, orbitalElements, mu, parentForTransform, transformOptions);
+            const finalPosition = calculateKeplerianPositionWithTransforms(
+                timestamp, orbitalElements, parentForTransform, _scratchTransformOptions, _scratchPosition);
+            const finalVelocity = calculateKeplerianVelocityWithTransforms(
+                timestamp, orbitalElements, mu, parentForTransform, _scratchTransformOptions, _scratchVelocity);
 
-            // Update the body's position and velocity
+            // Update the body's position and velocity (both copy, so scratch reuse is safe)
             child.body.updatePosition(finalPosition);
             child.body.velocity.copy(finalVelocity);
 
@@ -349,5 +416,5 @@ function updateChildrenPositions(parent, parentBody, timestamp) {
         } catch (error) {
             log.error('Kepler', `Error updating position for ${child.body?.name || 'unknown'}`, error);
         }
-    });
+    }
 }

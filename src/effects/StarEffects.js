@@ -207,9 +207,6 @@ class StarEffects {
         const temperatureOpacityMultiplier = Math.min(8.0, temperatureBasedBrightness / 1.5); // Even higher multiplier
         const adjustedOpacity = Math.min(1.0, baseOpacity * temperatureOpacityMultiplier);
 
-        // Calculate color brightness multiplier based on temperature with massive boost
-        const colorBrightnessMult = Math.min(35.0, temperatureBasedBrightness / 0.5); // 35x max, even lower divisor
-
         // Scale distance-based parameters by star radius for proportional scaling
         // This makes larger stars have proportionally larger fade distances and smaller stars smaller ones
         const radiusScale = stellarRadius; // Use stellar radius as the scaling factor
@@ -223,8 +220,12 @@ class StarEffects {
             size: starGlare.size || 90.0,  // Use the correct default from constants.js
             opacity: adjustedOpacity,
             color: glareColor,
-            brightnessMult: colorBrightnessMult,
             emissiveIntensity: emissiveIntensity,
+            // Halo layer: what carries the star's brightness when bloom is off
+            glowIntensity: starGlare.glowIntensity,
+            haloRadius: starGlare.haloRadius,
+            haloFalloff: starGlare.haloFalloff,
+            haloStrength: starGlare.haloStrength,
             fadeStartDistance: scaledFadeStartDistance,
             fadeEndDistance: scaledFadeEndDistance,
             // Distance-based scaling parameters (scaled by star radius)

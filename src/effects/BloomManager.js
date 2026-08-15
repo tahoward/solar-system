@@ -6,6 +6,9 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { BLOOM, STAR_VISIBILITY } from '../constants.js';
 import { log } from '../utils/Logger.js';
 
+// Scratch vector reused when computing the bloom resolution on resize
+const _bloomResolution = new THREE.Vector2();
+
 /**
  * BloomManager handles selective bloom effects for stars in the solar system
  */
@@ -78,6 +81,24 @@ export class BloomManager {
     }
 
     /**
+     * Work out the resolution the bloom mip chain should be built at.
+     *
+     * This has to be measured against the renderer's drawing buffer, not window.innerWidth.
+     * UnrealBloomPass blurs with a fixed kernel measured in texels, so if its render targets
+     * are smaller than the canvas the blur gets proportionally wider and coarser on screen.
+     * On a HiDPI display the canvas is up to 2x the CSS size, so sizing from CSS pixels
+     * halves the bloom resolution and visibly smears the star.
+     *
+     * @param {THREE.Vector2} target - Vector to write the resolution into
+     * @returns {THREE.Vector2} Bloom resolution in drawing-buffer pixels
+     * @private
+     */
+    #getBloomResolution(target) {
+        this.renderer.getDrawingBufferSize(target);
+        return target.multiplyScalar(BLOOM.RESOLUTION_MULTIPLIER);
+    }
+
+    /**
      * Initialize the post-processing pipeline
      */
     initializePostProcessing() {
@@ -88,9 +109,9 @@ export class BloomManager {
         const renderPass = new RenderPass(this.scene, this.camera);
         this.composer.addPass(renderPass);
 
-        // Create bloom pass with threshold 1.0 for selective bloom and higher resolution
+        // Create bloom pass with threshold 1.0 for selective bloom
         const bloomPass = new UnrealBloomPass(
-            new THREE.Vector2(window.innerWidth * BLOOM.RESOLUTION_MULTIPLIER, window.innerHeight * BLOOM.RESOLUTION_MULTIPLIER),  // High resolution for smoother bloom
+            this.#getBloomResolution(new THREE.Vector2()),
             this.bloomConfig.strength,
             this.bloomConfig.radius,
             this.bloomConfig.threshold  // 1.0 threshold - only emissive > 1.0 blooms
@@ -142,7 +163,7 @@ export class BloomManager {
             }
 
             // Cache orbit lines for visibility preservation
-            if (child.isLine2 || child.type === 'Line2' || child.constructor.name === 'Line2') {
+            if (child.isLineSegments2) {
                 orbitLines.push(child);
             }
         });
@@ -387,11 +408,12 @@ export class BloomManager {
      * @param {number} height - New window height
      */
     handleResize(width, height) {
-        // Resize composer
+        // Resize composer (this already forwards drawing-buffer sizes to every pass)
         this.composer.setSize(width, height);
 
-        // Update bloom pass resolution with configurable multiplier for quality
-        this.bloomPass.setSize(width * BLOOM.RESOLUTION_MULTIPLIER, height * BLOOM.RESOLUTION_MULTIPLIER);
+        // Re-apply the bloom quality multiplier on top of the drawing-buffer size
+        const resolution = this.#getBloomResolution(_bloomResolution);
+        this.bloomPass.setSize(resolution.x, resolution.y);
     }
 
     /**

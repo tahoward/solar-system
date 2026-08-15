@@ -1,14 +1,17 @@
 import * as THREE from 'three';
-import { Line2 } from 'three/addons/lines/Line2.js';
-import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import SceneManager from '../managers/SceneManager.js';
-import VectorUtils from '../utils/VectorUtils.js';
+import MathUtils from '../utils/MathUtils.js';
 import { log } from '../utils/Logger.js';
 
 /**
  * OrbitTrail class manages the visual trail left by a celestial body as it moves through space
  * Handles trail rendering, fading effects, and memory management
+ *
+ * The GPU buffers are allocated once at full capacity and rewritten in place every frame,
+ * so adding a point never reallocates geometry or reuploads a resized buffer.
  */
 export class OrbitTrail {
     /**
@@ -33,11 +36,18 @@ export class OrbitTrail {
         this.autoClearDistance = options.autoClearDistance || 0.6;
         this.lineWidth = options.lineWidth || 2;
 
-        // Trail state
+        // Trail state - points is a pool of Vector3 instances reused as the trail slides forward
         this.points = [];
+        this.pointPool = [];
         this.updateCounter = 0;
         this.visible = false;
         this.enabled = false;
+
+        // Scratch buffers sized for the maximum trail length (no per-frame allocation)
+        const maxSegments = Math.max(1, this.maxLength - 1);
+        this.segmentPositions = new Float32Array(maxSegments * 6); // xyz, xyz per segment
+        this.segmentColors = new Float32Array(maxSegments * 6);    // rgb, rgb per segment
+        this.pointAlphas = new Float32Array(this.maxLength);
 
         // Three.js objects
         this.line = null;
@@ -55,17 +65,20 @@ export class OrbitTrail {
      * @private
      */
     initializeRendering() {
-        // Create geometry
-        this.geometry = new LineGeometry();
+        // Create geometry backed by the pre-allocated segment buffers.
+        // LineSegmentsGeometry (rather than LineGeometry) is used so the already
+        // segment-formatted Float32Arrays are adopted directly instead of being
+        // converted and copied on every update.
+        this.geometry = new LineSegmentsGeometry();
+        this.geometry.setPositions(this.segmentPositions);
+        this.geometry.setColors(this.segmentColors);
 
-        // Initialize with minimal valid arrays (need at least 6 values for 2 points)
-        const minimalPositions = [0, 0, 0, 0, 0, 0];
-        const minimalColors = [
-            this.color.r, this.color.g, this.color.b,
-            this.color.r, this.color.g, this.color.b
-        ];
-        this.geometry.setPositions(minimalPositions);
-        this.geometry.setColors(minimalColors);
+        // Cache the interleaved buffers so updates only need a needsUpdate flag
+        this.positionBuffer = this.geometry.attributes.instanceStart.data;
+        this.colorBuffer = this.geometry.attributes.instanceColorStart.data;
+
+        // Nothing is drawn until points arrive
+        this.geometry.instanceCount = 0;
 
         // Create material with vertex colors for fading effect
         this.material = new LineMaterial({
@@ -76,7 +89,7 @@ export class OrbitTrail {
         });
 
         // Create the line object
-        this.line = new Line2(this.geometry, this.material);
+        this.line = new LineSegments2(this.geometry, this.material);
         this.line.visible = false; // Start hidden
 
         // Add to scene
@@ -97,21 +110,40 @@ export class OrbitTrail {
 
         this.updateCounter++;
 
-        // Add current position to trail (clone to avoid reference issues)
-        this.points.push(VectorUtils.safeClone(position));
-
-
+        // Add current position to trail (copied into a pooled vector to avoid
+        // holding a reference to the body's live position vector)
+        this.points.push(this.#acquirePoint().copy(position));
 
         // Perform smooth cleanup based on proximity to own tail
         this.performSmoothCleanup(position);
 
         // Limit trail length with automatic pruning (fallback safety)
         if (this.points.length > this.maxLength) {
-            this.points.shift(); // Remove oldest point
+            this.#releaseOldestPoint();
         }
 
         // Update the visual geometry
         this.updateGeometry();
+    }
+
+    /**
+     * Take a vector from the pool, or create one if the pool is empty
+     * @returns {THREE.Vector3}
+     * @private
+     */
+    #acquirePoint() {
+        return this.pointPool.pop() || new THREE.Vector3();
+    }
+
+    /**
+     * Drop the oldest trail point and return its vector to the pool
+     * @private
+     */
+    #releaseOldestPoint() {
+        const point = this.points.shift();
+        if (point) {
+            this.pointPool.push(point);
+        }
     }
 
     /**
@@ -123,14 +155,23 @@ export class OrbitTrail {
         const minTrailBeforeCleanup = 50;
         if (this.points.length < minTrailBeforeCleanup) return;
 
-        // Calculate how close we are to our own tail (older trail segments)
-        let minDistanceToTail = Infinity;
+        // Calculate how close we are to our own tail (older trail segments).
+        // The trail is dense enough that neighbouring points are near-identical, so
+        // the scan is strided rather than exhaustive - this keeps the cost flat
+        // instead of growing with trail length.
+        let minSquaredToTail = Infinity;
         const skipRecent = 30; // Skip recent points
+        const scanEnd = this.points.length - skipRecent;
+        const stride = 8;
 
-        for (let i = 0; i < this.points.length - skipRecent; i++) {
-            const distance = currentPosition.distanceTo(this.points[i]);
-            minDistanceToTail = Math.min(minDistanceToTail, distance);
+        for (let i = 0; i < scanEnd; i += stride) {
+            const squaredDistance = currentPosition.distanceToSquared(this.points[i]);
+            if (squaredDistance < minSquaredToTail) {
+                minSquaredToTail = squaredDistance;
+            }
         }
+
+        const minDistanceToTail = Math.sqrt(minSquaredToTail);
 
         // Dynamic trail length based on proximity to own tail
         const fadeDistance = this.autoClearDistance * 2;
@@ -142,12 +183,12 @@ export class OrbitTrail {
 
         // Chase cleanup: remove exactly one point per frame when needed
         if (this.points.length > targetLength && this.points.length > minLength) {
-            this.points.shift(); // Remove only one oldest point per frame
+            this.#releaseOldestPoint(); // Remove only one oldest point per frame
         }
     }
 
     /**
-     * Update the Three.js line geometry with current trail points and fading
+     * Rewrite the segment buffers from the current trail points and fading
      * @private
      */
     updateGeometry() {
@@ -160,90 +201,147 @@ export class OrbitTrail {
         }
 
         const numPoints = this.points.length;
-        const positions = [];
-        const colors = [];
+        const alphas = this.pointAlphas;
 
         // Current position for tail-chasing calculation
         const currentPos = this.points[numPoints - 1];
+        const tailChaseDistance = this.autoClearDistance * 3;
+
+        // Tail-chasing only ever dims the oldest third of the trail, so distances
+        // are computed for that range alone
+        const oldSegmentThreshold = Math.floor(numPoints * 0.33);
+        const fadeStartIndex = numPoints - this.fadeLength;
 
         for (let i = 0; i < numPoints; i++) {
-            const point = this.points[i];
-
-            // Trail positions are in world space
-            positions.push(point.x, point.y, point.z);
-
-            // Calculate distance from current position for tail-chasing effect
-            const distanceToCurrentPos = currentPos.distanceTo(point);
-            const tailChaseDistance = this.autoClearDistance * 3;
-
             // Base unidirectional fade: older points (lower index) = more transparent
             let baseAlpha;
             if (numPoints <= this.fadeLength) {
                 // For short trails, fade smoothly from start to end
                 baseAlpha = this.minOpacity + (1.0 - this.minOpacity) * (i / (numPoints - 1));
+            } else if (i < fadeStartIndex) {
+                // For long trails, keep most points at minimum opacity...
+                baseAlpha = this.minOpacity;
             } else {
-                // For long trails, keep most points at minimum opacity, fade only the recent ones
-                const fadeStartIndex = numPoints - this.fadeLength;
-                if (i < fadeStartIndex) {
-                    baseAlpha = this.minOpacity;
-                } else {
-                    const fadeProgress = (i - fadeStartIndex) / (this.fadeLength - 1);
-                    baseAlpha = this.minOpacity + (1.0 - this.minOpacity) * fadeProgress;
-                }
+                // ...and fade only the recent ones
+                const fadeProgress = (i - fadeStartIndex) / (this.fadeLength - 1);
+                baseAlpha = this.minOpacity + (1.0 - this.minOpacity) * fadeProgress;
             }
 
             // Tail-chasing effect: only fade very old points when planet approaches them
             let tailChaseFactor = 1.0;
-            const oldSegmentThreshold = Math.floor(numPoints * 0.33); // Only apply to oldest 1/3 of trail
-            if (distanceToCurrentPos < tailChaseDistance && i < oldSegmentThreshold) {
-                tailChaseFactor = Math.max(0.1, distanceToCurrentPos / tailChaseDistance);
+            if (i < oldSegmentThreshold) {
+                const distanceToCurrentPos = currentPos.distanceTo(this.points[i]);
+                if (distanceToCurrentPos < tailChaseDistance) {
+                    tailChaseFactor = Math.max(0.1, distanceToCurrentPos / tailChaseDistance);
+                }
             }
 
             // Combine: base fade provides natural aging, chase fade adds dynamic clearing
-            const finalAlpha = baseAlpha * tailChaseFactor;
-
-            colors.push(
-                this.color.r * finalAlpha,
-                this.color.g * finalAlpha,
-                this.color.b * finalAlpha
-            );
+            alphas[i] = baseAlpha * tailChaseFactor;
         }
 
-        // Dispose of old geometry before creating new one
-        if (this.geometry) {
-            this.geometry.dispose();
+        // Store the trail relative to its newest point rather than in absolute world space.
+        //
+        // Trail points are world positions that can be hundreds of scene units from the
+        // origin, while the body they follow has a radius of a ten-thousandth of a unit.
+        // A float32 attribute only carries ~7 significant digits, so absolute coordinates
+        // were quantised to a visible fraction of a pixel as soon as the camera got close
+        // to a distant planet, which is what produced the staircase along the line.
+        // Carrying the large offset on the line's transform instead keeps the vertex data
+        // small: Three.js composes the model-view matrix in double precision, so the
+        // rounding only ever applies to camera-relative values.
+        const origin = this.points[numPoints - 1];
+        const ox = origin.x, oy = origin.y, oz = origin.z;
+        this.line.position.copy(origin);
+
+        // Fill the interleaved segment buffers in place: segment i spans point i -> i + 1
+        const positions = this.segmentPositions;
+        const colors = this.segmentColors;
+        const { r, g, b } = this.color;
+
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+        for (let i = 0; i < numPoints - 1; i++) {
+            const start = this.points[i];
+            const end = this.points[i + 1];
+            const offset = i * 6;
+
+            const startX = start.x - ox, startY = start.y - oy, startZ = start.z - oz;
+
+            positions[offset] = startX;
+            positions[offset + 1] = startY;
+            positions[offset + 2] = startZ;
+            positions[offset + 3] = end.x - ox;
+            positions[offset + 4] = end.y - oy;
+            positions[offset + 5] = end.z - oz;
+
+            const startAlpha = alphas[i];
+            const endAlpha = alphas[i + 1];
+            colors[offset] = r * startAlpha;
+            colors[offset + 1] = g * startAlpha;
+            colors[offset + 2] = b * startAlpha;
+            colors[offset + 3] = r * endAlpha;
+            colors[offset + 4] = g * endAlpha;
+            colors[offset + 5] = b * endAlpha;
+
+            if (startX < minX) minX = startX;
+            if (startY < minY) minY = startY;
+            if (startZ < minZ) minZ = startZ;
+            if (startX > maxX) maxX = startX;
+            if (startY > maxY) maxY = startY;
+            if (startZ > maxZ) maxZ = startZ;
         }
 
-        // Recreate the geometry
-        this.geometry = new LineGeometry();
-        this.geometry.setPositions(positions);
-        this.geometry.setColors(colors);
+        // Include the final point, which is only ever a segment end. It is the origin,
+        // so in the line's local space it sits exactly at zero.
+        if (minX > 0) minX = 0;
+        if (minY > 0) minY = 0;
+        if (minZ > 0) minZ = 0;
+        if (maxX < 0) maxX = 0;
+        if (maxY < 0) maxY = 0;
+        if (maxZ < 0) maxZ = 0;
 
-        // Update the line object
-        this.line.geometry = this.geometry;
+        // Draw only the populated part of the buffer and flag it for upload
+        this.geometry.instanceCount = numPoints - 1;
+        this.positionBuffer.needsUpdate = true;
+        this.colorBuffer.needsUpdate = true;
+
+        // Maintain the bounding sphere by hand; the inherited computeBoundingSphere()
+        // would walk the whole capacity buffer, including the unused zeroed tail,
+        // and would wrongly stretch the bounds back to the origin.
+        this.#updateBoundingSphere(minX, minY, minZ, maxX, maxY, maxZ);
     }
 
     /**
-     * Reset geometry to minimal state
+     * Set the geometry bounding sphere from a point-cloud AABB so frustum culling
+     * stays correct without rescanning the buffers
+     * @private
+     */
+    #updateBoundingSphere(minX, minY, minZ, maxX, maxY, maxZ) {
+        if (!this.geometry.boundingSphere) {
+            this.geometry.boundingSphere = new THREE.Sphere();
+        }
+
+        MathUtils.setSphereFromBox(this.geometry.boundingSphere, minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    /**
+     * Reset geometry to an empty state
      * @private
      */
     resetToMinimalState() {
-        const minimalPositions = [0, 0, 0, 0, 0, 0];
-        const minimalColors = [
-            this.color.r, this.color.g, this.color.b,
-            this.color.r, this.color.g, this.color.b
-        ];
-
-        if (this.geometry) {
-            this.geometry.dispose();
+        if (this.line) {
+            this.line.position.set(0, 0, 0);
         }
 
-        this.geometry = new LineGeometry();
-        this.geometry.setPositions(minimalPositions);
-        this.geometry.setColors(minimalColors);
+        if (this.geometry) {
+            this.geometry.instanceCount = 0;
 
-        if (this.line) {
-            this.line.geometry = this.geometry;
+            if (this.geometry.boundingSphere) {
+                this.geometry.boundingSphere.center.set(0, 0, 0);
+                this.geometry.boundingSphere.radius = 0;
+            }
         }
     }
 
@@ -303,7 +401,11 @@ export class OrbitTrail {
      * Clear all trail points
      */
     clear() {
-        this.points = [];
+        // Return the vectors to the pool rather than dropping them for the GC
+        while (this.points.length > 0) {
+            this.#releaseOldestPoint();
+        }
+
         this.updateCounter = 0;
         this.resetToMinimalState();
         log.debug('OrbitTrail', `Cleared trail for ${this.bodyName}`);
@@ -349,8 +451,11 @@ export class OrbitTrail {
             this.line = null;
         }
 
-        // Clear trail points
+        // Clear trail points and buffers
         this.points = [];
+        this.pointPool = [];
+        this.positionBuffer = null;
+        this.colorBuffer = null;
 
         log.debug('OrbitTrail', `Disposed orbit trail for ${this.bodyName}`);
     }

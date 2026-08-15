@@ -138,6 +138,31 @@ class MathUtils {
         const ratio = MathUtils.ratio(value, fromMin, fromMax);
         return MathUtils.lerp(toMin, toMax, ratio);
     }
+
+    /**
+     * Set a bounding sphere so that it encloses an axis-aligned box.
+     *
+     * Geometries that keep their own fixed-capacity vertex buffers cannot use Three.js's
+     * computeBoundingSphere(), which would walk the unused zeroed tail of the buffer and
+     * stretch the bounds back to the origin. Tracking an AABB while filling the buffer and
+     * converting it here keeps frustum culling correct at no extra cost.
+     *
+     * @param {THREE.Sphere} sphere - Sphere to write into
+     * @param {number} minX - Box minimum on X
+     * @param {number} minY - Box minimum on Y
+     * @param {number} minZ - Box minimum on Z
+     * @param {number} maxX - Box maximum on X
+     * @param {number} maxY - Box maximum on Y
+     * @param {number} maxZ - Box maximum on Z
+     */
+    static setSphereFromBox(sphere, minX, minY, minZ, maxX, maxY, maxZ) {
+        sphere.center.set((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
+
+        const dx = maxX - minX;
+        const dy = maxY - minY;
+        const dz = maxZ - minZ;
+        sphere.radius = 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
 }
 
 export default MathUtils;
