@@ -124,7 +124,44 @@ export const ORBIT = {
   // that its periapsis and apoapsis are the ones the body will really reach. A body thrown
   // clear of its parent has no apoapsis at all, so its escape path is drawn out to this
   // multiple of its current distance and no further.
-  OPEN_PATH_RADIUS_RATIO: 6
+  OPEN_PATH_RADIUS_RATIO: 6,
+
+  // The body being orbited gets a loop of its own drawn about the centre of mass it shares with
+  // the orbiting one, but only where that pair is the whole of the system - see
+  // Orbit#updateCompanionLine. This much of everything orbiting it has to be the one body, or the
+  // loops of the others add to a path that is no ellipse and BarycentrePath draws it instead.
+  COMPANION_LOOP_MASS_SHARE: 0.99
+};
+
+// The path the root body traces about the centre of mass of the whole system - see BarycentrePath.
+//
+// Every other line in the scene is a conic, because two bodies about their common centre of mass
+// describe one. The root body's is not: it answers to every planet at once, and the sum of their
+// pulls is a loop that widens and narrows as the giants line up with each other and fall out of
+// line again. The Sun's stands between its own centre and about two and a fifth of its radii out,
+// Jupiter alone accounting for just under half of that. So the path is sampled forward and back
+// along the orbits its contributors are on rather than solved as a shape.
+export const BARYCENTRE = {
+  // How much of the path to draw, in years, centred on the present. Sixty covers five turns of
+  // Jupiter and three cycles of its conjunctions with Saturn, which is what it takes for the
+  // widening and narrowing of the loops to read as a pattern rather than as noise.
+  PATH_YEARS: 60,
+
+  // Sampling. The segment count is chosen from how long the drawn path came out on screen last
+  // time, one segment per few pixels of it, and the path is rebuilt when that answer has moved
+  // by this fraction of the count.
+  MIN_SEGMENTS: 128,
+  MAX_SEGMENTS: 2048,
+  TARGET_SEGMENT_PIXELS: 4,
+  REBUILD_RATIO: 0.25,
+
+  // The window is centred on the body, so as the body travels along the drawn path the drawing
+  // becomes lopsided; past this fraction of the path's own size it is sampled afresh about where
+  // the body has got to. Nothing is wrong with the old path - it is the same trajectory - so this
+  // is a matter of what is on screen rather than of accuracy, and it is not worth doing at all
+  // while the whole path covers fewer pixels than this.
+  RECENTRE_FRACTION: 0.1,
+  MIN_PIXEL_RADIUS: 1.5
 };
 
 // Marker Configuration

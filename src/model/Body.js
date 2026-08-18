@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import Marker from './Marker.js';
 import Orbit from './Orbit.js';
+import BarycentrePath from './BarycentrePath.js';
 import SceneManager from '../managers/SceneManager.js';
 import ConfigValidator from '../utils/ConfigValidator.js';
 import logger, { log } from '../utils/Logger.js';
@@ -226,11 +227,16 @@ class Body {
     createOrbit() {
         // Only draw an orbit if this body has a parent and orbital parameters
         if (!this.parentBody || !this.bodyData.a) {
-            // Nothing to draw - either the root body, or something dropped into the system with
-            // no catalogue orbit to trace. It still needs an orbit object, because the per-frame
-            // update reaches for one, so hand back a stand-in that draws nothing. Only the root's
-            // is registered with the scene: a dropped body has no orbit line to show or hide.
-            this.orbit = this.createVirtualOrbit();
+            // The root body orbits nothing, but it does not sit still either: it runs round the
+            // centre of mass of the system it holds, and that path is drawn in place of an orbit -
+            // see BarycentrePath. Anything else without a catalogue orbit is something dropped
+            // into the system with no path to trace, and gets a stand-in that draws nothing,
+            // because the per-frame update reaches for an orbit either way. Only the root's is
+            // registered with the scene: a dropped body has no orbit line to show or hide.
+            this.orbit = this.parentBody
+                ? this.createVirtualOrbit()
+                : new BarycentrePath(this, SceneManager.scale);
+
             if (!this.parentBody) {
                 SceneManager.registerOrbit(this.orbit);
             }

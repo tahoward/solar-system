@@ -188,7 +188,11 @@ export class VisibilityManager {
 
         // Skip the selected body's orbit (orbits don't orbit themselves)
         // For markers and orbit trails, the selected item gets special handling elsewhere
-        if (itemBodyName === selectedBodyName && (type === 'orbit' || type === 'orbitTrail')) {
+        // The root body is the exception: its line is the path it takes about the centre of mass of
+        // the system it holds, which is the thing to look at when the root body is the one selected
+        const isRootOrbit = type === 'orbit' && itemHierarchyData.parent === null;
+        if (itemBodyName === selectedBodyName && !isRootOrbit
+            && (type === 'orbit' || type === 'orbitTrail')) {
             this.hideItem(item, type);
             return;
         }
@@ -244,8 +248,10 @@ export class VisibilityManager {
         // Rule 2: Root body handling
         if (itemHierarchyData.parent === null) {
             if (type === 'orbit') {
-                // Root body doesn't have an orbit
-                return { shouldBeVisible: false, reason: 'root body (no orbit)' };
+                // The root body has no orbit, but its line is the path it takes about the centre
+                // of mass of the whole system - which belongs to no one body's selection, and is
+                // smaller than the body itself until the camera is right up against it
+                return { shouldBeVisible: true, reason: 'root body (barycentre path)' };
             } else if (type === 'orbitTrail') {
                 // Root body doesn't have an orbit trail (it's stationary)
                 return { shouldBeVisible: false, reason: 'root body (no orbit trail)' };

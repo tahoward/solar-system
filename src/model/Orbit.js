@@ -13,6 +13,7 @@ import {
     getAUScale
 } from '../physics/kepler.js';
 import { collectBodiesFromHierarchy } from '../physics/NBodySystem.js';
+import { satelliteMass, systemMass } from '../physics/barycentre.js';
 import { log } from '../utils/Logger.js';
 
 const PI_OVER_180 = MATH.PI_OVER_180;
@@ -86,7 +87,7 @@ class Orbit {
         this.meanAnomalyAtEpochRadians = meanAnomalyAtEpoch * PI_OVER_180;
 
         // Orbital mechanics properties using astronomical units
-        const orbitalMotion = calculateOrbitalMotion(semiMajorAxis, parentBody);
+        const orbitalMotion = calculateOrbitalMotion(semiMajorAxis, parentBody, body.mass);
         this.n = orbitalMotion.meanMotion; // Mean motion in radians/year
         this.orbitalPeriod = orbitalMotion.orbitalPeriod; // Period in years
 
@@ -153,6 +154,20 @@ class Orbit {
         this.orbitLine.renderOrder = -100; // Large negative value ensures orbit lines render before markers
         this.orbitLine.material.userData = { renderBehindMarkers: true }; // Mark for special handling
 
+        // Where the centre of mass of the body and the one it orbits sits, measured from that
+        // body and in the line's own space, along with the share of the separation the drawn
+        // orbit spans - see #bodyPositionInLineSpace.
+        this.barycentreOffset = new THREE.Vector3();
+        this.barycentreShare = 1;
+
+        // The body being orbited has a loop of its own about that same centre of mass, drawn
+        // when the pair is even enough in mass for it to clear that body's surface - see
+        // #updateCompanionLine. Nothing but Pluto and Charon manages it inside a planetary
+        // system, and nothing but Jupiter out of the Sun.
+        this.companionLine = null;
+        this.companionPositions = null;
+        this.companionBuffer = null;
+
         // The body this orbit is drawn about, which is its catalogue parent for as long as it
         // keeps going round it - see #selectReferenceBody. Parents the line and sets the
         // gravitational parameter the body's own orbit is read out with.
@@ -198,7 +213,15 @@ class Orbit {
      */
     #setReferenceBody(referenceBody) {
         this.referenceBody = referenceBody;
-        this.gravitationalParameter = calculateGM(referenceBody);
+
+        // Two bodies both go round the centre of mass between them, and it is that orbit which
+        // gets drawn - see #bodyPositionInLineSpace. The body covers the share of the separation
+        // the other body's mass accounts for, so its own orbit is that fraction of the relative
+        // one, and the fraction follows straight from the two gravitational parameters. Kepler's
+        // third law applied to an orbit shrunk by a factor f wants a parameter smaller by f cubed.
+        const relativeGM = calculateGM(referenceBody, this.body.mass);
+        this.barycentreShare = referenceBody ? calculateGM(referenceBody) / relativeGM : 1;
+        this.gravitationalParameter = relativeGM * this.barycentreShare ** 3;
 
         let container = SceneManager.scene;
         if (referenceBody === this.parentBody && referenceBody?.tiltContainer && this.body.equatorialOrbit) {
@@ -220,6 +243,111 @@ class Orbit {
         if (referenceBody) {
             SceneManager.reparentBody(this.body, referenceBody);
         }
+
+        this.#updateCompanionLine(container);
+    }
+
+    /**
+     * Build or drop the second line: the loop the body being orbited makes about the centre of
+     * mass it shares with this one.
+     *
+     * A moon does not swing its planet about noticeably, and drawing a loop buried inside that
+     * planet would be a line nobody can see costing a buffer and a draw call on every orbit in
+     * the system. So the loop is only built where it stands clear of the body making it - which
+     * takes a pair within about a tenth of each other in mass. Pluto and Charon are such a pair
+     * and read as one once both loops are drawn, each body running round a point in the space
+     * between them. The Sun's answer to Jupiter is the other one, its own loop passing just
+     * outside its surface.
+     *
+     * The far commoner near miss is the Earth and its Moon, whose centre of mass sits 4,700km
+     * out from the Earth's centre and so some 1,700km under its surface.
+     *
+     * The loop also has to be the whole story, which needs this body to be practically all of what
+     * orbits the other one. Two bodies about their common centre of mass keep exactly opposite sides
+     * of it, so Charon's loop is Pluto's turned about that point and nothing is missing from it.
+     * Where several bodies pull at once the loops add up instead, and the sum is not an ellipse: the
+     * Sun's answer to Jupiter alone is barely half of what it really does, since Saturn, Uranus and
+     * Neptune between them are worth as much again. That case is drawn from the bodies themselves
+     * rather than from one pair - see BarycentrePath.
+     *
+     * Whether the loop is wanted can change after the orbit is built, and does: an orbit created
+     * while the system is still being assembled has only seen the bodies made before it, and a mass
+     * dropped in or taken away later moves the same answer. So this is asked again as the level of
+     * detail is sampled, and reports back whether anything changed, the new line having no vertices
+     * in it until the path is next written out.
+     *
+     * @param {THREE.Object3D} container - The scene graph node the orbit's own line hangs off
+     * @returns {boolean} True if the loop was built or dropped
+     * @private
+     */
+    #updateCompanionLine(container) {
+        // What the drawn orbit leaves of the separation is what the other body has to cover
+        const counterpartAxis = this.semiMajorAxisVisual * (1 - this.barycentreShare);
+        const satellites = satelliteMass(this.referenceBody);
+        const wanted = !!this.referenceBody
+            && counterpartAxis > (this.referenceBody.radius || 0)
+            && systemMass(this.body) >= satellites * ORBIT.COMPANION_LOOP_MASS_SHARE;
+
+        if (!wanted) {
+            const had = !!this.companionLine;
+            this.#disposeCompanionLine();
+            return had;
+        }
+
+        let built = false;
+        if (!this.companionLine) {
+            built = true;
+            const material = new LineMaterial({
+                color: this.referenceBody.markerColor || this.referenceBody.material?.color,
+                linewidth: 2,
+                resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+                transparent: true,
+                opacity: 0.8,
+                depthWrite: false,
+                depthTest: true
+            });
+
+            this.companionPositions = new Float32Array(this.segmentPositions.length);
+            const geometry = new LineSegmentsGeometry();
+            geometry.setPositions(this.companionPositions);
+            this.companionBuffer = geometry.attributes.instanceStart.data;
+
+            this.companionLine = new LineSegments2(geometry, material);
+            this.companionLine.renderOrder = -100;
+            this.companionLine.material.userData = { renderBehindMarkers: true };
+            this.companionLine.visible = this.orbitLine.visible;
+            SceneManager.registerLineMaterial(material);
+
+            log.debug('Orbit', `Drawing ${this.referenceBody.name}'s own loop about its centre of mass with ${this.body.name}`);
+        }
+
+        if (this.companionLine.parent !== container) {
+            if (this.companionLine.parent) {
+                this.companionLine.parent.remove(this.companionLine);
+            }
+            container.add(this.companionLine);
+        }
+
+        return built;
+    }
+
+    /**
+     * Take the companion loop back out of the scene, releasing what it holds on the GPU
+     * @private
+     */
+    #disposeCompanionLine() {
+        if (!this.companionLine) return;
+
+        if (this.companionLine.parent) {
+            this.companionLine.parent.remove(this.companionLine);
+        }
+        this.companionLine.geometry.dispose();
+        SceneManager.unregisterLineMaterial(this.companionLine.material);
+        this.companionLine.material.dispose();
+
+        this.companionLine = null;
+        this.companionPositions = null;
+        this.companionBuffer = null;
     }
 
     /**
@@ -343,7 +471,7 @@ class Orbit {
         _relativePosition.subVectors(this.body.group.position, body.group.position);
         _relativeVelocity.subVectors(this.body.velocity, body.velocity);
 
-        const mu = calculateGM(body);
+        const mu = calculateGM(body, this.body.mass);
         const radius = _relativePosition.length();
         if (!(radius > 0) || !(mu > 0)) return Infinity;
 
@@ -607,8 +735,11 @@ class Orbit {
         const count = this.pathPointCount;
         if (count < 2) {
             this.orbitLine.geometry.instanceCount = 0;
+            if (this.companionLine) this.companionLine.geometry.instanceCount = 0;
             return;
         }
+
+        this.#writeCompanionSegments(count);
 
         const points = this.pathPoints;
         const positions = this.segmentPositions;
@@ -643,7 +774,7 @@ class Orbit {
 
         // The path closes back onto its first point, so the loop above has already covered
         // every distinct position and the bounds need no separate final point.
-        this.orbitLine.position.copy(this.pathOrigin);
+        this.#placeLine();
         this.orbitLine.geometry.instanceCount = count - 1;
         this.positionBuffer.needsUpdate = true;
 
@@ -652,6 +783,58 @@ class Orbit {
             geometry.boundingSphere = new THREE.Sphere();
         }
         MathUtils.setSphereFromBox(geometry.boundingSphere, minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    /**
+     * Rewrite the companion loop from the same solved path.
+     *
+     * The two bodies keep opposite sides of their centre of mass at every moment, at distances
+     * in the inverse ratio of their masses, so one loop is the other turned about that centre
+     * and scaled down: the same curve, needing no second solve. The vertices are stored straight
+     * from the centre of mass rather than from an anchor near the body, since a loop small enough
+     * to be worth drawing at all is far too small for float32 to lose anything in.
+     *
+     * @param {number} count - Number of points in the solved path
+     * @private
+     */
+    #writeCompanionSegments(count) {
+        if (!this.companionLine) return;
+
+        const scale = -(1 - this.barycentreShare) / this.barycentreShare;
+        const points = this.pathPoints;
+        const positions = this.companionPositions;
+        let radius = 0;
+
+        for (let i = 0; i < count - 1; i++) {
+            const start = i * 3;
+            const end = start + 3;
+            const offset = i * 6;
+
+            const x = points[start] * scale;
+            const y = points[start + 1] * scale;
+            const z = points[start + 2] * scale;
+
+            positions[offset] = x;
+            positions[offset + 1] = y;
+            positions[offset + 2] = z;
+            positions[offset + 3] = points[end] * scale;
+            positions[offset + 4] = points[end + 1] * scale;
+            positions[offset + 5] = points[end + 2] * scale;
+
+            const distance = x * x + y * y + z * z;
+            if (distance > radius) radius = distance;
+        }
+
+        this.companionLine.geometry.instanceCount = count - 1;
+        this.companionBuffer.needsUpdate = true;
+
+        // Centred on the centre of mass, which is this line's own origin
+        const geometry = this.companionLine.geometry;
+        if (!geometry.boundingSphere) {
+            geometry.boundingSphere = new THREE.Sphere();
+        }
+        geometry.boundingSphere.center.set(0, 0, 0);
+        geometry.boundingSphere.radius = Math.sqrt(radius);
     }
 
     /**
@@ -731,8 +914,28 @@ class Orbit {
     }
 
     /**
-     * Get the body's current position in the orbit line's own coordinate space, which is
-     * the parent body's group (or its tilt container) rather than the scene root.
+     * Get the body's current position in the orbit line's own coordinate space: measured from
+     * the centre of mass it shares with the body it orbits, and expressed in the axes of the
+     * parent body's group (or its tilt container) rather than the scene root.
+     *
+     * Neither body sits still while the other goes round it - both swing about the centre of
+     * mass between them, and it is that point, not the middle of the larger body, which the
+     * ellipse has its focus at. Where the two masses are anywhere near comparable the difference
+     * is the whole picture: Charon's orbit is a tenth smaller than its distance from Pluto, and
+     * its focus stands 2,100km clear of Pluto's centre - most of a Pluto radius out into space,
+     * which is why the pair reads as two bodies circling a point rather than a moon circling a
+     * planet. For a moon of any ordinary mass the correction is a fraction of a percent and the
+     * focus stays buried inside its planet, which is where the old drawing implicitly put it.
+     *
+     * Taking the pair on its own rather than the whole system of moons is what keeps the drawn
+     * curve an exact conic: two bodies about their common centre of mass describe one, three do
+     * not. The other moons move that centre by a ten-thousandth of the nearest such correction,
+     * so there is nothing to be had by chasing them.
+     *
+     * The offset from the parent out to that centre is recorded on the way past, since the line
+     * hangs off the parent in the scene graph and has to be carried out to the focus - see
+     * #placeLine.
+     *
      * @param {THREE.Vector3} target - Vector to write the position into
      * @returns {THREE.Vector3} The body position in the line's local space
      * @private
@@ -745,15 +948,20 @@ class Orbit {
             parent.worldToLocal(target);
         }
 
-        return target;
+        // The two shares of the separation add back up to it, so the offset out to the centre of
+        // mass is whatever the body's own orbit does not span
+        this.barycentreOffset.copy(target).multiplyScalar(1 - this.barycentreShare);
+
+        return target.multiplyScalar(this.barycentreShare);
     }
 
     /**
-     * Get the body's velocity relative to whatever it orbits, in the orbit line's own
-     * coordinate space. Unlike a position this only needs the parent's rotation taken off,
-     * since a velocity carries no origin.
+     * Get the body's velocity about the centre of mass it shares with whatever it orbits, in the
+     * orbit line's own coordinate space. Unlike a position this only needs the parent's rotation
+     * taken off, since a velocity carries no origin - and the same share of the relative motion
+     * as of the separation, the two bodies keeping either side of a fixed point between them.
      * @param {THREE.Vector3} target - Vector to write the velocity into
-     * @returns {THREE.Vector3} The relative velocity in the line's local space
+     * @returns {THREE.Vector3} The velocity about the centre of mass, in the line's local space
      * @private
      */
     #bodyVelocityInLineSpace(target) {
@@ -769,7 +977,26 @@ class Orbit {
             target.applyQuaternion(_inverseParentRotation);
         }
 
-        return target;
+        return target.multiplyScalar(this.barycentreShare);
+    }
+
+    /**
+     * Put the line where its path was solved to be drawn: out at the centre of mass the path is
+     * measured from, and offset again by the origin the vertex data is stored relative to.
+     *
+     * The centre of mass keeps station between the two bodies rather than inside the parent the
+     * line hangs off, so it moves round the parent as the body does and the line has to be
+     * carried after it every frame. The path itself needs no resolving for this - about the
+     * centre of mass the orbit stands still, and only the body travels along it.
+     *
+     * @private
+     */
+    #placeLine() {
+        this.orbitLine.position.addVectors(this.pathOrigin, this.barycentreOffset);
+
+        if (this.companionLine) {
+            this.companionLine.position.copy(this.barycentreOffset);
+        }
     }
 
 
@@ -781,6 +1008,11 @@ class Orbit {
             this.orbitLine.visible = true;
             this.isVisible = true;
         }
+
+        // Shown and hidden with the orbit it belongs to: the pair's two loops are one picture
+        if (this.companionLine) {
+            this.companionLine.visible = this.isVisible;
+        }
     }
 
     /**
@@ -790,6 +1022,10 @@ class Orbit {
         if (this.orbitLine && this.isVisible) {
             this.orbitLine.visible = false;
             this.isVisible = false;
+        }
+
+        if (this.companionLine) {
+            this.companionLine.visible = false;
         }
     }
 
@@ -878,6 +1114,12 @@ class Orbit {
                 this.currentSegments = newSegments;
                 needsRebuild = true;
             }
+
+            // Whether the body being orbited deserves a loop of its own depends on what else is
+            // orbiting it, which is not settled when the orbit is built
+            if (this.#updateCompanionLine(this.orbitLine.parent || SceneManager.scene)) {
+                needsRebuild = true;
+            }
         }
 
         // The path itself is checked every frame instead, against both ways it goes out of date:
@@ -895,6 +1137,10 @@ class Orbit {
             this.#buildPath(this.currentSegments, bodyPosition);
             this.#writeSegments();
         }
+
+        // The centre of mass the path is drawn about travels round the parent body with the
+        // orbiting one, so the line follows it whether or not the path itself was re-solved
+        this.#placeLine();
     }
 
     /**
@@ -903,6 +1149,8 @@ class Orbit {
     dispose() {
         // Unregister this orbit from OrbitManager through SceneManager
         SceneManager.unregisterOrbit(this);
+
+        this.#disposeCompanionLine();
 
         // Remove orbit line from its parent (either parent body's group or scene)
         if (this.orbitLine && this.orbitLine.parent) {

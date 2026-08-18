@@ -18,27 +18,33 @@ const GM = 4 * Math.PI ** 2; // Standard GM in astronomical units (AU³/year²)
 
 /**
  * Calculates the gravitational parameter (GM) for a given central body
+ *
+ * The relative orbit of two bodies is governed by the total mass of the pair, not the central
+ * body's alone, so a companion heavy enough to matter passes its mass in. Left out, Charon's
+ * orbit came out 5.6% slower than it should be - the pair is only eight parts in a hundred short
+ * of a double planet - while for the Moon it is worth 0.6% and for everything else nothing.
+ *
  * @param {Object} parentBody - The central body (null for Sun)
+ * @param {number} [companionMass] - Mass of the orbiting body, when it is not negligible
  * @returns {number} GM value in AU³/year²
  */
-export function calculateGM(parentBody) {
-    if (parentBody && parentBody.mass) {
-        // For satellites (like Moon), use parent body's mass (Earth, Jupiter, etc.)
-        return 4 * Math.PI ** 2 * parentBody.mass; // G * M_parent in AU³/year²
-    } else {
-        // For planets orbiting Sun, use standard solar GM
-        return GM; // G * M_sun
-    }
+export function calculateGM(parentBody, companionMass = 0) {
+    // For satellites (like Moon), use parent body's mass (Earth, Jupiter, etc.); for planets
+    // orbiting the Sun, the standard solar GM, the Sun being one solar mass by definition
+    const centralMass = parentBody && parentBody.mass ? parentBody.mass : 1;
+
+    return GM * (centralMass + companionMass);
 }
 
 /**
  * Calculates orbital period and mean motion from semi-major axis and central body mass
  * @param {number} semiMajorAxis - Semi-major axis in AU
  * @param {Object} parentBody - The central body (null for Sun)
+ * @param {number} [companionMass] - Mass of the orbiting body, when it is not negligible
  * @returns {Object} Object containing meanMotion (radians/year) and orbitalPeriod (years)
  */
-export function calculateOrbitalMotion(semiMajorAxis, parentBody) {
-    const centralBodyGM = calculateGM(parentBody);
+export function calculateOrbitalMotion(semiMajorAxis, parentBody, companionMass = 0) {
+    const centralBodyGM = calculateGM(parentBody, companionMass);
     const meanMotion = Math.sqrt(centralBodyGM / Math.pow(semiMajorAxis, 3)); // Mean motion in radians/year
     const orbitalPeriod = MATH.TWO_PI / meanMotion; // Period in years
 
@@ -379,8 +385,10 @@ function updateChildrenPositions(parent, parentBody, timestamp) {
             const orbit = child.orbit;
             const orbitalElements = orbit.elements;
 
-            // Use centralized functions for position and velocity with transformations
-            const mu = parentBody.mass * 39.478;
+            // Use centralized functions for position and velocity with transformations. The pair's
+            // total mass sets the speed along the relative orbit, matching what the n-body
+            // integrator is initialized with so the two modes describe the same orbit.
+            const mu = calculateGM(parentBody, child.body.mass);
 
             // Determine transformation options based on child body's equatorialOrbit attribute
             _scratchTransformOptions.applyTilt = !!(parentBody && parentBody.tiltContainer && child.body.equatorialOrbit);
