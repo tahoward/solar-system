@@ -351,10 +351,16 @@ export function updateHierarchyPositions(hierarchy, timestamp, sceneScale = DEFA
     // Always update AU scale to match the provided scene scale
     auScale = ORBIT.AU_SCALE_METERS * sceneScale;
 
-    // Process the root body (Sun) - it stays at origin.
+    // Process the root body (Sun) - it stays at origin, so it is also at rest. The velocity has to
+    // be said out loud rather than left alone: every child below is placed on its orbit and then
+    // carried along by its parent's velocity, so a root left holding whatever the n-body integrator
+    // last gave it hands that velocity to every body in the system, and the whole solar system
+    // travels while each orbit still looks right. It shows after a mass has been dropped in and
+    // then cleared, which leaves the Sun moving fast enough for the difference to be plain.
     // updatePosition copies the vector, so the shared zero constant is safe to pass.
     if (hierarchy.body) {
         hierarchy.body.updatePosition(_zeroVector);
+        if (hierarchy.body.velocity) hierarchy.body.velocity.set(0, 0, 0);
     }
 
     // Recursively update children

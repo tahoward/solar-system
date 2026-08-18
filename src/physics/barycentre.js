@@ -123,3 +123,55 @@ export function systemState(body, position, velocity) {
 
     return mass;
 }
+
+/**
+ * Bring a system's centre of mass to rest.
+ *
+ * The same velocity comes off every body, which is a change of reference frame: every orbit, every
+ * separation and every relative speed is left exactly as it was, and only the system's bulk motion
+ * across the sky goes. Nothing physical is being corrected - a system left alone conserves its
+ * momentum - but a system handed from one description of gravity to another does not, and neither
+ * does one that has had a mass taken out of it. Both leave the whole solar system sailing off in
+ * some direction unless the drift is taken back out.
+ *
+ * @param {Object} body - Body at the top of the subtree
+ * @returns {number} The speed that was removed, in simulation units
+ */
+export function cancelSystemDrift(body) {
+    _weightedPosition.x = _weightedPosition.y = _weightedPosition.z = 0;
+    _weightedVelocity.x = _weightedVelocity.y = _weightedVelocity.z = 0;
+
+    const mass = accumulate(body);
+    if (!(mass > 0)) return 0;
+
+    const x = _weightedVelocity.x / mass;
+    const y = _weightedVelocity.y / mass;
+    const z = _weightedVelocity.z / mass;
+
+    const speed = Math.sqrt(x * x + y * y + z * z);
+    if (speed === 0) return 0;
+
+    subtractVelocity(body, x, y, z);
+    return speed;
+}
+
+/**
+ * Take a velocity off every body in a subtree
+ * @private
+ */
+function subtractVelocity(body, x, y, z) {
+    if (!body) return;
+
+    if (body.velocity) {
+        body.velocity.x -= x;
+        body.velocity.y -= y;
+        body.velocity.z -= z;
+    }
+
+    const children = body.children;
+    if (children) {
+        for (let i = 0; i < children.length; i++) {
+            subtractVelocity(children[i].body, x, y, z);
+        }
+    }
+}

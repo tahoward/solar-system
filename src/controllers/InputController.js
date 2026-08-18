@@ -1,6 +1,7 @@
 import SceneManager from '../managers/SceneManager.js';
 import clockManager from '../managers/ClockManager.js';
 import massDropManager from '../managers/MassDropManager.js';
+import { cancelSystemDrift } from '../physics/barycentre.js';
 import { TARGETING, MARKER, ORBIT, SIMULATION, MASS_DROP } from '../constants.js';
 import { toggleControlsOverlay, toggleStateOverlay, toggleStatsOverlay, toggleDebugOverlay } from '../ui/OverlayManager.js';
 
@@ -328,7 +329,15 @@ export class InputController {
         // the planets sailed through untouched.
         if (!SIMULATION.USE_N_BODY_PHYSICS) {
             massDropManager.clearAll();
+            return;
         }
+
+        // The integrator takes over from a catalogue whose orbits are measured from the Sun rather
+        // than from the centre of mass, so their momenta do not cancel and the system it is handed
+        // is already drifting. Left alone that drift is slow - about the speed the Sun really moves
+        // - but it is a standing start the simulation never has to make.
+        const root = SceneManager.orbitManager?.hierarchy?.body;
+        if (root) cancelSystemDrift(root);
     }
 
     /**

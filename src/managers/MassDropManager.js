@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import SceneManager from './SceneManager.js';
 import Body from '../model/Body.js';
-import { collectBodiesFromHierarchy } from '../physics/NBodySystem.js';
+import { cancelSystemDrift } from '../physics/barycentre.js';
 import { MASS_DROP, SIMULATION } from '../constants.js';
 import { log } from '../utils/Logger.js';
 
@@ -11,11 +11,6 @@ const _raycaster = new THREE.Raycaster();
 const _plane = new THREE.Plane();
 const _viewDirection = new THREE.Vector3();
 const _atRest = new THREE.Vector3();
-
-// Scratch for the momentum bookkeeping
-const _bodies = [];
-const _momentum = new THREE.Vector3();
-const _correction = new THREE.Vector3();
 
 /**
  * Drops stellar masses into the running simulation and takes them back out again.
@@ -27,10 +22,6 @@ class MassDropManager {
     constructor() {
         this.dropped = [];
         this.totalDropped = 0;  // Never reset, so cleared names are never reused
-
-        // Barycentre velocity of the untouched solar system, recorded before the first drop
-        this.baselineDrift = new THREE.Vector3();
-        this.baselineRecorded = false;
 
         log.init('MassDropManager', 'MassDropManager');
     }
@@ -51,14 +42,6 @@ class MassDropManager {
         if (!root?.body) {
             log.warn('MassDropManager', 'Cannot drop a mass before the hierarchy exists');
             return null;
-        }
-
-        // How fast the system as a whole is travelling before anything is added to it, kept so that
-        // removing the masses later can put it back. Taken afresh for each batch, because Kepler
-        // mode rewrites the planets' velocities while it is in charge.
-        if (this.dropped.length === 0) {
-            this.#barycentreVelocity(root, this.baselineDrift);
-            this.baselineRecorded = true;
         }
 
         const position = this.#spawnPoint(clientX, clientY, new THREE.Vector3());
@@ -127,61 +110,23 @@ class MassDropManager {
         });
 
         this.dropped.length = 0;
-        if (root) this.#restoreDrift(root);
+
+        // A mass falling towards the Sun pulls the Sun the other way, and momentum being conserved,
+        // whatever the mass gained the rest of the system lost. Delete the mass and that lost
+        // momentum has nowhere to go: the Sun sails off across the sky with nothing left to pull it
+        // back. Positions need no such treatment - this only runs on the way into Kepler mode, which
+        // puts the root back at the origin and every other body where its catalogue orbit says it
+        // should be.
+        if (root?.body) {
+            const drift = cancelSystemDrift(root.body);
+            if (drift > 0) {
+                log.info('MassDropManager', `Took ${drift.toPrecision(3)} of drift back out of the ` +
+                    `system after removing the dropped masses`);
+            }
+        }
 
         log.info('MassDropManager', `Removed ${removed} dropped ${removed === 1 ? 'mass' : 'masses'}`);
         return removed;
-    }
-
-    /**
-     * Take the solar system's motion back to what it was before anything was dropped into it.
-     *
-     * A mass falling towards the Sun pulls the Sun the other way, and momentum being conserved,
-     * whatever the mass gained the rest of the system lost. Delete the mass and that lost momentum
-     * has nowhere to go: the Sun sails off across the sky with nothing left to pull it back. So the
-     * excess is taken back out, spread over every remaining body in proportion to nothing at all -
-     * the same velocity comes off each, which is a change of reference frame and leaves every
-     * orbit exactly as it was.
-     *
-     * Positions need no such treatment: this only runs on the way into Kepler mode, which puts the
-     * root back at the origin and every other body where its catalogue orbit says it should be.
-     * @private
-     */
-    #restoreDrift(root) {
-        if (!this.baselineRecorded) return;
-
-        this.#barycentreVelocity(root, _correction).sub(this.baselineDrift);
-        if (_correction.lengthSq() === 0) return;
-
-        _bodies.length = 0;
-        collectBodiesFromHierarchy(root, _bodies);
-        _bodies.forEach(body => {
-            if (body.velocity) body.velocity.sub(_correction);
-        });
-        _bodies.length = 0;
-
-        log.info('MassDropManager', `Took ${_correction.length().toPrecision(3)} of drift back out ` +
-            `of the system after removing the dropped masses`);
-    }
-
-    /**
-     * Mass-weighted mean velocity of every body in a hierarchy
-     * @private
-     */
-    #barycentreVelocity(root, out) {
-        _bodies.length = 0;
-        collectBodiesFromHierarchy(root, _bodies);
-
-        _momentum.set(0, 0, 0);
-        let totalMass = 0;
-        _bodies.forEach(body => {
-            if (!body.velocity || typeof body.mass !== 'number') return;
-            _momentum.addScaledVector(body.velocity, body.mass);
-            totalMass += body.mass;
-        });
-        _bodies.length = 0;
-
-        return totalMass > 0 ? out.copy(_momentum).divideScalar(totalMass) : out.set(0, 0, 0);
     }
 
     /**
