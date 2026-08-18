@@ -2,6 +2,17 @@ import * as THREE from 'three';
 import VectorUtils from '../utils/VectorUtils.js';
 import logger, { log } from '../utils/Logger.js';
 
+// Turns a body's rotation speed - which calculateRotationSpeed gives in radians per second of a
+// scaled clock where Earth comes round in 15 seconds - into radians per unit of orbital time,
+// one unit of which is a year. See updateRotation for the derivation. The 5000 this replaced left
+// every body turning 9.8% too slowly for the orbits going on around it, which is a whole day lost
+// off Earth's year and enough to walk Pluto's near side away from Charon over a few months.
+const ROTATION_TIME_SCALE = 8766 * 15 / 23.93;
+
+// Scratch values for the tidal lock, which runs for every locked body every frame
+const _lockDirection = new THREE.Vector3();
+const _lockQuaternion = new THREE.Quaternion();
+
 /**
  * BodyPhysics - Handles all physics-related calculations and operations for celestial bodies
  * Extracted from Body.js to separate physics logic from body logic
@@ -43,21 +54,20 @@ class BodyPhysics {
      * @param {number} orbitalTime - Absolute orbital time (same time used for Kepler calculations)
      */
     static updateRotation(body, orbitalTime = 0) {
-        if (body.tidallyLocked && body.parentBody) {
-            // TIDAL LOCKING: Always face the parent body
+        if (body.tidallyLocked && BodyPhysics.getTidalLockTarget(body)) {
+            // TIDAL LOCKING: Always face the body it is locked to
             BodyPhysics.updateTidalLockRotation(body);
         } else {
             // NORMAL ROTATION: Calculate absolute rotation from orbital time
             // This keeps rotation synchronized with orbital motion
             //
-            // The orbital time and rotation need to use the same time base.
-            // rotationSpeed is in radians/second and has been calibrated for visual scaling
-            // orbitalTime comes from Kepler calculations and uses the same time scale as orbital motion
-            //
-            // To synchronize: we need to convert orbital time (which advances slowly) to rotation time
-            // The Kepler time uses a factor of 0.00002, while the original rotation used 0.1
-            // So we need to scale by (0.1 / 0.00002) = 5000 to maintain the same rotation speed
-            const rotationTimeScale = 5000; // Scale factor to match rotation speed with orbital time
+            // One unit of orbital time is one year: the Kepler solver advances its mean anomaly
+            // by n radians per unit, with n in radians per year, and the n-body integrator is
+            // fed a time increment scaled to match. A body must therefore turn
+            // (hours in a year / its rotation period in hours) times per unit, and
+            // calculateRotationSpeed hands over 2π per (period in hours × 15 / 23.93) seconds,
+            // so the scale between the two is 8766 × 15 / 23.93.
+            const rotationTimeScale = ROTATION_TIME_SCALE;
             const absoluteRotation = body.rotationSpeed * orbitalTime * rotationTimeScale;
 
             // Apply absolute rotation (rotation offset was applied at initialization)
@@ -73,29 +83,71 @@ class BodyPhysics {
 
         // Rotate clouds independently at their own speed (always applies)
         if (body.clouds && body.clouds.userData.rotationSpeed) {
-            const rotationTimeScale = 5000; // Same scale factor as main rotation
+            const rotationTimeScale = ROTATION_TIME_SCALE; // Same scale factor as main rotation
             const cloudRotation = body.rotationSpeed * orbitalTime * rotationTimeScale * body.clouds.userData.rotationSpeed;
             body.clouds.rotation.y = cloudRotation;
         }
     }
 
     /**
-     * Update rotation for tidally locked bodies to always face their parent
+     * The body a tidally locked body keeps its face turned towards. Normally that is its parent,
+     * but a lock can be mutual - Pluto and Charon each keep the same face towards the other - and
+     * the heavier of such a pair has the lighter one as a child rather than a parent, so it names
+     * what it is locked to explicitly.
+     * @param {Object} body - The body instance
+     * @returns {Object|null} The body being faced, or null if there is nothing to face
+     */
+    static getTidalLockTarget(body) {
+        if (!body.tidalLockTarget) {
+            return body.parentBody || null;
+        }
+
+        if (body._resolvedTidalLockTarget?.name !== body.tidalLockTarget) {
+            const child = (body.children || [])
+                .map(node => node.body || node)
+                .find(candidate => candidate?.name === body.tidalLockTarget);
+            body._resolvedTidalLockTarget = child
+                || (body.parentBody?.name === body.tidalLockTarget ? body.parentBody : null);
+
+            // Children are attached after construction, so a miss early on is only worth
+            // mentioning once - it stays a miss if the name is simply wrong
+            if (!body._resolvedTidalLockTarget && !body._tidalLockTargetWarned) {
+                body._tidalLockTargetWarned = true;
+                log.warn('BodyPhysics',
+                    `${body.name} is tidally locked to ${body.tidalLockTarget}, which is not among its relations yet`);
+            }
+        }
+
+        return body._resolvedTidalLockTarget || null;
+    }
+
+    /**
+     * Update rotation for tidally locked bodies to always face the body they are locked to
      * @param {Object} body - The body instance
      */
     static updateTidalLockRotation(body) {
-        if (!body.parentBody || !body.group || !body.parentBody.group) {
+        const target = BodyPhysics.getTidalLockTarget(body);
+        if (!target || !body.group || !target.group) {
             return;
         }
 
-        // Calculate vector from this body to its parent
-        const parentDirection = new THREE.Vector3()
-            .subVectors(body.parentBody.group.position, body.group.position)
-            .normalize();
+        // Calculate vector from this body to the one it faces
+        _lockDirection.subVectors(target.group.position, body.group.position);
 
-        // Calculate the angle needed to face the parent
-        // We want the body to face the parent with its "front" (negative Z axis by default)
-        const targetRotation = Math.atan2(parentDirection.x, parentDirection.z);
+        // The rotation being solved for is applied inside the tilt container, so the direction has
+        // to be brought into that container's frame first. Reading the angle off the world axes
+        // instead only works for a body whose poles happen to stand upright, and quietly stops
+        // working for the tilted ones: taken in world coordinates the lock turned Pluto and Charon
+        // two full turns per orbit away from each other rather than holding them still.
+        if (body.tiltContainer) {
+            _lockDirection.applyQuaternion(body.tiltContainer.getWorldQuaternion(_lockQuaternion).invert());
+        }
+
+        _lockDirection.normalize();
+
+        // Calculate the angle needed to face the target
+        // We want the body to face it with its "front" (negative Z axis by default)
+        const targetRotation = Math.atan2(_lockDirection.x, _lockDirection.z);
 
         // Apply the rotation to make the body face its parent, plus any rotation offset
         const finalRotation = targetRotation + body.rotationOffset;

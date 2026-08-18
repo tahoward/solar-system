@@ -1,6 +1,7 @@
 import SceneManager from '../managers/SceneManager.js';
 import clockManager from '../managers/ClockManager.js';
-import { TARGETING, MARKER, ORBIT, SIMULATION } from '../constants.js';
+import massDropManager from '../managers/MassDropManager.js';
+import { TARGETING, MARKER, ORBIT, SIMULATION, MASS_DROP } from '../constants.js';
 import { toggleControlsOverlay, toggleStateOverlay, toggleStatsOverlay, toggleDebugOverlay } from '../ui/OverlayManager.js';
 
 /**
@@ -11,6 +12,7 @@ export class InputController {
         this.targetableBodies = targetableBodies;
         this.animationManager = animationManager;
         this.currentTargetIndex = TARGETING.INITIAL_TARGET_INDEX;
+        this.pressOrigin = null;  // Where the current pointer press started, for click detection
 
         // Global orbit line visibility state
         // Orbit visibility is now managed by SceneManager/VisibilityManager
@@ -45,6 +47,36 @@ export class InputController {
 
         // Planet selection events from marker clicks
         window.addEventListener('planetSelected', (event) => this.handlePlanetSelection(event));
+
+        // Shift-click drops a mass into the simulation
+        const canvas = SceneManager.renderer.domElement;
+        canvas.addEventListener('pointerdown', (event) => this.handlePointerDown(event));
+        canvas.addEventListener('pointerup', (event) => this.handlePointerUp(event));
+    }
+
+    /**
+     * Remember where a press started, so a drag can be told from a click
+     * @param {PointerEvent} event - The pointer event
+     */
+    handlePointerDown(event) {
+        this.pressOrigin = { x: event.clientX, y: event.clientY, button: event.button };
+    }
+
+    /**
+     * Drop a mass if this was a shift-click rather than a shift-drag of the camera
+     * @param {PointerEvent} event - The pointer event
+     */
+    handlePointerUp(event) {
+        const press = this.pressOrigin;
+        this.pressOrigin = null;
+
+        if (!event.shiftKey || !press || press.button !== 0 || event.button !== 0) return;
+
+        // Shift-dragging turns the camera, and that must not leave a wake of stars behind it
+        const travelled = Math.hypot(event.clientX - press.x, event.clientY - press.y);
+        if (travelled > MASS_DROP.DRAG_TOLERANCE_PIXELS) return;
+
+        massDropManager.dropAt(event.clientX, event.clientY);
     }
 
     /**
@@ -213,16 +245,13 @@ export class InputController {
      * Increase simulation speed
      */
     increaseSpeed() {
-        if (SIMULATION.USE_N_BODY_PHYSICS) {
-            // For n-body mode: increase ClockManager speed (functional n-body physics uses ClockManager directly)
-            const currentSpeed = clockManager.getSpeedMultiplier() * 100.0; // Convert to display scale
-            const newSpeed = Math.min(currentSpeed * ORBIT.SPEED_FACTOR, ORBIT.MAX_SPEED_MULTIPLIER); // Cap at ORBIT limit
-            clockManager.setSpeedMultiplier(newSpeed / 100.0);
-            // Speed info now shown in state overlay
-        } else if (this.animationManager) {
-            // For Kepler mode: increase ClockManager speed
-            const currentSpeed = clockManager.getSpeedMultiplier() * 100.0; // Convert to display scale
-            const newSpeed = Math.min(currentSpeed * ORBIT.SPEED_FACTOR, ORBIT.MAX_SPEED_MULTIPLIER); // Cap at ORBIT limit
+        // Doubling from the requested speed rather than the one being run, because the physics may
+        // be holding the clock back: doubling from the held speed would silently throw away the
+        // setting every time a close approach shortened the integrator's step
+        const currentSpeed = clockManager.getRequestedSpeedMultiplier() * 100.0; // Convert to display scale
+        const newSpeed = Math.min(currentSpeed * ORBIT.SPEED_FACTOR, ORBIT.MAX_SPEED_MULTIPLIER); // Cap at ORBIT limit
+
+        if (SIMULATION.USE_N_BODY_PHYSICS || this.animationManager) {
             clockManager.setSpeedMultiplier(newSpeed / 100.0);
             // Speed info now shown in state overlay
         }
@@ -232,16 +261,14 @@ export class InputController {
      * Decrease simulation speed
      */
     decreaseSpeed() {
-        if (SIMULATION.USE_N_BODY_PHYSICS) {
-            // For n-body mode: decrease ClockManager speed (functional n-body physics uses ClockManager directly)
-            const currentSpeed = clockManager.getSpeedMultiplier() * 100.0; // Convert to display scale
-            const newSpeed = Math.max(currentSpeed / ORBIT.SPEED_FACTOR, ORBIT.MIN_SPEED_MULTIPLIER); // Cap at ORBIT minimum
-            clockManager.setSpeedMultiplier(newSpeed / 100.0);
-            // Speed info now shown in state overlay
-        } else if (this.animationManager) {
-            // For Kepler mode: decrease ClockManager speed
-            const currentSpeed = clockManager.getSpeedMultiplier() * 100.0; // Convert to display scale
-            const newSpeed = Math.max(currentSpeed / ORBIT.SPEED_FACTOR, ORBIT.MIN_SPEED_MULTIPLIER); // Cap at ORBIT minimum
+        // Halving from whichever is lower, so that asking to slow down always slows something down.
+        // Going by the request alone would do nothing visible while the physics was already holding
+        // the clock below it.
+        const currentSpeed = Math.min(clockManager.getSpeedMultiplier(),
+            clockManager.getRequestedSpeedMultiplier()) * 100.0; // Convert to display scale
+        const newSpeed = Math.max(currentSpeed / ORBIT.SPEED_FACTOR, ORBIT.MIN_SPEED_MULTIPLIER); // Cap at ORBIT minimum
+
+        if (SIMULATION.USE_N_BODY_PHYSICS || this.animationManager) {
             clockManager.setSpeedMultiplier(newSpeed / 100.0);
             // Speed info now shown in state overlay
         }
@@ -295,6 +322,13 @@ export class InputController {
      */
     togglePhysicsMode() {
         SIMULATION.togglePhysicsMode();
+
+        // Dropped masses are held up by the integrator alone. Kepler orbits come from a catalogue
+        // that knows nothing about them, so leaving them behind would strand them in mid-air while
+        // the planets sailed through untouched.
+        if (!SIMULATION.USE_N_BODY_PHYSICS) {
+            massDropManager.clearAll();
+        }
     }
 
     /**

@@ -12,6 +12,7 @@ import {
     computePerifocalBasis,
     getAUScale
 } from '../physics/kepler.js';
+import { collectBodiesFromHierarchy } from '../physics/NBodySystem.js';
 import { log } from '../utils/Logger.js';
 
 const PI_OVER_180 = MATH.PI_OVER_180;
@@ -36,6 +37,11 @@ const _relativeVelocity = new THREE.Vector3();
 const _drawnPeriapsisAxis = new THREE.Vector3();
 const _drawnInPlaneAxis = new THREE.Vector3();
 const _inverseParentRotation = new THREE.Quaternion();
+
+// Bodies that might have hold of the one this orbit belongs to, gathered afresh each time it is
+// asked - see #selectReferenceBody. Emptied again on the way out, so an orbit disposed of between
+// frames is not kept alive by a stale entry.
+const _candidates = [];
 
 // Written alongside _eccentricityVector and _orbitNormal by #readOsculatingConic, since a
 // number cannot be handed back through a scratch vector
@@ -219,62 +225,138 @@ class Orbit {
     /**
      * Which body this orbit should be drawn about: the one the body is really going round now.
      *
-     * A body stays with its catalogue parent while its orbit fits inside that parent's Hill
-     * sphere, the region where the parent's pull beats the tug of whatever the parent itself
-     * orbits. A moon flung off its parent no longer has such an orbit, and drawing its escape
-     * path relative to the parent shows a line heading off into the distance rather than the
-     * orbit it has actually ended up on - which is around the Sun. So the search moves out to
-     * the next body up and asks the same question again, ending at the Sun, which has nothing
-     * left to hand over to.
+     * A body belongs to another while it keeps a closed orbit about it that fits inside that
+     * body's Hill sphere - the region where its pull beats the tug of whatever it orbits in
+     * turn. A moon flung off its planet no longer has such an orbit, and drawing its escape
+     * path relative to the planet shows a line heading off into the distance rather than the
+     * orbit it has actually ended up on. Whatever has taken it instead is not necessarily
+     * further out: a moon can be thrown clear and picked up by a passing mass, or a planet
+     * dragged off the Sun by one, so every body in the system is a candidate rather than only
+     * the ones the catalogue lists as ancestors.
      *
-     * Recapture is deliberately harder than escape: a body whose apoapsis sits right on the
-     * boundary would otherwise swap references every frame, and the line would flicker between
-     * a moon's orbit and a planet's.
+     * More than one candidate holds the body at once - a moon of Saturn is inside the Sun's
+     * reach as well as Saturn's - and the innermost of them is the one whose orbit is worth
+     * drawing, so the tightest sphere wins. The root body is the fallback, because it holds
+     * everything and answers to nothing: a body on an escape path out of the system still has
+     * its trajectory drawn about the Sun.
+     *
+     * Changing hands is deliberately harder than keeping them: a body whose apoapsis sits on a
+     * boundary, or one poised between two spheres of much the same size, would otherwise swap
+     * references every frame and the line would flicker between the two orbits.
      *
      * @returns {Object|null} The body to draw about
      * @private
      */
     #selectReferenceBody() {
-        let candidate = this.parentBody;
+        const rootBody = this.#rootBody();
+        const recaptureRatio = ORBIT.SPHERE_OF_INFLUENCE.RECAPTURE_RATIO;
 
-        while (candidate) {
-            const outerBody = candidate.parentBody;
+        _candidates.length = 0;
+        const hierarchy = SceneManager.orbitManager?.hierarchy;
+        if (hierarchy) collectBodiesFromHierarchy(hierarchy, _candidates);
 
-            // Nothing further out to hand the body over to
-            if (!outerBody) return candidate;
-
-            _relativePosition.subVectors(this.body.group.position, candidate.group.position);
-            _relativeVelocity.subVectors(this.body.velocity, candidate.velocity);
-
-            const mu = calculateGM(candidate);
-            const radius = _relativePosition.length();
-            if (!(radius > 0) || !(mu > 0)) return candidate;
-
-            // Apoapsis of the body's orbit about this candidate, from the state vector alone
-            const speedSquared = _relativeVelocity.lengthSq();
-            const inverseSemiMajorAxis = 2 / radius - speedSquared / mu;
-            _eccentricityVector.copy(_relativePosition).multiplyScalar(speedSquared - mu / radius)
-                .addScaledVector(_relativeVelocity, -_relativePosition.dot(_relativeVelocity))
-                .divideScalar(mu);
-            const eccentricity = _eccentricityVector.length();
-            const apoapsis = eccentricity < 1 && inverseSemiMajorAxis > 0
-                ? (1 + eccentricity) / inverseSemiMajorAxis
-                : Infinity;
-
-            // Hill sphere of the candidate within the orbit it keeps around the body outside it
-            const separation = candidate.group.position.distanceTo(outerBody.group.position);
-            const hillRadius = separation
-                * Math.cbrt(candidate.mass / (3 * outerBody.mass));
-            const boundary = candidate === this.referenceBody
-                ? hillRadius
-                : hillRadius * ORBIT.SPHERE_OF_INFLUENCE.RECAPTURE_RATIO;
-
-            if (apoapsis <= boundary) return candidate;
-
-            candidate = outerBody;
+        // Whatever holds the body now gets first refusal, keeping it while the orbit is anywhere
+        // inside its sphere, and only losing it to a sphere comfortably smaller than its own.
+        // A dropped mass that has since been taken away no longer holds anything, so the
+        // incumbent is looked for among the bodies still there rather than taken on trust: its
+        // last position and velocity outlive it, and would otherwise keep it in charge of an
+        // orbit about a body that is no longer in the scene.
+        let host = null;
+        let hostReach = Infinity;
+        const incumbent = this.referenceBody;
+        if (incumbent && incumbent !== rootBody && _candidates.includes(incumbent)) {
+            const reach = this.#sphereOfInfluence(incumbent);
+            if (this.#apoapsisAbout(incumbent) <= reach) {
+                host = incumbent;
+                hostReach = reach * recaptureRatio;
+            }
         }
 
-        return this.parentBody;
+        for (let i = 0; i < _candidates.length; i++) {
+            const candidate = _candidates[i];
+            if (candidate === this.body || candidate === host || candidate === rootBody) continue;
+
+            // Only a tighter hold than the one already found could change the answer, and the
+            // reach costs a subtraction where the orbit costs a solve
+            const reach = this.#sphereOfInfluence(candidate);
+            if (!(reach < hostReach)) continue;
+            if (this.#apoapsisAbout(candidate) > reach * recaptureRatio) continue;
+
+            // A body cannot be drawn about something that is already drawn about it, directly
+            // or through a chain of others - the two would each be the other's centre
+            if (SceneManager.hierarchyManager?.isDescendantOf(candidate.name, this.body.name)) continue;
+
+            host = candidate;
+            hostReach = reach;
+        }
+
+        _candidates.length = 0;
+
+        return host || rootBody;
+    }
+
+    /**
+     * The body at the top of this body's catalogue ancestry, which holds everything in the
+     * system and is therefore always an answer #selectReferenceBody can fall back on.
+     * @returns {Object|null} The root body
+     * @private
+     */
+    #rootBody() {
+        let body = this.parentBody;
+        while (body?.parentBody) {
+            body = body.parentBody;
+        }
+        return body;
+    }
+
+    /**
+     * How far a body's gravity reaches: the radius of its Hill sphere within the orbit it keeps
+     * around whatever it orbits in turn. A body with nothing outside it reaches everywhere.
+     *
+     * Measured from catalogue parentage rather than from whatever the body currently orbits, so
+     * that one body changing hands cannot move another body's boundaries with it.
+     *
+     * @param {Object} body - Body whose reach is wanted
+     * @returns {number} Hill radius in scene units, or Infinity for the root body
+     * @private
+     */
+    #sphereOfInfluence(body) {
+        const outerBody = body.parentBody;
+        if (!outerBody || !(body.mass > 0) || !(outerBody.mass > 0)) return Infinity;
+
+        const separation = body.group.position.distanceTo(outerBody.group.position);
+        return separation * Math.cbrt(body.mass / (3 * outerBody.mass));
+    }
+
+    /**
+     * How far out this body's orbit about another one reaches, read from the two state vectors
+     * alone. An open path has no far end, so it counts as reaching everywhere - which is what
+     * makes it fail every containment test and hand the body on.
+     *
+     * @param {Object} body - Body the orbit would be measured about
+     * @returns {number} Apoapsis distance in scene units, or Infinity if the orbit is not closed
+     * @private
+     */
+    #apoapsisAbout(body) {
+        if (!this.body.velocity || !body.velocity) return Infinity;
+
+        _relativePosition.subVectors(this.body.group.position, body.group.position);
+        _relativeVelocity.subVectors(this.body.velocity, body.velocity);
+
+        const mu = calculateGM(body);
+        const radius = _relativePosition.length();
+        if (!(radius > 0) || !(mu > 0)) return Infinity;
+
+        const speedSquared = _relativeVelocity.lengthSq();
+        const inverseSemiMajorAxis = 2 / radius - speedSquared / mu;
+        _eccentricityVector.copy(_relativePosition).multiplyScalar(speedSquared - mu / radius)
+            .addScaledVector(_relativeVelocity, -_relativePosition.dot(_relativeVelocity))
+            .divideScalar(mu);
+        const eccentricity = _eccentricityVector.length();
+
+        return eccentricity < 1 && inverseSemiMajorAxis > 0
+            ? (1 + eccentricity) / inverseSemiMajorAxis
+            : Infinity;
     }
 
     /**

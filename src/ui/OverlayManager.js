@@ -40,6 +40,7 @@ export function createControlsOverlay(isVisible = true) {
         <div>• Left click + drag: Rotate view</div>
         <div>• Right click + drag: Pan view</div>
         <div>• Scroll wheel: Zoom in/out</div>
+        <div>• Shift + click: Drop a mass (n-body mode)</div>
         <div><strong>Keyboard:</strong></div>
         <div>• ←/→ Arrow keys: Switch planets</div>
         <div>• Space: Focus on Sun</div>
@@ -116,6 +117,7 @@ export function updateStateOverlay(stateData = {}) {
         orbitLinesVisible = false,
         physicsMode = 'Unknown',
         speed = 1,
+        requestedSpeed = null,
         zoomDistance = 0,
         bodyPosition = { x: 0, y: 0, z: 0 }
     } = stateData;
@@ -132,7 +134,8 @@ export function updateStateOverlay(stateData = {}) {
         <div><strong>Markers:</strong> ${markersVisible ? 'ON' : 'OFF'}</div>
         <div><strong>Trails:</strong> ${trailsVisible ? 'ON' : 'OFF'}</div>
         <div><strong>Orbit Lines:</strong> ${orbitLinesVisible ? 'ON' : 'OFF'}</div>
-        <div><strong>Speed:</strong> ${speed.toFixed(1)}x</div>
+        <div><strong>Speed:</strong> ${speed.toFixed(1)}x${requestedSpeed
+            ? ` <span style="opacity:0.7">(physics limited, ${requestedSpeed.toFixed(0)}x requested)</span>` : ''}</div>
         <div><strong>Camera Distance:</strong> ${zoomDistance.toFixed(4)}</div>
     `;
 }
@@ -361,8 +364,12 @@ export function updateStateDisplay(animationManager) {
         }
     }
 
-    // Get current speed from clock manager and convert to display scale
+    // Get current speed from clock manager and convert to display scale. When the physics cannot
+    // keep up, what was asked for is shown alongside so the shortfall is not a mystery.
     const speed = clockManager.getSpeedMultiplier() * 100.0;
+    const requestedSpeed = clockManager.isSpeedLimitedByPhysics()
+        ? clockManager.getRequestedSpeedMultiplier() * 100.0
+        : null;
 
     // Get zoom distance from camera to target
     let zoomDistance = 0;
@@ -386,6 +393,7 @@ export function updateStateDisplay(animationManager) {
         orbitLinesVisible,
         physicsMode: SIMULATION.getPhysicsMode(),
         speed,
+        requestedSpeed,
         zoomDistance,
         bodyPosition
     });

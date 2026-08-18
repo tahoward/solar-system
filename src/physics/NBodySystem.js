@@ -74,7 +74,7 @@ export function updateHierarchyNBodyPhysics(hierarchy, options = {}) {
  * @param {Object} hierarchy - The hierarchical solar system data
  * @param {Array} bodies - Array to collect bodies into
  */
-function collectBodiesFromHierarchy(hierarchy, bodies) {
+export function collectBodiesFromHierarchy(hierarchy, bodies) {
     if (hierarchy.body) {
         bodies.push(hierarchy.body);
     }
@@ -241,6 +241,11 @@ function initializeChildPhysics(parent, parentBody, sceneScale) {
         return;
     }
 
+    // Where each child sits relative to its parent. Gathered before anything is placed because
+    // the parent itself has to move first - see the recoil below - and the children then hang off
+    // wherever it ends up.
+    const placements = [];
+
     parent.children.forEach(child => {
         // Get the child Body object
         const childBody = child.body;
@@ -259,57 +264,91 @@ function initializeChildPhysics(parent, parentBody, sceneScale) {
         // Skip initialization if body already has physics state
         if (hasPosition && hasVelocity) {
             log.debug('NBodySystem', `Skipping initialization for ${childBody.name} - already has physics state`);
-        } else {
-            // Initialize physics on bodies that need it
-            childBody.setInitialPhysicsConditions(
-                new THREE.Vector3(0, 0, 0), // Will be set by Keplerian orbit
-                new THREE.Vector3(0, 0, 0)  // Will be set by Keplerian orbit
-            );
-
-            // Set Keplerian orbit if orbital data exists
-            if (child.data.a && child.orbit) {
-            // Prepare orbital elements for kepler.js functions
-            const orbitalElements = {
-                semiMajorAxis: child.data.a,
-                eccentricity: child.data.e,
-                inclinationRadians: child.data.i * Math.PI / 180,
-                longitudeOfAscendingNodeRadians: child.data.omega * Math.PI / 180,
-                argumentOfPeriapsisRadians: child.data.w * Math.PI / 180,
-                meanAnomalyAtEpochRadians: child.data.M0 * Math.PI / 180,
-                meanMotion: child.orbit.n // Use mean motion from orbit object
-            };
-
-            // Calculate position and velocity with centralized transformations. Both masses count
-            // towards the gravitational parameter, because the n-body integrator lets the parent
-            // move too: launching a moon at the speed it would need to circle a fixed parent
-            // leaves it too slow for the pair's real motion, which showed as Charon - an eighth of
-            // Pluto's mass - starting off on an orbit of eccentricity 0.11 rather than its
-            // catalogued 0.0002.
-            const mu = 39.478 * (parentBody.mass + childBody.mass); // Gravitational parameter
-
-            // Prepare transformation options based on child body's equatorialOrbit attribute
-            const transformOptions = {
-                applyTilt: parentBody.axialTilt !== undefined && child.body.equatorialOrbit,
-                axialTilt: parentBody.axialTilt || 0,
-                tiltMatrix: child.orbit?.tiltMatrix || null  // Use pre-computed tilt matrix (optimization)
-            };
-
-            // Use centralized kepler.js functions that handle tilt and parent transformations
-            const finalPosition = calculateKeplerianPositionWithTransforms(0, orbitalElements, parentBody, transformOptions);
-            const finalVelocity = calculateKeplerianVelocityWithTransforms(0, orbitalElements, mu, parentBody, transformOptions);
-
-            // Set the calculated position and velocity directly
-            childBody.position.copy(finalPosition);
-            childBody.velocity.copy(finalVelocity);
-
-            childBody.updatePosition(childBody.position);
-
-            log.debug('NBodySystem', `Set Keplerian orbit for ${childBody.name} using kepler.js functions: a=${child.data.a.toFixed(3)}AU, e=${child.data.e.toFixed(3)}, i=${child.data.i.toFixed(1)}°`);
-            }
+            return;
         }
 
-        // Recursively handle this child's children (for moons, etc.)
-        initializeChildPhysics(child, childBody, sceneScale);
+        // Initialize physics on bodies that need it
+        childBody.setInitialPhysicsConditions(
+            new THREE.Vector3(0, 0, 0), // Will be set by Keplerian orbit
+            new THREE.Vector3(0, 0, 0)  // Will be set by Keplerian orbit
+        );
+
+        // Nothing more to do for a body with no orbit to sit on
+        if (!child.data.a || !child.orbit) {
+            return;
+        }
+
+        // Prepare orbital elements for kepler.js functions
+        const orbitalElements = {
+            semiMajorAxis: child.data.a,
+            eccentricity: child.data.e,
+            inclinationRadians: child.data.i * Math.PI / 180,
+            longitudeOfAscendingNodeRadians: child.data.omega * Math.PI / 180,
+            argumentOfPeriapsisRadians: child.data.w * Math.PI / 180,
+            meanAnomalyAtEpochRadians: child.data.M0 * Math.PI / 180,
+            meanMotion: child.orbit.n // Use mean motion from orbit object
+        };
+
+        // Calculate position and velocity with centralized transformations. Both masses count
+        // towards the gravitational parameter, because the n-body integrator lets the parent
+        // move too: launching a moon at the speed it would need to circle a fixed parent
+        // leaves it too slow for the pair's real motion, which showed as Charon - an eighth of
+        // Pluto's mass - starting off on an orbit of eccentricity 0.11 rather than its
+        // catalogued 0.0002.
+        const mu = 39.478 * (parentBody.mass + childBody.mass); // Gravitational parameter
+
+        // Prepare transformation options based on child body's equatorialOrbit attribute
+        const transformOptions = {
+            applyTilt: parentBody.axialTilt !== undefined && child.body.equatorialOrbit,
+            axialTilt: parentBody.axialTilt || 0,
+            tiltMatrix: child.orbit?.tiltMatrix || null  // Use pre-computed tilt matrix (optimization)
+        };
+
+        // Use centralized kepler.js functions for the tilt, but keep the result relative to the
+        // parent by leaving the parent out of it, hence the null
+        placements.push({
+            childBody,
+            data: child.data,
+            position: calculateKeplerianPositionWithTransforms(0, orbitalElements, null, transformOptions),
+            velocity: calculateKeplerianVelocityWithTransforms(0, orbitalElements, mu, null, transformOptions)
+        });
+    });
+
+    // A catalogued orbit belongs to the centre of mass of a body and its moons rather than to the
+    // body itself, so the parent is stepped back off that orbit by its moons' share of the
+    // separation and their share of the relative velocity. It matters most where a moon is a
+    // sizeable fraction of the pair: Charon's share of the 19,600 km separation is 2,141 km, more
+    // than Pluto's own radius, and leaving Pluto on the catalogued ellipse with Charon hung off it
+    // sent the pair's centre of mass round the Sun on an orbit 0.06 AU wider than the real one.
+    // The same correction gives the Sun the recoil that keeps the system's centre of mass still
+    // instead of letting the whole solar system drift off.
+    if (placements.length > 0 && isIntegrable(parentBody)) {
+        let systemMass = parentBody.mass;
+        for (const placement of placements) {
+            systemMass += placement.childBody.mass;
+        }
+
+        if (systemMass > 0) {
+            for (const placement of placements) {
+                const share = placement.childBody.mass / systemMass;
+                parentBody.position.addScaledVector(placement.position, -share);
+                parentBody.velocity.addScaledVector(placement.velocity, -share);
+            }
+            parentBody.updatePosition(parentBody.position);
+        }
+    }
+
+    for (const { childBody, data, position, velocity } of placements) {
+        childBody.position.addVectors(position, parentBody.position);
+        childBody.velocity.addVectors(velocity, parentBody.velocity);
+        childBody.updatePosition(childBody.position);
+
+        log.debug('NBodySystem', `Set Keplerian orbit for ${childBody.name} using kepler.js functions: a=${data.a.toFixed(3)}AU, e=${data.e.toFixed(3)}, i=${data.i.toFixed(1)}°`);
+    }
+
+    // Recursively handle the children's own children (for moons, etc.)
+    parent.children.forEach(child => {
+        initializeChildPhysics(child, child.body, sceneScale);
     });
 }
 

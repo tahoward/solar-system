@@ -22,7 +22,8 @@ export class ClockManager {
         this.isRunning = false;         // Paused state
 
         // Speed and scaling controls
-        this.speedMultiplier = 1.0;     // Global simulation speed (1.0 = normal)
+        this.speedMultiplier = 1.0;     // Global simulation speed actually being run (1.0 = normal)
+        this.requestedSpeedMultiplier = 1.0; // Speed that was asked for, held while physics catches up
         this.timeScale = 1.0;           // Time compression for orbital mechanics
         this.maxDeltaTime = 0.1;        // Cap frame time to prevent large jumps
         this.physicsSpeedLimit = Infinity; // Fastest speed the physics can currently integrate
@@ -195,33 +196,51 @@ export class ClockManager {
      * @param {number} multiplier - Speed multiplier (1.0 = normal, 2.0 = 2x speed, 0.5 = half speed)
      */
     setSpeedMultiplier(multiplier) {
-        // Use ORBIT constants for consistent speed limits across systems
-        const maxClockSpeed = Math.min(ORBIT.MAX_SPEED_MULTIPLIER / 100.0, this.physicsSpeedLimit);
-        this.speedMultiplier = Math.max(ORBIT.MIN_SPEED_MULTIPLIER / 100.0, Math.min(multiplier, maxClockSpeed));
-        log.debug('ClockManager', `Speed multiplier set to ${this.speedMultiplier}x`);
+        this.requestedSpeedMultiplier = Math.max(ORBIT.MIN_SPEED_MULTIPLIER / 100.0,
+            Math.min(multiplier, ORBIT.MAX_SPEED_MULTIPLIER / 100.0));
+        this.#applySpeedLimit();
+        log.debug('ClockManager', `Speed multiplier set to ${this.speedMultiplier}x` +
+            (this.speedMultiplier < this.requestedSpeedMultiplier ? ` (asked for ${this.requestedSpeedMultiplier}x)` : ''));
     }
 
     /**
-     * Report the fastest speed the physics can keep up with, and slow the clock to it if it is
-     * already going faster.
+     * Report the fastest speed the physics can keep up with, and run at it if it is below what was
+     * asked for.
      *
      * Asking for more time than the integrator can cover in the steps it is allowed used to be
      * answered with a stride so long that the closest moons were flung out of their orbits. The
      * limit means the simulation runs as fast as it honestly can instead: the displayed speed is
-     * one that is really being integrated, and it comes back up on its own when whatever tightened
-     * it - a close approach, a slow frame - passes.
+     * one that is really being integrated.
+     *
+     * What was asked for is remembered rather than overwritten, so the speed climbs back on its own
+     * once whatever tightened the step - a close approach, an inner moon at conjunction - has
+     * passed. Clamping the request itself would mean every close encounter quietly cost the user
+     * their speed setting and left them pressing Q to get it back.
      *
      * @param {number} limit - Speed multiplier ceiling, or Infinity for no limit
      */
     setPhysicsSpeedLimit(limit) {
         this.physicsSpeedLimit = Number.isFinite(limit) ? Math.max(0, limit) : Infinity;
 
-        if (this.speedMultiplier > this.physicsSpeedLimit) {
-            const requested = this.speedMultiplier;
-            this.setSpeedMultiplier(this.physicsSpeedLimit);
-            log.debug('ClockManager', `Physics cannot keep up with ${(requested * 100).toFixed(0)}x, ` +
-                `holding at ${(this.speedMultiplier * 100).toFixed(0)}x`);
+        const before = this.speedMultiplier;
+        this.#applySpeedLimit();
+
+        if (this.speedMultiplier !== before) {
+            const held = this.speedMultiplier < this.requestedSpeedMultiplier;
+            log.debug('ClockManager', held
+                ? `Physics cannot keep up with ${(this.requestedSpeedMultiplier * 100).toFixed(0)}x, ` +
+                  `holding at ${(this.speedMultiplier * 100).toFixed(0)}x`
+                : `Physics caught up, back to the requested ${(this.speedMultiplier * 100).toFixed(0)}x`);
         }
+    }
+
+    /**
+     * Run at what was asked for, or at what the physics can manage, whichever is lower
+     * @private
+     */
+    #applySpeedLimit() {
+        this.speedMultiplier = Math.max(ORBIT.MIN_SPEED_MULTIPLIER / 100.0,
+            Math.min(this.requestedSpeedMultiplier, this.physicsSpeedLimit));
     }
 
     /**
@@ -366,6 +385,22 @@ export class ClockManager {
     }
 
     /**
+     * Get the speed that was asked for, which may be higher than the one being run
+     * @returns {number} Requested speed multiplier
+     */
+    getRequestedSpeedMultiplier() {
+        return this.requestedSpeedMultiplier;
+    }
+
+    /**
+     * Whether the physics is holding the clock below the speed that was asked for
+     * @returns {boolean} True if the requested speed is not currently being met
+     */
+    isSpeedLimitedByPhysics() {
+        return this.speedMultiplier < this.requestedSpeedMultiplier;
+    }
+
+    /**
      * Get current time scale
      * @returns {number} Current time scale
      */
@@ -438,6 +473,8 @@ export class ClockManager {
             realTime: this.realTime,
             deltaTime: this.deltaTime,
             speedMultiplier: this.speedMultiplier,
+            requestedSpeedMultiplier: this.requestedSpeedMultiplier,
+            physicsSpeedLimit: this.physicsSpeedLimit,
             timeScale: this.timeScale,
             orbitalTimeScale: this.orbitalTimeScale,
             fps: this.deltaTime > 0 ? 1 / this.deltaTime : 0,

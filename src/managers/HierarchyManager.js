@@ -178,6 +178,69 @@ export class HierarchyManager {
     }
 
     /**
+     * Add a body that was not in the original hierarchy
+     * @param {Object} body - The body to add
+     * @param {string} parentName - Name of the body it hangs off
+     * @returns {boolean} True if the body was added
+     */
+    addBody(body, parentName) {
+        if (!body || !body.name) {
+            log.warn('HierarchyManager', 'Cannot add a body without a name');
+            return false;
+        }
+
+        if (this.hierarchyMap.has(body.name)) {
+            log.error('HierarchyManager', `${body.name} is already in the hierarchy`);
+            return false;
+        }
+
+        const parentData = this.hierarchyMap.get(parentName);
+        if (!parentData) {
+            log.error('HierarchyManager', `Cannot add ${body.name} under unknown parent ${parentName}`);
+            return false;
+        }
+
+        parentData.children.push(body.name);
+        this.hierarchyMap.set(body.name, { parent: parentName, children: [], body });
+
+        log.info('HierarchyManager', `Added ${body.name} under ${parentName}`);
+        return true;
+    }
+
+    /**
+     * Remove a body from the hierarchy, handing any children to its parent
+     * @param {string} bodyName - Name of the body to remove
+     * @returns {boolean} True if the body was removed
+     */
+    removeBody(bodyName) {
+        const bodyData = this.hierarchyMap.get(bodyName);
+        if (!bodyData) return false;
+
+        if (bodyData.parent === null) {
+            log.error('HierarchyManager', `Refusing to remove root body ${bodyName}`);
+            return false;
+        }
+
+        const parentData = this.hierarchyMap.get(bodyData.parent);
+        if (parentData) {
+            const index = parentData.children.indexOf(bodyName);
+            if (index !== -1) parentData.children.splice(index, 1);
+
+            // Orphans are adopted by the grandparent rather than dropped from the map, which
+            // would leave them invisible to visibility and targeting for the rest of the session
+            bodyData.children.forEach(childName => {
+                const childData = this.hierarchyMap.get(childName);
+                if (childData) childData.parent = bodyData.parent;
+                if (!parentData.children.includes(childName)) parentData.children.push(childName);
+            });
+        }
+
+        this.hierarchyMap.delete(bodyName);
+        log.info('HierarchyManager', `Removed ${bodyName} from the hierarchy`);
+        return true;
+    }
+
+    /**
      * Check if a body is a direct child of another body
      * @param {string} childName - Name of the potential child body
      * @param {string} parentName - Name of the potential parent body
@@ -186,6 +249,29 @@ export class HierarchyManager {
     isDirectChild(childName, parentName) {
         const parentData = this.hierarchyMap.get(parentName);
         return parentData ? parentData.children.includes(childName) : false;
+    }
+
+    /**
+     * Check whether a body sits anywhere beneath another, however many levels down. Used to keep
+     * a body from being drawn about something that is already drawn about it, which the hierarchy
+     * has no way to express - both would have to be the other's centre.
+     *
+     * The walk is capped at the number of bodies known, so a hierarchy that has somehow come to
+     * contain a loop answers rather than spinning.
+     *
+     * @param {string} bodyName - Name of the body that might be beneath the other
+     * @param {string} ancestorName - Name of the body it might be beneath
+     * @returns {boolean} True if bodyName is a descendant of ancestorName
+     */
+    isDescendantOf(bodyName, ancestorName) {
+        let data = this.hierarchyMap.get(bodyName);
+
+        for (let steps = this.hierarchyMap.size; data?.parent && steps > 0; steps--) {
+            if (data.parent === ancestorName) return true;
+            data = this.hierarchyMap.get(data.parent);
+        }
+
+        return false;
     }
 
     /**

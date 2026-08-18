@@ -52,6 +52,28 @@ export const NBODY = {
   MIN_SOFTENING: 1e-9
 };
 
+// Shift-click Mass Drop Configuration
+// Only meaningful under n-body physics: Kepler orbits are solved from a catalogue and cannot
+// respond to anything that was not in it, so dropped masses are removed when the mode switches.
+export const MASS_DROP = {
+  // Solar masses. A whole star's worth, because anything much lighter takes centuries of
+  // simulated time to bend a planet's orbit by an amount you could see.
+  MASS: 1.0,
+
+  // Radius as a fraction of the Sun's, the Sun being the parent every dropped mass hangs off.
+  // Worth keeping sizeable: softening scales with radius, which is what stops a near-miss with
+  // a planet from turning into a division by nearly zero.
+  RADIUS_SCALE: 0.5,
+
+  COLOR: 0xff5a2b,
+  MARKER_COLOR: 0xff5a2b,
+  ROTATION_PERIOD: 240,  // Earth hours, purely cosmetic
+
+  // How far the cursor may travel between press and release and still count as a click.
+  // Shift-dragging turns the camera, and that must not leave a wake of stars behind it.
+  DRAG_TOLERANCE_PIXELS: 5
+};
+
 // Scene Configuration
 export const SCENE = {
   SCALE: 0.1,
@@ -90,9 +112,11 @@ export const ORBIT = {
     JITTER_PIXEL_BUDGET: 0.15   // Error tolerated in the line's position, in pixels
   },
   // An orbit is drawn about the body it is really going round, which for a moon thrown clear of
-  // its planet is no longer that planet - see Orbit#selectReferenceBody. Handing it back again
-  // takes an orbit this much of the way inside the planet's Hill sphere, so that a body sitting
-  // on the boundary cannot swap the two every frame.
+  // its planet, or a planet dragged off the Sun by a passing mass, is no longer the body the
+  // catalogue gives it - see Orbit#selectReferenceBody. Taking a body needs its orbit this much
+  // of the way inside the new body's Hill sphere, and needs that sphere to be this much smaller
+  // than the one currently holding it, so that neither a body sitting on a boundary nor one
+  // poised between two spheres of similar size can swap between them every frame.
   SPHERE_OF_INFLUENCE: {
     RECAPTURE_RATIO: 0.8
   },
@@ -784,6 +808,13 @@ export const CELESTIAL_DATA = [{
       mass: 6.58719e-9,
       rotationPeriod: -153.29,  // Rotation period in Earth hours (retrograde)
       axialTilt: 122.53,  // Axial tilt in degrees (more extreme than Uranus)
+      // Pluto and Charon are locked to each other, not just Charon to Pluto, so Pluto keeps the
+      // same face turned towards its moon and names it rather than falling back to its parent.
+      // Left to rotationPeriod alone it turned the wrong way: a tilt past 90 degrees already
+      // points the spin axis south, so the minus sign on the period cancelled the retrograde
+      // sense out again and the sub-Charon point walked right round Pluto every other orbit.
+      tidallyLocked: true,
+      tidalLockTarget: 'Charon',
       lightIntensity: null,  // No light emission
       surfaceTexture: TEXTURES.pluto,
       // Pluto's very thin nitrogen atmosphere

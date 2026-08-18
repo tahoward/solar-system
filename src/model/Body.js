@@ -108,6 +108,7 @@ class Body {
         this.axialTilt = axialTilt;
         this.rotationOffset = rotationOffset;
         this.tidallyLocked = tidallyLocked;
+        this.tidalLockTarget = bodyData.tidalLockTarget || null;
         this.parentBody = parentBody;
         this.rotationSpeed = BodyPhysics.calculateRotationSpeed(rotationPeriod);
 
@@ -127,10 +128,19 @@ class Body {
             this.mesh.rotation.y = this.rotationOffset;
         }
 
+        // A moon that orbits in its parent's equatorial plane has its own tilt quoted against that
+        // plane rather than against the ecliptic, so the parent's tilt has to be added to get the
+        // one the scene needs. Both are rotations about Z - the same axis the orbit is tilted
+        // about in kepler.js - so they simply sum. Without this a tidally locked moon faces its
+        // parent but spins about the wrong pole: Charon's axis came out 122° from the orbit it
+        // shares a plane with, and Saturn's moons all leaned 27° away from Saturn's.
+        this.eclipticAxialTilt = (this.axialTilt || 0) +
+            (this.equatorialOrbit && parentBody?.axialTilt ? parentBody.axialTilt : 0);
+
         // Create tilt container for fixed axial tilt BEFORE LOD system
         this.tiltContainer = new THREE.Group();
-        if (this.axialTilt !== 0) {
-            this.tiltContainer.rotation.z = this.axialTilt * Math.PI / 180;
+        if (this.eclipticAxialTilt !== 0) {
+            this.tiltContainer.rotation.z = this.eclipticAxialTilt * Math.PI / 180;
         }
 
         // Add mesh to tilt container first
@@ -214,11 +224,14 @@ class Body {
      * @private
      */
     createOrbit() {
-        // Only create orbit if this body has a parent and orbital parameters
+        // Only draw an orbit if this body has a parent and orbital parameters
         if (!this.parentBody || !this.bodyData.a) {
-            // Create virtual stationary orbit for root body (Sun)
+            // Nothing to draw - either the root body, or something dropped into the system with
+            // no catalogue orbit to trace. It still needs an orbit object, because the per-frame
+            // update reaches for one, so hand back a stand-in that draws nothing. Only the root's
+            // is registered with the scene: a dropped body has no orbit line to show or hide.
+            this.orbit = this.createVirtualOrbit();
             if (!this.parentBody) {
-                this.orbit = this.createVirtualOrbit();
                 SceneManager.registerOrbit(this.orbit);
             }
             return;
