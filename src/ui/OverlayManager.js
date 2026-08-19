@@ -3,6 +3,29 @@ import configService from '../utils/ConfigService.js';
 import clockManager from '../managers/ClockManager.js';
 import SceneManager from '../managers/SceneManager.js';
 
+/**
+ * The four debug overlays: controls, state, performance stats and environment.
+ *
+ * Plain functions rather than a class, because there is no state to hold. Each overlay is
+ * found by its DOM id, which *is* the state — so any part of the app can toggle an overlay
+ * without a reference to whatever created it, and a create call on an overlay that already
+ * exists updates it rather than adding a second one.
+ *
+ * The two that show live data are refreshed by the animation loop, and both return early when
+ * hidden so a hidden overlay costs nothing per frame.
+ */
+
+/**
+ * Builds or refreshes the key bindings list.
+ *
+ * The contents are written out here rather than derived from
+ * {@link InputController#handleKeydown}, which means the two can drift; the list is a little
+ * out of date, showing `O` for orbit trails where the handler uses `T`, and omitting `S`,
+ * `M`, `P` and `B`.
+ *
+ * @param {boolean} [isVisible=true] - Whether to show it immediately.
+ * @returns {HTMLDivElement} The overlay element.
+ */
 export function createControlsOverlay(isVisible = true) {
     let controlsOverlay = document.getElementById('controls-overlay');
 
@@ -39,6 +62,14 @@ export function createControlsOverlay(isVisible = true) {
     return controlsOverlay;
 }
 
+/**
+ * Shows or hides the controls list, creating it if this is the first request.
+ *
+ * Creating on first toggle means the overlay need not exist at startup — asking to see it is
+ * enough.
+ *
+ * @returns {void}
+ */
 export function toggleControlsOverlay() {
     const controlsOverlay = document.getElementById('controls-overlay');
 
@@ -50,6 +81,18 @@ export function toggleControlsOverlay() {
     }
 }
 
+/**
+ * Builds the empty state panel in the bottom-right corner.
+ *
+ * Reuses the controls overlay's styling with the corner swapped, so the two panels match
+ * without a second style block. `left` has to be explicitly cleared, since a shared style
+ * that sets it would otherwise stretch the panel across the viewport.
+ *
+ * Left empty; {@link updateStateDisplay} fills it in.
+ *
+ * @param {boolean} [isVisible=true] - Whether to show it immediately.
+ * @returns {HTMLDivElement} The overlay element.
+ */
 export function createStateOverlay(isVisible = true) {
     let stateOverlay = document.getElementById('state-overlay');
 
@@ -72,6 +115,36 @@ export function createStateOverlay(isVisible = true) {
     return stateOverlay;
 }
 
+/**
+ * Redraws the state panel's contents.
+ *
+ * Returns immediately if the panel is hidden, which is what keeps this off the cost of a
+ * normal frame — it is called from the animation loop.
+ *
+ * Every field is defaulted, so a caller that knows only some of the state can still pass what
+ * it has.
+ *
+ * Positions are shown to four decimal places: scene units are large enough that bodies differ
+ * in the third or fourth digit, and rounding further would make neighbouring moons look
+ * identical.
+ *
+ * @param {Object} [stateData={}] - What to show.
+ * @param {string} [stateData.currentTarget] - Name of the focused body.
+ * @param {boolean} [stateData.bloomEnabled] - Whether bloom is on.
+ * @param {boolean} [stateData.markersVisible] - Whether markers are on.
+ * @param {boolean} [stateData.trailsVisible] - Whether trails are on.
+ * @param {boolean} [stateData.orbitLinesVisible] - Whether orbit lines are on.
+ * @param {string} [stateData.physicsMode] - Kepler or n-body.
+ * @param {number} [stateData.speed] - The speed actually being applied.
+ * @param {number|null} [stateData.requestedSpeed] - The speed asked for, when the integrator
+ *   cannot keep up. Shown alongside the applied speed so a throttled simulation does not look
+ *   like the speed keys have stopped working; `null` when nothing is being held back.
+ * @param {number} [stateData.zoomDistance] - Camera distance to its orbit centre.
+ * @param {{x: number, y: number, z: number}} [stateData.bodyPosition] - Focused body's
+ *   position.
+ * @returns {void}
+ * @private
+ */
 function updateStateOverlay(stateData = {}) {
     const stateOverlay = document.getElementById('state-overlay');
     if (!stateOverlay || stateOverlay.style.display === 'none') return;
@@ -107,6 +180,11 @@ function updateStateOverlay(stateData = {}) {
     `;
 }
 
+/**
+ * Shows or hides the state panel, creating it if needed.
+ *
+ * @returns {void}
+ */
 export function toggleStateOverlay() {
     const stateOverlay = document.getElementById('state-overlay');
 
@@ -118,6 +196,14 @@ export function toggleStateOverlay() {
     }
 }
 
+/**
+ * Builds the empty performance panel.
+ *
+ * Left empty; {@link updateStatsDisplay} fills it in.
+ *
+ * @param {boolean} [isVisible=true] - Whether to show it immediately.
+ * @returns {HTMLDivElement} The overlay element.
+ */
 export function createStatsOverlay(isVisible = true) {
     let statsOverlay = document.getElementById('stats-overlay');
 
@@ -135,6 +221,25 @@ export function createStatsOverlay(isVisible = true) {
     return statsOverlay;
 }
 
+/**
+ * Redraws the performance panel: three sparkline charts and an average line.
+ *
+ * Charts rather than numbers, because what matters when tuning is whether the frame rate is
+ * steady — a single figure hides the stutters, which is exactly what one wants to see.
+ *
+ * Drawn as inline SVG paths rather than a canvas, so the panel stays a DOM element and needs
+ * no drawing surface of its own alongside the WebGL one.
+ *
+ * Returns immediately when hidden, since this runs from the animation loop.
+ *
+ * @param {Object} [statsData={}] - What to show.
+ * @param {Object} [statsData.summary] - Min, max and average for each metric.
+ * @param {{fps: number[], gpu: number[], cpu: number[]}} [statsData.timeSeries] - Recent
+ *   samples, oldest first.
+ * @param {number} [statsData.sampleCount] - How many samples the summary covers.
+ * @returns {void}
+ * @private
+ */
 function updateStatsOverlay(statsData = {}) {
     const statsOverlay = document.getElementById('stats-overlay');
     if (!statsOverlay || statsOverlay.style.display === 'none') return;
@@ -145,6 +250,21 @@ function updateStatsOverlay(statsData = {}) {
         sampleCount = 0
     } = statsData;
 
+    /**
+     * Draws one metric as an SVG sparkline.
+     *
+     * The vertical axis is fitted to the data rather than pinned to the nominal maximum, so
+     * small variations are still visible; the nominal maximum only sets a floor on the range,
+     * which stops a flat series from being magnified into noise. The maximum in use is printed
+     * in the label, since a chart whose scale moves is misleading without it.
+     *
+     * @param {number[]} data - Samples, oldest first.
+     * @param {string} label - Metric name; the absence of "FPS" in it is what marks the values
+     *   as percentages.
+     * @param {number} [max=100] - Nominal maximum, used to floor the fitted range.
+     * @param {string} [color='#00ff00'] - Line colour.
+     * @returns {string} The chart's HTML, or an empty string if there are no samples.
+     */
     const createLineChart = (data, label, max = 100, color = '#00ff00') => {
         if (data.length === 0) return '';
 
@@ -199,6 +319,19 @@ function updateStatsOverlay(statsData = {}) {
     `;
 }
 
+/**
+ * Builds the environment panel and fills it in.
+ *
+ * Styled inline rather than from {@link UI}, unlike the other three, since this one is not
+ * meant to match them.
+ *
+ * Pointer events are off so it cannot intercept a drag that passes over it — it sits in the
+ * top-right corner, where the camera is often being rotated.
+ *
+ * @param {boolean} [isVisible=true] - Whether to show it immediately.
+ * @returns {void}
+ * @private
+ */
 function createDebugOverlay(isVisible = true) {
     let debugOverlay = document.getElementById('debug-overlay');
 
@@ -235,6 +368,11 @@ function createDebugOverlay(isVisible = true) {
     debugOverlay.style.display = isVisible ? 'block' : 'none';
 }
 
+/**
+ * Shows or hides the environment panel, creating it if needed.
+ *
+ * @returns {void}
+ */
 export function toggleDebugOverlay() {
     const debugOverlay = document.getElementById('debug-overlay');
 
@@ -246,6 +384,15 @@ export function toggleDebugOverlay() {
     }
 }
 
+/**
+ * Refreshes the environment panel's memory reading.
+ *
+ * Separate from {@link createDebugOverlay} because this one must not create anything: it is
+ * called from the animation loop, and creating on demand would make a panel the viewer had
+ * dismissed reappear.
+ *
+ * @returns {void}
+ */
 export function updateDebugOverlay() {
     const debugOverlay = document.getElementById('debug-overlay');
 
@@ -263,6 +410,15 @@ export function updateDebugOverlay() {
     `;
 }
 
+/**
+ * Reads the JavaScript heap size, in megabytes.
+ *
+ * `performance.memory` is a Chrome extension to the standard and is missing elsewhere, so its
+ * absence is treated as "unknown" rather than an error; the panel shows `N/A`.
+ *
+ * @returns {{usedJSHeapSize: number|null}} Heap size in MB, or `null` where unavailable.
+ * @private
+ */
 function getMemoryInfo() {
     if (typeof performance === 'undefined' || !performance.memory) {
         return { usedJSHeapSize: null };
@@ -273,15 +429,50 @@ function getMemoryInfo() {
     };
 }
 
+/**
+ * Whether an overlay exists and is not hidden.
+ *
+ * Checks the inline `display` rather than computed style, which is enough here because that is
+ * the only way these overlays are ever hidden.
+ *
+ * @param {string} id - The overlay's DOM id.
+ * @returns {boolean} True if it is on screen.
+ * @private
+ */
 function isOverlayVisible(id) {
     const overlay = document.getElementById(id);
     return !!overlay && overlay.style.display !== 'none';
 }
 
+/**
+ * Whether the performance panel is on screen.
+ *
+ * Exported so the animation loop can skip *collecting* the samples, not just displaying them
+ * — the GPU timer queries behind them are not free.
+ *
+ * @returns {boolean} True if it is visible.
+ */
 export function isStatsOverlayVisible() {
     return isOverlayVisible('stats-overlay');
 }
 
+/**
+ * Gathers the current state from around the app and redraws the state panel.
+ *
+ * This is where the state is collected rather than pushed: each toggle would otherwise have to
+ * remember to tell the panel, and any that forgot would leave it stale. Reading everything
+ * fresh each frame means the panel cannot disagree with the simulation.
+ *
+ * The focused body is read off `window.InputController`, since the panel has no reference to
+ * the controller; guarded, so it degrades to "Unknown" rather than throwing if the global is
+ * not set up.
+ *
+ * Speeds are multiplied by 100 to match the percent-like units the controls use, the inverse
+ * of the conversion in {@link InputController#increaseSpeed}.
+ *
+ * @param {AnimationManager} animationManager - Source of the visibility flags.
+ * @returns {void}
+ */
 export function updateStateDisplay(animationManager) {
     if (!isOverlayVisible('state-overlay')) return;
 
@@ -331,6 +522,12 @@ export function updateStateDisplay(animationManager) {
     });
 }
 
+/**
+ * Pulls the latest samples and redraws the performance panel.
+ *
+ * @param {PerformanceStats} performanceStats - Source of the samples and summary.
+ * @returns {void}
+ */
 export function updateStatsDisplay(performanceStats) {
     if (!isOverlayVisible('stats-overlay')) return;
 
@@ -346,6 +543,11 @@ export function updateStatsDisplay(performanceStats) {
     });
 }
 
+/**
+ * Shows or hides the performance panel, creating it if needed.
+ *
+ * @returns {void}
+ */
 export function toggleStatsOverlay() {
     const statsOverlay = document.getElementById('stats-overlay');
 

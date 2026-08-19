@@ -6,7 +6,34 @@ import SunGlare from './SunGlare.js';
 import { temperatureToColor, temperatureToBlackbodyLight, temperatureToGlareBrightness } from '../constants.js';
 import { log } from '../utils/Logger.js';
 
+/**
+ * Attaches a star's visual effects and builds its light.
+ *
+ * A star is not just a lit sphere: what makes one read as a star is the corona around it,
+ * the rays and flares off its surface, and the glare that stands in for it once it is too
+ * far away to have a visible disc. Assembling those is kept out of {@link Body}, which
+ * otherwise would have to know the construction details of four unrelated effects.
+ *
+ * Almost every parameter is derived from the star's temperature rather than configured, so
+ * a star described only by a temperature still comes out the right colour and brightness.
+ *
+ * Static only.
+ */
 class StarEffects {
+    /**
+     * Adds whichever effects this star's data asks for.
+     *
+     * Each effect is added only if its own configuration block is present, so a star can
+     * have rays without a corona, or a bare glare and nothing else. A missing block is
+     * logged rather than defaulted, since silently inventing a corona would make the data
+     * files misleading about what is on screen.
+     *
+     * @param {Body} body - The star's body, which the effects are attached to.
+     * @param {Object} bodyData - The star's configuration.
+     * @param {Object} bodyData.star - Star-specific data; each effect reads its own key.
+     * @param {number} radius - The star's radius in scene units.
+     * @returns {void}
+     */
     static addStarEffects(body, bodyData, radius) {
         if (bodyData.star.corona) {
             StarEffects.addCoronaEffect(body, bodyData, radius);
@@ -35,6 +62,19 @@ class StarEffects {
         body.starData = bodyData.star;
     }
 
+    /**
+     * Adds the corona: the glowing shell just outside the star's surface.
+     *
+     * Attached to the body's group rather than its mesh, so it does not inherit the star's
+     * rotation — a corona spinning with the surface would look like a solid shell.
+     *
+     * Also accepts the older `billboard` key, since some data files still use it.
+     *
+     * @param {Body} body - The star's body; the corona is stored on `body.billboard`.
+     * @param {Object} bodyData - The star's configuration.
+     * @param {number} radius - The star's radius in scene units.
+     * @returns {void}
+     */
     static addCoronaEffect(body, bodyData, radius) {
         const starCorona = bodyData.star.corona || bodyData.star.billboard || {};
         const coronaColor = bodyData.star.temperature ?
@@ -58,6 +98,20 @@ class StarEffects {
         body.billboard = sunCorona;
     }
 
+    /**
+     * Adds the rays: thousands of short lines standing off the surface.
+     *
+     * Attached to the mesh, not the group, so the rays turn with the star and appear rooted
+     * in its surface.
+     *
+     * The default count is high because the rays are individually faint; the effect is a
+     * shimmer over the whole limb rather than a set of distinguishable spikes.
+     *
+     * @param {Body} body - The star's body; the rays are stored on `body.sunRays`.
+     * @param {Object} bodyData - The star's configuration.
+     * @param {number} radius - The star's radius in scene units.
+     * @returns {void}
+     */
     static addSunRaysEffect(body, bodyData, radius) {
         const starRays = bodyData.star.rays || {};
 
@@ -96,6 +150,17 @@ class StarEffects {
         body.sunRays = sunRays;
     }
 
+    /**
+     * Adds the flares: long lines arcing away from the surface.
+     *
+     * The same idea as the rays but far longer and fewer, which is what gives the star an
+     * irregular, active edge rather than a clean circle.
+     *
+     * @param {Body} body - The star's body; the flares are stored on `body.sunFlares`.
+     * @param {Object} bodyData - The star's configuration.
+     * @param {number} radius - The star's radius in scene units.
+     * @returns {void}
+     */
     static addSunFlaresEffect(body, bodyData, radius) {
         const starFlares = bodyData.star.flares || {};
 
@@ -130,6 +195,28 @@ class StarEffects {
         body.sunFlares = sunFlares;
     }
 
+    /**
+     * Adds the glare: the camera-facing flare that stands in for the star at a distance.
+     *
+     * The glare is far brighter than the other effects — its default emissive intensity is
+     * twenty-five times the temperature-derived brightness — because it has to survive
+     * being the only thing left of the star once the surface mesh has faded out.
+     *
+     * Its opacity is scaled by temperature and then clamped, so a hot star glares harder
+     * than a cool one without exceeding full opacity.
+     *
+     * The distances at which the glare grows and shrinks are scaled by the star's radius,
+     * so the same configuration works for a red dwarf and a supergiant.
+     *
+     * Unlike the other effects this one is not added to the scene graph here.
+     * {@link Body#update} parents it to the scene root instead, since it has to be turned
+     * to face the camera every frame and must not inherit the star's rotation or scale.
+     *
+     * @param {Body} body - The star's body; the glare is stored on `body.sunGlare`.
+     * @param {Object} bodyData - The star's configuration.
+     * @param {number} radius - The star's radius in scene units.
+     * @returns {void}
+     */
     static addSunGlareEffect(body, bodyData, radius) {
         const starGlare = bodyData.star.glare || {};
         const glareColor = bodyData.star.temperature ?
@@ -175,6 +262,26 @@ class StarEffects {
         body.sunGlare = sunGlare;
     }
 
+    /**
+     * Builds the light a star casts, if it casts one.
+     *
+     * `decay` is set to zero, so brightness does not fall off with distance. That is wrong
+     * physically, but distances here are compressed relative to body sizes: an
+     * inverse-square falloff tuned to light the innermost planet leaves the outer system
+     * black, and one tuned for the outer system blows out the inner. A flat intensity keeps
+     * everything visible, and the apparent falloff comes from the bodies' sizes on screen
+     * instead.
+     *
+     * The colour is a blackbody colour for the star's temperature, which is not quite the
+     * same as the colour of its surface — light reaching a planet has to look plausible on
+     * that planet's own texture.
+     *
+     * @param {Object} bodyData - The body's configuration.
+     * @param {Object} [bodyData.star] - Star data; a temperature here sets the light colour.
+     * @param {number} [bodyData.lightIntensity] - Intensity for a non-star body that still
+     *   emits light.
+     * @returns {THREE.PointLight|null} The light, or `null` if this body emits none.
+     */
     static createLightForBody(bodyData) {
         if (!bodyData.star && !bodyData.lightIntensity) {
             return null;

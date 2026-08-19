@@ -1,6 +1,20 @@
 import { log } from './Logger.js';
 
+/**
+ * Samples frame timing into rolling histories for the debug overlay.
+ *
+ * Readings come from `stats-gl` when it has been attached, which provides real
+ * GPU and CPU timings; otherwise the class falls back to counting frames for a
+ * plain FPS figure. Sampling is throttled to a fixed interval so the overlay
+ * stays readable and measurement stays cheap.
+ */
 export class PerformanceStats {
+    /**
+     * Creates an empty sampler.
+     *
+     * @param {number} [maxHistoryLength=60] - Number of samples retained per
+     *   series before the oldest is dropped.
+     */
     constructor(maxHistoryLength = 60) {
         this.maxHistoryLength = maxHistoryLength;
 
@@ -19,10 +33,24 @@ export class PerformanceStats {
         this.updateInterval = 100;
     }
 
+    /**
+     * Attaches a `stats-gl` instance to read GPU and CPU timings from.
+     *
+     * @param {Object} statsGL - Live `stats-gl` instance; pass `null` to fall back
+     *   to basic frame counting.
+     * @returns {void}
+     */
     setStatsGL(statsGL) {
         this.statsGL = statsGL;
     }
 
+    /**
+     * Takes a sample if the throttle interval has elapsed.
+     *
+     * Safe to call every frame; calls inside the interval return immediately.
+     *
+     * @returns {void}
+     */
     update() {
         const now = performance.now();
 
@@ -39,6 +67,15 @@ export class PerformanceStats {
         this.lastUpdate = now;
     }
 
+    /**
+     * Reads the latest FPS, GPU and CPU values from `stats-gl`.
+     *
+     * Falls back to {@link PerformanceStats#updateBasicStats} if the read throws,
+     * since a broken profiler should not take the overlay down with it.
+     *
+     * @param {number} now - Current `performance.now()` timestamp.
+     * @returns {void}
+     */
     updateFromStatsGL(now) {
         try {
             let fps = 0, gpu = 0, cpu = 0;
@@ -64,6 +101,15 @@ export class PerformanceStats {
         }
     }
 
+    /**
+     * Derives FPS by counting frames when no profiler is attached.
+     *
+     * Accumulates frames and only emits a sample once a full second has passed;
+     * GPU and CPU are reported as zero because they cannot be measured this way.
+     *
+     * @param {number} now - Current `performance.now()` timestamp.
+     * @returns {void}
+     */
     updateBasicStats(now) {
         this.frameCount = (this.frameCount || 0) + 1;
         const deltaTime = now - this.lastUpdate;
@@ -81,6 +127,17 @@ export class PerformanceStats {
         }
     }
 
+    /**
+     * Appends a value to one series, trimming it to the history limit.
+     *
+     * Timestamps are recorded only alongside the `fps` series, which acts as the
+     * shared time axis for all three.
+     *
+     * @param {'fps'|'gpu'|'cpu'} type - Series to append to; unknown types are ignored.
+     * @param {number} value - Sample value.
+     * @param {number} timestamp - Time the sample was taken.
+     * @returns {void}
+     */
     addToHistory(type, value, timestamp) {
         let history;
 
@@ -113,6 +170,12 @@ export class PerformanceStats {
         }
     }
 
+    /**
+     * Returns the most recent sample of each metric.
+     *
+     * @returns {{fps: number, gpu: number, cpu: number}} Latest readings; GPU and
+     *   CPU are zero when no profiler is attached.
+     */
     getCurrentStats() {
         return {
             fps: this.currentFPS,
@@ -121,6 +184,12 @@ export class PerformanceStats {
         };
     }
 
+    /**
+     * Returns the full rolling histories, for plotting.
+     *
+     * @returns {{fps: number[], gpu: number[], cpu: number[], timestamps: number[]}}
+     *   Copies of each series, oldest first; safe to mutate.
+     */
     getTimeSeries() {
         return {
             fps: [...this.fpsHistory],
@@ -130,6 +199,15 @@ export class PerformanceStats {
         };
     }
 
+    /**
+     * Aggregates each series into minimum, maximum and mean values.
+     *
+     * @returns {{fps: {min: number, max: number, avg: number},
+     *   gpu: {min: number, max: number, avg: number},
+     *   cpu: {min: number, max: number, avg: number},
+     *   sampleCount: number}} Per-metric summary with averages rounded to one
+     *   decimal place; all zeroes for an empty series.
+     */
     getStatsSummary() {
         const calculateStats = (arr) => {
             if (arr.length === 0) return { min: 0, max: 0, avg: 0 };
@@ -149,6 +227,13 @@ export class PerformanceStats {
         };
     }
 
+    /**
+     * Clears all histories and current readings, restarting the sampling window.
+     *
+     * The attached `stats-gl` instance is kept.
+     *
+     * @returns {void}
+     */
     reset() {
         this.fpsHistory = [];
         this.gpuHistory = [];
@@ -163,6 +248,11 @@ export class PerformanceStats {
         this.lastUpdate = performance.now();
     }
 
+    /**
+     * Releases the profiler reference.
+     *
+     * @returns {void}
+     */
     dispose() {
         this.statsGL = null;
     }

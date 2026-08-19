@@ -2,7 +2,27 @@ import SceneManager from '../managers/SceneManager.js';
 import BodyRenderer from '../rendering/BodyRenderer.js';
 import { log } from './Logger.js';
 
+/**
+ * Tears down every GPU and scene-graph resource owned by a celestial body.
+ *
+ * WebGL resources are not garbage collected, so each geometry, material and
+ * texture has to be disposed explicitly or the driver leaks memory as bodies are
+ * added and removed. The teardown runs in a fixed order: owned sub-objects first,
+ * then the body's own geometry and material, then scene-graph removal, and
+ * finally reference clearing so nothing keeps the disposed objects alive.
+ *
+ * All members are static; the class is used purely as a namespace.
+ */
 class ResourceManager {
+    /**
+     * Fully disposes a body and detaches it from the scene.
+     *
+     * After this returns the body's rendering fields are all `null` and it must
+     * not be reused.
+     *
+     * @param {Body} body - Body to tear down; mutated.
+     * @returns {void}
+     */
     static dispose(body) {
         if (body.isStar) {
             SceneManager.unregisterStar(body.group);
@@ -24,6 +44,12 @@ class ResourceManager {
         ResourceManager.clearReferences(body);
     }
 
+    /**
+     * Disposes the body's orbit trail, if it has one.
+     *
+     * @param {Body} body - Body whose `orbitTrail` is released and nulled.
+     * @returns {void}
+     */
     static disposeOrbitTrail(body) {
         if (body.orbitTrail && typeof body.orbitTrail.dispose === 'function') {
             log.info('ResourceManager', `Disposing orbit trail for ${body.name}`);
@@ -32,6 +58,15 @@ class ResourceManager {
         }
     }
 
+    /**
+     * Disposes the body's screen-space marker, if it has one.
+     *
+     * A marker without a `dispose` method is left in place and reported, since
+     * that indicates a construction bug rather than something safe to drop.
+     *
+     * @param {Body} body - Body whose `marker` is released and nulled.
+     * @returns {void}
+     */
     static disposeMarker(body) {
         if (body.marker && typeof body.marker.dispose === 'function') {
             log.info('ResourceManager', `Disposing marker for ${body.name}`);
@@ -42,6 +77,14 @@ class ResourceManager {
         }
     }
 
+    /**
+     * Disposes the star-only visual effects: billboard glow, rays, flares and glare.
+     *
+     * Safe to call for non-stars, which simply have none of these.
+     *
+     * @param {Body} body - Body whose effect objects are released and nulled.
+     * @returns {void}
+     */
     static disposeStarEffects(body) {
         if (body.billboard && typeof body.billboard.dispose === 'function') {
             log.info('ResourceManager', `Disposing billboard glow effect for ${body.name}`);
@@ -68,6 +111,12 @@ class ResourceManager {
         }
     }
 
+    /**
+     * Disposes the optional surface detail layers: rings, clouds and atmosphere.
+     *
+     * @param {Body} body - Body whose detail layers are released.
+     * @returns {void}
+     */
     static disposeRenderingElements(body) {
         ResourceManager.disposeRings(body);
 
@@ -76,6 +125,12 @@ class ResourceManager {
         ResourceManager.disposeAtmosphere(body);
     }
 
+    /**
+     * Disposes the ring mesh's geometry and material and unparents it.
+     *
+     * @param {Body} body - Body whose `rings` mesh is released and nulled.
+     * @returns {void}
+     */
     static disposeRings(body) {
         if (body.rings) {
             if (body.rings.geometry) {
@@ -91,6 +146,12 @@ class ResourceManager {
         }
     }
 
+    /**
+     * Disposes the cloud layer, including its per-LOD geometries and texture map.
+     *
+     * @param {Body} body - Body whose `clouds` mesh is released and nulled.
+     * @returns {void}
+     */
     static disposeClouds(body) {
         if (body.clouds) {
             BodyRenderer.disposeDetailGeometries(body.clouds);
@@ -110,6 +171,12 @@ class ResourceManager {
         }
     }
 
+    /**
+     * Disposes the atmosphere shell, including its per-LOD geometries.
+     *
+     * @param {Body} body - Body whose `atmosphere` mesh is released and nulled.
+     * @returns {void}
+     */
     static disposeAtmosphere(body) {
         if (body.atmosphere) {
             BodyRenderer.disposeDetailGeometries(body.atmosphere);
@@ -126,6 +193,16 @@ class ResourceManager {
         }
     }
 
+    /**
+     * Disposes the body's own geometry, material and surface texture.
+     *
+     * Canvas-backed textures (procedurally generated surfaces) have their
+     * drawing context cleared first, which releases the backing bitmap that
+     * disposing the texture alone would leave behind.
+     *
+     * @param {Body} body - Body whose primary geometry and material are released.
+     * @returns {void}
+     */
     static disposeGeometryAndMaterial(body) {
         BodyRenderer.disposeDetailGeometries(body.mesh);
 
@@ -148,6 +225,12 @@ class ResourceManager {
         }
     }
 
+    /**
+     * Detaches the body's group and any emitted light from their parents.
+     *
+     * @param {Body} body - Body to unparent.
+     * @returns {void}
+     */
     static removeFromScene(body) {
         if (body.group && body.group.parent) {
             body.group.parent.remove(body.group);
@@ -158,6 +241,12 @@ class ResourceManager {
         }
     }
 
+    /**
+     * Nulls the body's rendering references so disposed objects can be collected.
+     *
+     * @param {Body} body - Body to clear; mutated.
+     * @returns {void}
+     */
     static clearReferences(body) {
         body.geometry = null;
         body.material = null;

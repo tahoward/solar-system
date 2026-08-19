@@ -3,6 +3,32 @@ import SunEffect from './SunEffect.js';
 import ShaderUniformConfig from './ShaderUniformConfig.js';
 import ShaderLoader from '../shaders/ShaderLoader.js';
 
+/**
+ * Vertex shader body for the rays.
+ *
+ * Each ray is a strip of quads, and this is where it is given its shape and its width. The
+ * width is done here rather than by drawing lines because WebGL's line width is capped at
+ * one pixel on most drivers; instead each vertex is pushed sideways along a vector
+ * perpendicular to both the ray and the view direction, which produces a ribbon that always
+ * faces the camera. The ribbon tapers to nothing at the tip, so the rays come to a point.
+ *
+ * Positions are computed as untranslated world-space offsets from the star's centre and
+ * then added to the star's view-space position, for the same reason the planet shaders do
+ * it: at scene coordinates in the thousands, float32 has nowhere near the precision these
+ * sub-unit ray lengths need.
+ *
+ * Each ray gets four random numbers, which drive everything that has to vary between rays:
+ * how it bends, how fast it flickers, its phase, its hue and its opacity. Without that
+ * every ray would pulse in unison and the effect would read as one flashing shell.
+ *
+ * `getRayPosition` optionally bends the ray away from the radial direction, cubed along its
+ * length so the base stays put and only the tip curves, and adds a whispy drift built from
+ * three sine pairs at unrelated speeds. The drift is scaled by the fifth power of the
+ * position along the ray, which pins the base to the surface and leaves only the tip
+ * moving — a ray whose root wandered would visibly detach from the star.
+ *
+ * @type {string}
+ */
 const sunRaysVSMain = `
 attribute vec3 aPos;
 attribute vec3 aPos0;
@@ -112,6 +138,17 @@ void main(void) {
     gl_Position = projectionMatrix * vec4(p0View + sideView * width, 1.0);
 }`;
 
+/**
+ * Fragment shader body for the rays.
+ *
+ * Little more than a colour and an alpha, since all the shaping was done per-vertex. The
+ * one thing it adds is dimming the rays that point towards the camera: those are seen
+ * end-on, foreshortened into bright dots, and left alone they stipple the middle of the
+ * star's disc with specks. Rays across the limb, which is where they should be visible, are
+ * unaffected.
+ *
+ * @type {string}
+ */
 const sunRaysFSMain = `
 uniform vec3  uLightView;
 uniform float uEmissiveIntensity;
@@ -139,7 +176,38 @@ void main(void) {
     gl_FragColor = vec4(emissiveColor * alpha, alpha * uAlphaBlended);
 }`;
 
+/**
+ * Thousands of short ribbons standing off a star's surface.
+ *
+ * Individually they are almost invisible; in bulk they give the limb a shimmer and stop the
+ * star from reading as a hard-edged sphere. The whole population is one draw call — one
+ * geometry, with the per-ray variation baked into vertex attributes and the animation done
+ * in the vertex shader — since a few thousand separate objects would not be affordable.
+ */
 class SunRays extends SunEffect {
+    /**
+     * Builds the rays and their geometry.
+     *
+     * The ray count is capped, whatever is asked for: the geometry uses a 16-bit index
+     * buffer, so the total vertex count has to stay below 65536, and at the segment counts
+     * used here the cap is what keeps it there.
+     *
+     * @param {Object} [options={}] - Ray options.
+     * @param {number} [options.sunRadius=1.0] - The star's radius in scene units; the rays
+     *   start just inside it.
+     * @param {number} [options.rayCount=8000] - How many rays, capped at 4000.
+     * @param {number} [options.rayLength=0.01] - Ray length in scene units.
+     * @param {number} [options.rayWidth=0.0003] - Ray width at the base.
+     * @param {number} [options.rayOpacity=0.8] - Base opacity, before the per-ray variation.
+     * @param {number} [options.hue=0.1] - Hue offset from the base colour.
+     * @param {number} [options.hueSpread=0.3] - How far hue varies between rays.
+     * @param {number} [options.emissiveIntensity=1.5] - Brightness multiplier, which is what
+     *   drives bloom.
+     * @param {number} [options.bendAmount=0] - How far ray tips curve away from radial.
+     * @param {number} [options.whispyAmount=0] - How much the tips drift over time.
+     * @param {number|THREE.Color} [options.baseColor] - The star's colour.
+     * @param {boolean} [options.lowres=false] - Halve the segments per ray.
+     */
     constructor(options = {}) {
         super({
             sunRadius: options.sunRadius || 1.0,
@@ -164,6 +232,18 @@ class SunRays extends SunEffect {
         }
     }
 
+    /**
+     * Builds the mesh and its material.
+     *
+     * Additive blending with premultiplied alpha, so overlapping rays accumulate rather than
+     * the nearest one winning — which is what makes a dense band of rays brighter than a
+     * sparse one. Tone mapping is off so the emissive output can exceed 1 and bloom.
+     *
+     * Frustum culling is off because the vertex shader moves the geometry well outside its
+     * bounding sphere, which Three.js would otherwise cull against.
+     *
+     * @returns {THREE.Mesh} The rays mesh.
+     */
     createRaysMesh() {
         const geometry = this.createRaysGeometry();
         const material = new THREE.ShaderMaterial({
@@ -202,6 +282,25 @@ class SunRays extends SunEffect {
         return mesh;
     }
 
+    /**
+     * Builds the ray geometry: every ray in one buffer.
+     *
+     * Each ray is a strip of quads, two vertices per segment, so the vertex shader can taper
+     * and curve it along its length rather than drawing a straight line. `aPos` carries
+     * position along the ray, ray index and which side of the ribbon the vertex is on;
+     * `aPos0` and `aPos1` carry the ray's start and end; `aWireRandom` carries its four
+     * random numbers, the same values on every vertex of a ray so the whole ray animates as
+     * a unit.
+     *
+     * Directions are drawn from the sphere by inverting the cosine of a uniform variable
+     * rather than picking angles uniformly. Uniform angles crowd the poles, which would show
+     * as two dense patches of rays on an otherwise even surface.
+     *
+     * Rays start slightly *inside* the surface, so their bases are hidden by the star and no
+     * ray appears to float just above it.
+     *
+     * @returns {THREE.BufferGeometry} The rays geometry.
+     */
     createRaysGeometry() {
         const lineCount = this.rayCount;
         const lineLength = this.lowres ? 4 : 8;
@@ -273,6 +372,17 @@ class SunRays extends SunEffect {
         return geometry;
     }
 
+    /**
+     * Advances the animation and tells the shader where the camera is.
+     *
+     * The camera direction is what the fragment shader needs to dim the rays pointing at the
+     * viewer, so it has to be refreshed every frame rather than set once.
+     *
+     * @param {number} deltaTime - Time since the last frame, in scaled seconds.
+     * @param {THREE.Camera} camera - Camera the frame is being drawn from.
+     * @param {THREE.Vector3} [sunPosition] - The star's world position.
+     * @returns {void}
+     */
     update(deltaTime, camera, sunPosition = new THREE.Vector3(0, 0, 0)) {
         this.time += deltaTime;
 
@@ -286,6 +396,12 @@ class SunRays extends SunEffect {
         }
     }
 
+    /**
+     * Sets the rays' brightness, and so how strongly they bloom.
+     *
+     * @param {number} intensity - Brightness multiplier.
+     * @returns {void}
+     */
     setEmissiveIntensity(intensity) {
         if (this.material) {
             if (this.material.uniforms.uEmissiveIntensity) {
@@ -295,6 +411,13 @@ class SunRays extends SunEffect {
         this.emissiveIntensity = intensity;
     }
 
+    /**
+     * The rays' current brightness.
+     *
+     * Read by {@link BloomManager}, which caches it as a baseline to scale from.
+     *
+     * @returns {number} Brightness multiplier.
+     */
     getEmissiveIntensity() {
         return this.emissiveIntensity;
     }

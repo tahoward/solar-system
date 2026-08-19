@@ -9,17 +9,55 @@ const _bodies = [];
 const _offset = new THREE.Vector3();
 const _relative = new THREE.Vector3();
 
+/**
+ * Merges bodies that run into each other and removes bodies from the hierarchy.
+ *
+ * Under n-body physics bodies can genuinely collide — a dropped mass may hit a
+ * planet, or a perturbed moon its primary. Collisions are resolved as perfectly
+ * inelastic mergers, conserving mass and momentum: the heavier body survives and
+ * absorbs the other.
+ *
+ * This also owns body removal in general, because taking a body out of the
+ * hierarchy is the awkward part: its children have to be adopted, the selection
+ * and camera moved if they were following it, and its resources released.
+ *
+ * Exported as a singleton, since there is one hierarchy.
+ */
 class CollisionManager {
+    /**
+     * Creates the manager with no removal listeners attached.
+     */
     constructor() {
         this.removalListeners = new Set();
 
         log.init('CollisionManager', 'CollisionManager');
     }
 
+    /**
+     * Registers a callback for when a body is removed.
+     *
+     * Lets the UI and camera react to a body disappearing without this manager
+     * having to know about either.
+     *
+     * @param {function(Body|null, Body): void} listener - Called with the body that
+     *   took the removed body's place, then the body removed.
+     * @returns {void}
+     */
     onBodyRemoved(listener) {
         if (typeof listener === 'function') this.removalListeners.add(listener);
     }
 
+    /**
+     * Merges every pair of overlapping bodies, deepest overlap first.
+     *
+     * Resolving one at a time and rescanning is deliberate: a merge moves the
+     * survivor and changes its mass, which can create or clear other overlaps, so
+     * a single pass over a precomputed list would act on stale positions. The loop
+     * is bounded by the body count so a pathological case cannot hang the frame.
+     *
+     * @returns {number} Number of merges performed; 0 under Kepler physics, where
+     *   bodies pass through each other.
+     */
     resolveCollisions() {
         if (!SIMULATION.USE_N_BODY_PHYSICS) return 0;
 
@@ -44,6 +82,21 @@ class CollisionManager {
         return merges;
     }
 
+    /**
+     * Finds the most deeply overlapping pair of bodies.
+     *
+     * The deepest overlap is taken first because it is the least ambiguous
+     * collision; resolving it may also separate shallower pairs.
+     *
+     * The heavier body survives, except that the root body always survives — the
+     * Sun cannot be swallowed by a planet without leaving the hierarchy rootless.
+     *
+     * @private
+     * @param {Body[]} bodies - Bodies to test, pairwise.
+     * @param {Body} rootBody - Hierarchy root, which is never the victim.
+     * @returns {{survivor: Body, victim: Body}|null} The pair, or `null` if nothing
+     *   overlaps.
+     */
     #deepestOverlap(bodies, rootBody) {
         let survivor = null;
         let victim = null;
@@ -72,6 +125,22 @@ class CollisionManager {
         return survivor ? { survivor, victim } : null;
     }
 
+    /**
+     * Combines two bodies into one, conserving mass and momentum.
+     *
+     * The survivor moves to the pair's centre of mass and takes on their combined
+     * momentum, so the merge does not inject energy into the system. Radius is left
+     * alone: growing it could immediately create new overlaps, and the visual
+     * difference would be negligible anyway.
+     *
+     * Any dropped mass the victim was carrying is passed along, so
+     * {@link MassDropManager#clearAll} can still hand it back afterwards.
+     *
+     * @private
+     * @param {Body} survivor - Body that absorbs the other.
+     * @param {Body} victim - Body that is removed.
+     * @returns {void}
+     */
     #merge(survivor, victim) {
         const total = survivor.mass + victim.mass;
 
@@ -93,6 +162,24 @@ class CollisionManager {
         this.removeBody(victim, survivor);
     }
 
+    /**
+     * Takes a body out of the hierarchy and releases everything it owned.
+     *
+     * Several things have to be kept consistent. The body's children are adopted —
+     * by the replacement where possible, otherwise by the body's parent — so a
+     * subtree is not lost along with its root; their parent references and orbits are
+     * repointed accordingly. If the camera was following the removed body it is moved
+     * to whatever replaced it, rather than being left tracking a deleted object.
+     * Finally its orbit, trail and own resources are disposed, and listeners notified.
+     *
+     * The root body cannot be removed, since the hierarchy would have no root.
+     *
+     * @param {Body} body - Body to remove.
+     * @param {Body|null} [replacement=null] - Body taking its place, such as the
+     *   survivor of a merge; defaults to its parent.
+     * @returns {boolean} `true` if the body was removed; `false` if it is not in the
+     *   hierarchy or is the root.
+     */
     removeBody(body, replacement = null) {
         const root = SceneManager.orbitManager?.hierarchy;
         const found = root ? this.#findNode(root, body, null) : null;
@@ -158,6 +245,19 @@ class CollisionManager {
         return true;
     }
 
+    /**
+     * Searches a hierarchy for the node holding a body.
+     *
+     * The parent node is returned alongside it, since removing a node requires
+     * access to the list it sits in.
+     *
+     * @private
+     * @param {Object} node - Node to search from.
+     * @param {Body} body - Body to find.
+     * @param {Object|null} parent - Parent of `node`; `null` at the root.
+     * @returns {{node: Object, parent: Object|null}|null} The node and its parent, or
+     *   `null` if the body is not in this subtree.
+     */
     #findNode(node, body, parent) {
         if (node.body === body) return { node, parent };
 

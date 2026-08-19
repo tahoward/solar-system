@@ -1,6 +1,17 @@
 import * as THREE from 'three';
 import ShaderLoader from './ShaderLoader.js';
 
+/**
+ * Vertex shader for the star's surface.
+ *
+ * Two normals are passed on. The model-space one doubles as a position on the unit
+ * sphere, which is what the surface pattern is sampled against — being in object space it
+ * rotates with the star, so the granulation stays fixed to the surface rather than
+ * sliding across it. The view-space one is used for the limb glow, which depends on the
+ * viewing angle.
+ *
+ * @type {string}
+ */
 const vertexShader = `
 varying vec3 vNormalModel;
 varying vec3 vNormalView;
@@ -13,6 +24,33 @@ void main() {
 }
 `;
 
+/**
+ * Fragment shader for the star's surface: granulation, sunspots and a limb glow.
+ *
+ * The surface pattern is a 3D Voronoi diagram, which is what the real photosphere looks
+ * like — a mosaic of convection cells with bright interiors and darker boundaries.
+ * `voronoiCorn` returns the distance between the nearest and second-nearest cell points,
+ * which is small near a boundary and large in a cell's middle, giving the cell edges
+ * directly. Ordinary value noise gives a cloudy blur with no cell structure at all.
+ *
+ * The sample position is warped by noise before the Voronoi lookup, so the cells come out
+ * irregular rather than betraying the underlying grid. The cell points themselves drift
+ * with time, which makes the granulation churn slowly.
+ *
+ * Sunspots are circles around the positions supplied by {@link SunspotManager}, with
+ * their own noise warp so the boundary is ragged instead of a perfect circle. Within a
+ * spot only cells whose id passes a threshold are darkened, which leaves an uneven
+ * penumbra of ordinary granulation mixed in — a uniformly dark disc looks painted on.
+ *
+ * The limb glow is a Fresnel term: the surface brightens where it turns away from the
+ * viewer, which is what makes a star read as a glowing ball rather than a flat disc.
+ *
+ * Finally the colour is pushed above 1 in proportion to the emissive intensity, which is
+ * what the bloom pass picks up — without that a hot star and a cool one would glow
+ * identically.
+ *
+ * @type {string}
+ */
 const fragmentShaderMainCode = `
 uniform float uTime;
 uniform vec3 uGlowColor;
@@ -125,7 +163,34 @@ void main() {
 }
 `;
 
+/**
+ * Material for a star's surface.
+ *
+ * Does not extend {@link BaseCelestialShaderMaterial}: a star is its own light source, so
+ * neither the lighting nor the eclipse-shadow machinery applies to it.
+ */
 class SunShaderMaterial extends THREE.ShaderMaterial {
+    /**
+     * Builds the material for one star.
+     *
+     * Tone mapping is off deliberately. The shader emits values above 1 so the bloom pass
+     * has something to bloom, and tone mapping would compress exactly that headroom away.
+     *
+     * Eight sunspot slots, matching the shader's fixed loop bound; all start fully
+     * transparent, so a star with no spots needs no special case.
+     *
+     * @param {Object} [options={}] - Material options.
+     * @param {number|THREE.Color} [options.glowColor=0xffaa00] - Colour of the limb glow.
+     * @param {number} [options.glowIntensity=0.3] - Strength of the limb glow.
+     * @param {number} [options.noiseScale=5.0] - Granulation cell size; larger means finer
+     *   cells.
+     * @param {number} [options.brightness=1.6] - Overall surface brightness.
+     * @param {number} [options.sunspotIntensity=0.9] - How dark sunspots go.
+     * @param {number} [options.emissiveIntensity=1.3] - How far above 1 the output is
+     *   pushed, which sets how much the star blooms.
+     * @param {Object} [options.materialOptions] - Overrides for the material options set
+     *   here.
+     */
     constructor(options = {}) {
         const defaultPositions = new Array(8).fill(null).map(() => new THREE.Vector3(0, 1, 0));
         const uniforms = {
@@ -158,18 +223,48 @@ class SunShaderMaterial extends THREE.ShaderMaterial {
         this.uEmissiveIntensity = uniforms.uEmissiveIntensity;
     }
 
+    /**
+     * Advances the surface animation.
+     *
+     * Driven from the simulation clock, not from real time, so the granulation slows and
+     * stops with everything else.
+     *
+     * @param {number} time - Animation time, in scaled seconds.
+     * @returns {void}
+     */
     updateTime(time) {
         this.uTime.value = time;
     }
 
+    /**
+     * Sets the strength of the limb glow.
+     *
+     * @param {number} intensity - Glow strength.
+     * @returns {void}
+     */
     setGlowIntensity(intensity) {
         this.uGlowIntensity.value = intensity;
     }
 
+    /**
+     * Sets the overall surface brightness.
+     *
+     * @param {number} brightness - Brightness multiplier.
+     * @returns {void}
+     */
     setBrightness(brightness) {
         this.uBrightness.value = brightness;
     }
 
+    /**
+     * Sets how far above 1 the surface is driven, and so how strongly it blooms.
+     *
+     * The matching `emissive` properties are kept in step for the sake of anything that
+     * inspects the material as a standard one rather than reading the uniform.
+     *
+     * @param {number} intensity - Emissive intensity.
+     * @returns {void}
+     */
     setEmissiveIntensity(intensity) {
         this.uEmissiveIntensity.value = intensity;
         this.emissiveIntensity = intensity;
@@ -182,6 +277,19 @@ class SunShaderMaterial extends THREE.ShaderMaterial {
 
     }
 
+    /**
+     * Replaces the sunspot arrays the shader reads.
+     *
+     * The arrays are swapped in wholesale rather than copied, so
+     * {@link SunspotManager} can keep its own buffers and mutate them in place between
+     * calls. All three must be eight long, matching the shader's fixed loop bound.
+     *
+     * @param {THREE.Vector3[]} positions - Spot centres, as unit vectors in the star's
+     *   object space.
+     * @param {Float32Array} opacities - How pronounced each spot is; 0 disables it.
+     * @param {Float32Array} [radii] - Angular radii; left unchanged if omitted.
+     * @returns {void}
+     */
     updateSunspots(positions, opacities, radii) {
         this.uniforms.uSunspotPositions.value = positions;
         this.uniforms.uSunspotOpacities.value = opacities;

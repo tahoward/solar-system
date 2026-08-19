@@ -24,6 +24,20 @@ import charonTexture from '../../assets/charon.jpg'
 
 import nightSkyTexture from '../../assets/night_sky.jpg'
 
+/**
+ * Every texture in the project, keyed by a short name.
+ *
+ * The imports above are what make this file worth having. Importing an image asks the bundler
+ * to fingerprint it, copy it into the build output and hand back its final URL, so nothing has
+ * to hard-code a path that would only be right in development. It also means a texture that
+ * has been renamed or deleted fails the build here, rather than turning up as a missing image
+ * at runtime.
+ *
+ * Consumers refer to textures by these keys, which keeps filenames out of the rest of the
+ * codebase.
+ *
+ * @type {Object<string, string>}
+ */
 export const TEXTURES = {
   mercury: mercuryTexture,
   venus: venusTexture,

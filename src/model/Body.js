@@ -15,13 +15,57 @@ import MaterialFactory from '../factories/MaterialFactory.js';
 import SunspotManager from '../effects/SunspotManager.js';
 import { BARYCENTRE } from '../constants.js';
 
+/**
+ * A celestial body: its scene objects, physics state and children.
+ *
+ * This is the central model class. Construction is recursive — building the Sun
+ * builds the planets, which build their moons — so the whole system comes from a
+ * single `new Body(CELESTIAL_DATA)`. The heavy lifting is delegated out:
+ * {@link BodyRenderer} builds geometry, {@link BodyPhysics} handles motion and
+ * spin, {@link StarEffects} adds the star-only visuals and
+ * {@link ResourceManager} tears it all down.
+ *
+ * The scene graph is layered as `group` → `tiltContainer` → `mesh`. The group
+ * carries orbital position, while the tilt container applies axial tilt, so the
+ * body can be moved without disturbing the orientation of its spin axis, rings
+ * and clouds.
+ */
 class Body {
+    /**
+     * Textures loaded up front by {@link TexturePreloader}, shared by all bodies.
+     *
+     * @type {?Map<string, THREE.Texture>}
+     */
     static preloadedTextures = null;
 
+    /**
+     * Supplies the preloaded texture cache used by subsequently created bodies.
+     *
+     * Must be called before construction for textures to be picked up, otherwise
+     * bodies fall back to loading their own.
+     *
+     * @param {Map<string, THREE.Texture>} textures - Textures keyed by URL.
+     * @returns {void}
+     */
     static setPreloadedTextures(textures) {
         this.preloadedTextures = textures;
     }
 
+    /**
+     * Builds a body, its scene objects, its orbit and all of its children.
+     *
+     * Optional features are driven by the presence of fields in `bodyData`: rings,
+     * clouds, an atmosphere and star effects are each added only when configured.
+     * The body adds itself to the scene, and registers itself for bloom, orbit
+     * rendering and trail updates.
+     *
+     * @param {Object} bodyData - Body definition from {@link CELESTIAL_DATA};
+     *   supplies name, mass, radius scale, rotation, tilt and optional
+     *   `rings`/`clouds`/`atmosphere`/`star` sub-configurations.
+     * @param {Body|null} [parentBody=null] - Body being orbited; `null` for the
+     *   system's root.
+     * @throws {Error} If the configuration fails {@link ConfigValidator} checks.
+     */
     constructor(bodyData, parentBody = null) {
         const emittedLight = StarEffects.createLightForBody(bodyData);
 
@@ -155,6 +199,16 @@ class Body {
         this.initializeOrbitTrail();
     }
 
+    /**
+     * Creates the body's orbit and registers it for rendering.
+     *
+     * A body with a parent and a semi-major axis gets a real {@link Orbit}. The
+     * root body has nothing to orbit, so it gets either a {@link BarycentrePath}
+     * tracing the system's centre of mass (when `BARYCENTRE.SHOW` is on) or an
+     * inert stand-in from {@link Body#createVirtualOrbit}.
+     *
+     * @returns {void}
+     */
     createOrbit() {
         if (!this.parentBody || !this.bodyData.a) {
             const drawsBarycentrePath = !this.parentBody && BARYCENTRE.SHOW;
@@ -177,6 +231,15 @@ class Body {
         }
     }
 
+    /**
+     * Recursively constructs the body's satellites.
+     *
+     * Each child is pushed as a hierarchy node — `{body, orbit, children, data}` —
+     * which is the shape the physics modules traverse. A child that fails to build
+     * is logged and skipped rather than aborting its siblings.
+     *
+     * @returns {void}
+     */
     createChildren() {
         if (!this.bodyData.children || this.bodyData.children.length === 0) {
             log.debug('Body', `${this.name}: No children to create`);
@@ -201,6 +264,11 @@ class Body {
         log.info('Body', `${this.name}: Successfully created ${this.children.length} children`);
     }
 
+    /**
+     * Builds an {@link Orbit} from the body's configured orbital elements.
+     *
+     * @returns {Orbit} Orbit around {@link Body#parentBody}.
+     */
     createOrbitFromData() {
         const sceneScale = SceneManager.scale;
         return new Orbit(
@@ -216,6 +284,16 @@ class Body {
         );
     }
 
+    /**
+     * Builds an inert stand-in for a body that does not orbit anything.
+     *
+     * Satisfies the orbit interface with no-ops and a fixed position at the
+     * origin, so callers can treat every body's `orbit` uniformly instead of
+     * null-checking it on the per-frame path.
+     *
+     * @returns {Object} An object matching the parts of {@link Orbit} that
+     *   callers use.
+     */
     createVirtualOrbit() {
         return {
             body: this,
@@ -232,14 +310,35 @@ class Body {
         };
     }
 
+    /**
+     * Selects the body's geometry detail level for the camera's distance.
+     *
+     * @param {THREE.Camera} camera - Camera to measure against.
+     * @returns {void}
+     */
     updateLOD(camera) {
         BodyRenderer.updateDetail(this, camera);
     }
 
+    /**
+     * Updates the body's axial spin for the current time.
+     *
+     * @param {number} [simulationTime=0] - Current simulation time.
+     * @returns {void}
+     */
     updateRotation(simulationTime = 0) {
         BodyPhysics.updateRotation(this, simulationTime);
     }
 
+    /**
+     * Updates the spin of this body and every descendant.
+     *
+     * Used when only rotation needs advancing — while the simulation is paused,
+     * for instance — without running a full {@link Body#update}.
+     *
+     * @param {number} [simulationTime=0] - Current simulation time.
+     * @returns {void}
+     */
     updateRotationRecursive(simulationTime = 0) {
         this.updateRotation(simulationTime);
 
@@ -253,10 +352,26 @@ class Body {
         }
     }
 
+    /**
+     * Moves the body and syncs its scene group and marker.
+     *
+     * @param {THREE.Vector3} position - Target position, in scene units.
+     * @returns {void}
+     */
     updatePosition(position) {
         BodyPhysics.updatePosition(this, position);
     }
 
+    /**
+     * Pushes the star's position and colour into every lit shader on the body.
+     *
+     * The custom shaders compute their own lighting, so the light has to be fed to
+     * the surface, cloud, atmosphere and ring materials individually.
+     *
+     * @param {THREE.Vector3} lightPosition - World position of the light source.
+     * @param {THREE.Color} [lightColor] - Light colour; left unchanged if omitted.
+     * @returns {void}
+     */
     updateLighting(lightPosition, lightColor) {
         if (this.atmosphere && this.atmosphere.userData.shaderMaterial) {
             this.atmosphere.userData.shaderMaterial.updateLighting(lightPosition, this.group.position);
@@ -272,6 +387,16 @@ class Body {
         this.updateRingLighting(lightPosition, lightColor);
     }
 
+    /**
+     * Updates the surface material's lighting, including ring shadow orientation.
+     *
+     * The tilt container's rotation is passed along so the surface shader can
+     * project the ring shadow onto the planet at the correct angle.
+     *
+     * @param {THREE.Vector3} lightPosition - World position of the light source.
+     * @param {THREE.Color} [lightColor] - Light colour; left unchanged if omitted.
+     * @returns {void}
+     */
     updateRingShadowLighting(lightPosition, lightColor) {
         if (this.material && typeof this.material.updateLighting === 'function') {
             const ringRotation = this.tiltContainer ? this.tiltContainer.rotation : null;
@@ -283,6 +408,17 @@ class Body {
         }
     }
 
+    /**
+     * Feeds a set of shadow-casting bodies to the surface and cloud shaders.
+     *
+     * Real shadow maps are impractical at solar-system scale, so eclipses are
+     * approximated analytically in the shader from each caster's position and
+     * radius. Bodies lacking a position or radius are filtered out, and an empty
+     * set clears the shaders' shadow state.
+     *
+     * @param {Array<Body>} shadowBodies - Candidate shadow casters.
+     * @returns {void}
+     */
     updateMoonShadows(shadowBodies) {
         const positions = [];
         const radii = [];
@@ -313,6 +449,15 @@ class Body {
         }
     }
 
+    /**
+     * Works out which nearby bodies can shadow this one, and applies them.
+     *
+     * Only immediate relations are considered — the body's moons and its parent —
+     * since anything further away cannot produce a visible eclipse. Light sources
+     * are excluded, as a star does not cast a shadow.
+     *
+     * @returns {void}
+     */
     updateDirectShadows() {
         const shadowCasters = [];
 
@@ -341,6 +486,24 @@ class Body {
         }
     }
 
+    /**
+     * Runs the body's full per-frame update, then recurses into its children.
+     *
+     * Covers spin, shadowing, lighting and geometry detail for every body. Stars
+     * additionally drive their visual effects here: the sunspot simulation feeds
+     * the surface shader and the flare effect, and the corona, rays, flares and
+     * glare are each advanced and re-aimed at the camera. Effect timing uses the
+     * clock's effects delta rather than simulation time, so the visuals keep a
+     * steady pace regardless of the simulation speed multiplier.
+     *
+     * Note that this method reads `clockManager` as a bare global, which resolves
+     * only because `solarSystem.js` assigns `window.clockManager` during startup.
+     *
+     * @param {number} [simulationTime=0] - Current simulation time.
+     * @param {THREE.Vector3} starPosition - World position of the illuminating star.
+     * @param {THREE.Color} [starLightColor] - Colour of the star's light.
+     * @returns {void}
+     */
     update(simulationTime = 0, starPosition, starLightColor) {
         this.updateRotation(simulationTime);
         this.updateDirectShadows();
@@ -426,6 +589,16 @@ class Body {
         }
     }
 
+    /**
+     * Updates lighting on every material in the ring system.
+     *
+     * Rings are a subtree rather than a single mesh, so this traverses to reach
+     * each lit material.
+     *
+     * @param {THREE.Vector3} lightPosition - World position of the light source.
+     * @param {THREE.Color} [lightColor] - Light colour; left unchanged if omitted.
+     * @returns {void}
+     */
     updateRingLighting(lightPosition, lightColor) {
         if (this.rings) {
             this.rings.traverse((child) => {
@@ -440,6 +613,13 @@ class Body {
         }
     }
 
+    /**
+     * Updates the cloud layer's lighting, including ring shadow orientation.
+     *
+     * @param {THREE.Vector3} lightPosition - World position of the light source.
+     * @param {THREE.Color} [lightColor] - Light colour; left unchanged if omitted.
+     * @returns {void}
+     */
     updateCloudLighting(lightPosition, lightColor) {
         if (this.clouds && this.clouds.userData.shaderMaterial) {
             const ringRotation = this.tiltContainer ? this.tiltContainer.rotation : null;
@@ -451,46 +631,111 @@ class Body {
         }
     }
 
+    /**
+     * Teleports the body to a new position.
+     *
+     * @param {THREE.Vector3} newPosition - Target position, in scene units.
+     * @returns {void}
+     */
     setPosition(newPosition) {
         BodyPhysics.setPosition(this, newPosition);
     }
 
+    /**
+     * Replaces the body's velocity.
+     *
+     * @param {THREE.Vector3} newVelocity - New velocity, in scene units per time unit.
+     * @returns {void}
+     */
     setVelocity(newVelocity) {
         BodyPhysics.setVelocity(this, newVelocity);
     }
 
+    /**
+     * Accumulates a force on the body for the current step.
+     *
+     * @param {THREE.Vector3} additionalForce - Force to add.
+     * @returns {void}
+     */
     addForce(additionalForce) {
         BodyPhysics.addForce(this, additionalForce);
     }
 
+    /**
+     * Restores the body to its initial physics state and clears its spin state.
+     *
+     * @returns {void}
+     */
     resetPhysics() {
         BodyPhysics.resetPhysics(this);
     }
 
+    /**
+     * Returns the body's kinetic energy.
+     *
+     * @returns {number} Kinetic energy in internal units.
+     */
     getKineticEnergy() {
         return BodyPhysics.getKineticEnergy(this);
     }
 
+    /**
+     * Returns the body's linear momentum.
+     *
+     * @returns {THREE.Vector3} A newly allocated momentum vector.
+     */
     getMomentum() {
         return BodyPhysics.getMomentum(this);
     }
 
+    /**
+     * Returns the body's speed.
+     *
+     * @returns {number} Velocity magnitude, in scene units per time unit.
+     */
     getSpeed() {
         return BodyPhysics.getSpeed(this);
     }
 
+    /**
+     * Measures the distance to another body.
+     *
+     * @param {Body} otherBody - Body to measure against.
+     * @returns {number} Separation, in scene units.
+     */
     getDistanceTo(otherBody) {
         return BodyPhysics.getDistanceTo(this, otherBody);
     }
 
+    /**
+     * Sets the body's starting state and records it for later resets.
+     *
+     * @param {THREE.Vector3} [initialPosition] - Starting position; the origin by default.
+     * @param {THREE.Vector3} [initialVelocity] - Starting velocity; at rest by default.
+     * @returns {void}
+     */
     setInitialPhysicsConditions(initialPosition = new THREE.Vector3(), initialVelocity = new THREE.Vector3()) {
         BodyPhysics.setInitialPhysicsConditions(this, initialPosition, initialVelocity);
     }
 
+    /**
+     * Snapshots the body's physics state as plain data, for debug inspection.
+     *
+     * @returns {Object} Current mass, position, velocity, force, kinetic energy
+     *   and speed.
+     */
     getPhysicsState() {
         return BodyPhysics.getPhysicsState(this);
     }
 
+    /**
+     * Creates the body's orbit trail and registers it for updates.
+     *
+     * The trail is tinted from the body's material colour, falling back to its
+     * marker colour, so each trail is identifiable. No-ops if one already exists.
+     *
+     * @returns {void}
+     */
     initializeOrbitTrail() {
         if (!this.orbitTrail) {
             const trailColor = new THREE.Color(this.material?.color || this.markerColor || 0xffffff);
@@ -502,12 +747,24 @@ class Body {
         }
     }
 
+    /**
+     * Appends the body's current position to its orbit trail.
+     *
+     * Called by whichever physics mode is active, once the body has been moved.
+     *
+     * @returns {void}
+     */
     updateOrbitTrail() {
         if (this.orbitTrail) {
             this.orbitTrail.addPoint(this.position);
         }
     }
 
+    /**
+     * Toggles the orbit trail on or off.
+     *
+     * @returns {boolean} The trail's new enabled state, or `false` if it has no trail.
+     */
     toggleOrbitTrail() {
         if (this.orbitTrail) {
             const enabled = this.orbitTrail.toggle();
@@ -517,6 +774,14 @@ class Body {
         return false;
     }
 
+    /**
+     * Discards the accumulated trail points.
+     *
+     * Used after a discontinuity such as a physics mode switch, which would
+     * otherwise leave a straight line across the old and new paths.
+     *
+     * @returns {void}
+     */
     clearOrbitTrail() {
         if (this.orbitTrail) {
             this.orbitTrail.clear();
@@ -524,24 +789,49 @@ class Body {
         }
     }
 
+    /**
+     * Hides the body's orbit trail, keeping its accumulated points.
+     *
+     * @returns {void}
+     */
     hide() {
         if (this.orbitTrail) {
             this.orbitTrail.hide();
         }
     }
 
+    /**
+     * Shows the body's orbit trail again.
+     *
+     * @returns {void}
+     */
     show() {
         if (this.orbitTrail) {
             this.orbitTrail.show();
         }
     }
 
+    /**
+     * Enables or disables orbit trail accumulation.
+     *
+     * @param {boolean} enabled - Whether the trail should record and render.
+     * @returns {void}
+     */
     setOrbitTrailEnabled(enabled) {
         if (this.orbitTrail) {
             this.orbitTrail.setEnabled(enabled);
         }
     }
 
+    /**
+     * Releases the body's resources and those of its children.
+     *
+     * Note that this recurses one level explicitly rather than calling each
+     * child's `dispose`, so grandchildren are reached only through their own
+     * parent's disposal.
+     *
+     * @returns {void}
+     */
     dispose() {
         ResourceManager.dispose(this);
 
@@ -555,6 +845,16 @@ class Body {
         }
     }
 
+    /**
+     * Applies the configured marker colour to a body.
+     *
+     * Warns when the colour is missing, since the marker and orbit trail both
+     * derive their tint from it.
+     *
+     * @param {Body} body - Body to set `markerColor` on.
+     * @param {{name: string, markerColor?: number|string}} bodyData - Body configuration.
+     * @returns {void}
+     */
     static setMarkerColor(body, bodyData) {
         if (bodyData.markerColor !== undefined) {
             body.markerColor = new THREE.Color(bodyData.markerColor);

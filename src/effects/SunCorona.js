@@ -1,7 +1,35 @@
 import * as THREE from 'three';
 import { log } from '../utils/Logger.js';
 
+/**
+ * The glowing shell of hot gas around a star.
+ *
+ * A sphere considerably larger than the star, drawn from the inside with additive blending,
+ * so what is seen is the far wall of the shell glowing through. Density comes from animated
+ * fractal noise, giving the streamers a real corona has, and a Fresnel term fades the shell
+ * out where it faces the viewer directly — otherwise the star would be seen through a flat
+ * disc of haze rather than a shell around it.
+ *
+ * Does not extend {@link SunEffect}: this one predates that base class and carries its own
+ * shaders inline rather than going through {@link ShaderLoader}.
+ */
 class SunCorona {
+    /**
+     * Builds the corona and its mesh.
+     *
+     * @param {Object} [options={}] - Corona options.
+     * @param {number} [options.sunRadius=1.0] - The star's radius in scene units.
+     * @param {number} [options.coronaRadius] - Shell radius; defaults to 2.5 times the
+     *   star's.
+     * @param {number|THREE.Color} [options.coronaColor=0xffaa00] - Colour of the glow.
+     * @param {number} [options.coronaIntensity=0.8] - How bright and opaque the shell is.
+     * @param {number} [options.noiseScale=3.0] - Size of the streamer structure; larger
+     *   means finer detail.
+     * @param {number} [options.animationSpeed=0.001] - How fast the streamers drift.
+     * @param {number} [options.fresnelPower=2.0] - How sharply the shell fades where it
+     *   faces the viewer.
+     * @param {boolean} [options.lowres=false] - Halve the sphere's tessellation.
+     */
     constructor(options = {}) {
         this.sunRadius = options.sunRadius || 1.0;
         this.coronaRadius = options.coronaRadius || (this.sunRadius * 2.5);
@@ -18,6 +46,15 @@ class SunCorona {
 
     }
 
+    /**
+     * Builds the shell mesh.
+     *
+     * The render order is raised so the corona is drawn after the star's surface. It writes
+     * no depth, so without that it could be drawn first and then blended against whatever
+     * happened to be behind it rather than against the star.
+     *
+     * @returns {THREE.Mesh} The corona mesh.
+     */
     createCoronaMesh() {
         const geometry = new THREE.SphereGeometry(
             this.coronaRadius,
@@ -34,6 +71,24 @@ class SunCorona {
         return mesh;
     }
 
+    /**
+     * Builds the corona's shader material.
+     *
+     * `BackSide` is the point of the whole effect: the shell's front faces are culled, so
+     * every pixel shows the inside of the far wall, which is what gives depth to the glow
+     * rather than a flat ring. `depthWrite` is off so the shell does not occlude the star
+     * inside it, but depth testing stays on so a planet in front of the star still hides it.
+     *
+     * The noise position is taken from object space, so the streamers are fixed to the
+     * corona and turn with it instead of sliding across the screen as the camera moves.
+     *
+     * The noise is three octaves of value noise, mixed with a second two-octave field that
+     * drifts faster along one axis; that second field is what reads as outward flow. Alpha
+     * is capped below 1 so the corona never becomes fully opaque, since a solid shell would
+     * hide the star's surface.
+     *
+     * @returns {THREE.ShaderMaterial} The corona material.
+     */
     createCoronaMaterial() {
         const vertexShader = `
             varying vec3 vNormal;
@@ -139,6 +194,12 @@ class SunCorona {
         });
     }
 
+    /**
+     * Advances the streamer animation.
+     *
+     * @param {number} deltaTime - Time since the last frame, in scaled seconds.
+     * @returns {void}
+     */
     update(deltaTime) {
         this.time += deltaTime;
 
@@ -147,23 +208,51 @@ class SunCorona {
         }
     }
 
+    /**
+     * Moves the shell, relative to whatever it is parented to.
+     *
+     * @param {THREE.Vector3} position - The new position.
+     * @returns {void}
+     */
     setPosition(position) {
         this.mesh.position.copy(position);
     }
 
+    /**
+     * Parents the shell to another object.
+     *
+     * @param {THREE.Object3D} parent - Object to add the mesh to.
+     * @returns {void}
+     */
     addToScene(parent) {
         parent.add(this.mesh);
         log.info('SunCorona', '🌟 SunCorona added to scene');
     }
 
+    /**
+     * Unparents the shell.
+     *
+     * @param {THREE.Object3D} parent - Object to remove the mesh from.
+     * @returns {void}
+     */
     removeFromScene(parent) {
         parent.remove(this.mesh);
     }
 
+    /**
+     * The corona's mesh.
+     *
+     * @returns {THREE.Mesh} The mesh.
+     */
     getMesh() {
         return this.mesh;
     }
 
+    /**
+     * Releases the shell's geometry and material.
+     *
+     * @returns {void}
+     */
     dispose() {
         if (this.mesh.geometry) {
             this.mesh.geometry.dispose();

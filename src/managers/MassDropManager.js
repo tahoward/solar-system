@@ -14,13 +14,38 @@ const _viewDirection = new THREE.Vector3();
 const _atRest = new THREE.Vector3();
 const _bodies = [];
 
+/**
+ * Drops new masses into the simulation where the user clicks.
+ *
+ * Purely a toy for perturbing the system: a dropped mass starts at rest, falls
+ * under gravity and disturbs everything it passes. It only works under n-body
+ * physics, since analytic Kepler orbits cannot respond to a new body at all.
+ *
+ * Exported as a singleton, since there is one pointer and one simulation.
+ */
 class MassDropManager {
+    /**
+     * Creates the manager with no masses dropped yet.
+     */
     constructor() {
         this.totalDropped = 0;
 
         log.init('MassDropManager', 'MassDropManager');
     }
 
+    /**
+     * Creates a body at rest under the given screen position.
+     *
+     * The mass is added as a child of the hierarchy root — the Sun — and registered
+     * so the integrator, collision handling and UI all pick it up. Starting at rest
+     * is what makes the result interesting: the mass falls inwards rather than
+     * settling into an orbit.
+     *
+     * @param {number} clientX - Pointer x in client coordinates.
+     * @param {number} clientY - Pointer y in client coordinates.
+     * @returns {Body|null} The new body, or `null` if n-body physics is off or the
+     *   hierarchy does not exist yet.
+     */
     dropAt(clientX, clientY) {
         if (!SIMULATION.USE_N_BODY_PHYSICS) {
             log.debug('MassDropManager', 'Ignoring drop: Kepler orbits cannot respond to a new mass');
@@ -64,6 +89,19 @@ class MassDropManager {
         return body;
     }
 
+    /**
+     * Undoes every mass drop, including those already absorbed.
+     *
+     * Dropped masses that collided were merged into whatever swallowed them, so
+     * simply deleting the survivors would leave the planets permanently heavier.
+     * The absorbed mass is therefore subtracted back off its host.
+     *
+     * Removing mass leaves the system with net momentum, which would slowly carry
+     * everything off-screen, so the drift is cancelled afterwards.
+     *
+     * @returns {number} Number of surviving dropped masses removed; absorbed mass
+     *   handed back is not counted.
+     */
     clearAll() {
         const root = SceneManager.orbitManager?.hierarchy;
         if (!root?.body) return 0;
@@ -97,6 +135,20 @@ class MassDropManager {
         return removed;
     }
 
+    /**
+     * Projects a screen position into the scene.
+     *
+     * A click is a ray, not a point, so a plane is needed to pin down a depth. The
+     * plane chosen faces the camera and passes through the controls' target, which
+     * puts the new mass at the depth the user is currently looking at.
+     *
+     * @private
+     * @param {number} clientX - Pointer x in client coordinates.
+     * @param {number} clientY - Pointer y in client coordinates.
+     * @param {THREE.Vector3} out - Vector to write into; mutated and returned.
+     * @returns {THREE.Vector3} The `out` vector — the controls' target if the ray
+     *   somehow misses the plane.
+     */
     #spawnPoint(clientX, clientY, out) {
         const camera = SceneManager.camera;
         const rect = SceneManager.renderer.domElement.getBoundingClientRect();

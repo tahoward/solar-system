@@ -5,13 +5,50 @@ import { temperatureToColor, temperatureToGlareBrightness } from '../constants.j
 import TextureFactory from './TextureFactory.js';
 import { log } from '../utils/Logger.js';
 
+/**
+ * Builds the shader material for a body from its data.
+ *
+ * Which material a body needs depends on what it is — a star wants the sun shader,
+ * a ringed planet wants ring-shadow support in its surface shader — and the choice
+ * is made in one place here rather than at each call site.
+ *
+ * Textures are taken from the preloaded set where possible. Loading one on demand
+ * works but the body appears untextured until it arrives, so a miss is logged as a
+ * warning: it means the preloader's manifest has fallen out of step with the body
+ * data.
+ *
+ * Static only.
+ */
 export class MaterialFactory {
+    /**
+     * Textures loaded ahead of time, keyed by URL.
+     *
+     * @type {Map<string, THREE.Texture>|null}
+     */
     static preloadedTextures = null;
 
+    /**
+     * Supplies the preloaded texture set.
+     *
+     * Must be called before any material is built, or every texture will be loaded
+     * on demand instead.
+     *
+     * @param {Map<string, THREE.Texture>} textures - Textures keyed by URL.
+     * @returns {void}
+     */
     static setPreloadedTextures(textures) {
         this.preloadedTextures = textures;
     }
 
+    /**
+     * Builds the right material for a body.
+     *
+     * @param {Object} bodyData - Body definition; a `star` property selects the star
+     *   material.
+     * @param {number|null} [bodyRadius=null] - Body's radius in scene units, needed to
+     *   place ring shadows.
+     * @returns {SunShaderMaterial|PlanetShaderMaterial} The material to use.
+     */
     static createBodyMaterial(bodyData, bodyRadius = null) {
 
         if (bodyData.star) {
@@ -21,6 +58,21 @@ export class MaterialFactory {
         }
     }
 
+    /**
+     * Builds a star's surface material from its temperature.
+     *
+     * Colour and brightness are derived from the effective temperature rather than
+     * given directly, so a red dwarf and a blue giant look right without either being
+     * tuned by hand. Explicit shader values in the data override the derived ones.
+     *
+     * The noise scale is grown with the stellar radius, but only as its cube root and
+     * capped: a giant sized up linearly would show granulation so fine it aliases into
+     * noise, while leaving it fixed makes the same star look smooth and plastic.
+     *
+     * @param {Object} bodyData - Body definition, with a `star` block holding
+     *   `temperature` and optional `shader` overrides.
+     * @returns {SunShaderMaterial} The star material.
+     */
     static createStarMaterial(bodyData) {
         const starShader = bodyData.star.shader || {};
 
@@ -48,6 +100,22 @@ export class MaterialFactory {
         });
     }
 
+    /**
+     * Builds a planet or moon's surface material.
+     *
+     * A body with no texture of its own falls back to a painted one from
+     * {@link TextureFactory}. Textures loaded here rather than from the preloaded set
+     * get mipmaps and full anisotropy, since they are viewed at a glancing angle
+     * across a curved surface where both matter.
+     *
+     * `lightColor` is left white for textured bodies, so the texture's own colours come
+     * through; untextured ones are tinted with the body's colour instead.
+     *
+     * @param {Object} bodyData - Body definition.
+     * @param {number|null} [bodyRadius=null] - Body's radius in scene units, for ring
+     *   shadow geometry.
+     * @returns {PlanetShaderMaterial} The surface material.
+     */
     static createPlanetMaterial(bodyData, bodyRadius = null) {
         let planetTexture;
 
@@ -85,6 +153,22 @@ export class MaterialFactory {
         }
     }
 
+    /**
+     * Builds a surface material that casts its rings' shadow onto the planet.
+     *
+     * The ring radii in the data are multiples of the planet's radius, so they are
+     * converted to scene units here — the shader tests a point on the surface against
+     * these to work out whether the rings are between it and the star.
+     *
+     * The ring texture is clamped horizontally, not repeated: wrapping would make the
+     * outer edge of the rings bleed back into the inner gap.
+     *
+     * @param {Object} bodyData - Body definition, with a `rings` block.
+     * @param {THREE.Texture} surfaceTexture - The planet's own surface texture.
+     * @param {number|null} [bodyRadius=null] - Planet radius in scene units; falls back
+     *   to the data's `radiusScale`.
+     * @returns {PlanetShaderMaterial} The surface material, with ring shadows enabled.
+     */
     static createRingShadowMaterial(bodyData, surfaceTexture, bodyRadius = null) {
         const rings = bodyData.rings;
         let ringTexture = null;

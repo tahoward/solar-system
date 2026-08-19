@@ -13,7 +13,34 @@ import SkyboxManager from './SkyboxManager.js';
 import { ANIMATION, SCENE } from '../constants.js';
 import { log } from '../utils/Logger.js';
 
+/**
+ * Owns the renderer, camera and scene, and the managers that act on them.
+ *
+ * Almost every method here is a one-line delegation to one of those managers. That
+ * is the point: the rest of the code has a single object to reach for, and does not
+ * have to know that showing an orbit is the visibility manager's job while
+ * registering one is also the orbit manager's. Where an operation genuinely spans
+ * two managers — registering an orbit, reparenting a body — this is the place that
+ * calls both, so neither can be forgotten.
+ *
+ * A singleton, enforced in the constructor and exported as an instance, since there
+ * is one canvas and one scene. It is also assigned to `window.SceneManager`, which
+ * lets managers that this one constructs reach back to it without an import cycle.
+ */
 class SceneManager {
+  /**
+   * Builds the renderer, camera, controls and every manager, and attaches the canvas
+   * to the document.
+   *
+   * The near and far planes are scaled by the scene scale rather than fixed, because
+   * the scene spans from a moon's surface to the outer planets and a fixed depth
+   * range at that ratio would z-fight badly.
+   *
+   * The pixel ratio is capped at 2: beyond that the cost grows with no visible
+   * benefit on the displays that report it.
+   *
+   * @returns {SceneManager} The existing instance if one has already been created.
+   */
   constructor() {
     if (SceneManager.instance) {
       return SceneManager.instance;
@@ -79,6 +106,17 @@ class SceneManager {
     return this;
   }
 
+  /**
+   * Matches the renderer, camera and line materials to the new window size.
+   *
+   * The line materials need the resolution explicitly: `LineMaterial` computes
+   * screen-space width in the shader and has no way to learn the viewport size on its
+   * own, so stale values would leave every orbit line the wrong thickness after a
+   * resize.
+   *
+   * @private
+   * @returns {void}
+   */
   #onWindowResize() {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
@@ -96,6 +134,14 @@ class SceneManager {
     }
   }
 
+  /**
+   * Draws one frame, through the bloom pass when it is available.
+   *
+   * Bloom intensity is set from the camera position first, so the glow falls off with
+   * distance from the star instead of blowing out the view when close to it.
+   *
+   * @returns {void}
+   */
   render() {
      if (this.bloomManager) {
        this.bloomManager.updateBloomIntensity(this.camera.position);
@@ -105,18 +151,47 @@ class SceneManager {
      }
   }
 
+  /**
+   * Moves the camera to a new target with a tweened transition.
+   *
+   * @param {THREE.Group} group - Group to look at and follow.
+   * @param {number} [duration=ANIMATION.DEFAULT_TRANSITION_DURATION] - Transition
+   *   length in milliseconds.
+   * @returns {void}
+   */
   setTargetSmooth(group, duration = ANIMATION.DEFAULT_TRANSITION_DURATION) {
     this.cameraController.setTargetSmooth(group, duration);
   }
 
+  /**
+   * Tracks a `LineMaterial` so its resolution is kept current on resize.
+   *
+   * Every orbit line and trail must register, or it will render at the wrong width
+   * once the window changes size.
+   *
+   * @param {LineMaterial} material - Material to track.
+   * @returns {void}
+   */
   registerLineMaterial(material) {
     this.lineMaterials.add(material);
   }
 
+  /**
+   * Stops tracking a line material, so a disposed one is not held alive.
+   *
+   * @param {LineMaterial} material - Material to drop.
+   * @returns {void}
+   */
   unregisterLineMaterial(material) {
     this.lineMaterials.delete(material);
   }
 
+  /**
+   * Flattens orbits into a name-and-body list for the navigation UI.
+   *
+   * @param {Orbit[]} orbits - Orbits to list.
+   * @returns {Array<{name: string, body: Body}>} One entry per orbiting body.
+   */
   getTargetableBodies(orbits) {
     const bodies = [];
     orbits.forEach(orbit => {
@@ -125,95 +200,232 @@ class SceneManager {
     return bodies;
   }
 
+  /**
+   * Points the camera at a body found by name.
+   *
+   * @param {string} bodyName - Name of the body to target.
+   * @param {Orbit[]} orbits - Orbits to search.
+   * @param {boolean} [smooth=true] - Whether to tween rather than jump.
+   * @returns {boolean} `true` if the body was found and targeted.
+   */
   setTargetByName(bodyName, orbits, smooth = true) {
     return this.cameraController.setTargetByName(bodyName, orbits, smooth);
   }
 
+  /**
+   * Steps the tween group by one frame.
+   *
+   * @returns {void}
+   */
   updateAnimations() {
     this.tweenGroup.update();
   }
 
+  /**
+   * Advances the camera for this frame.
+   *
+   * Order matters: tweens are stepped, then the follow offset is re-applied to the
+   * moved body, and only then are the controls updated so damping acts on the final
+   * position.
+   *
+   * @returns {void}
+   */
   updateCamera() {
     this.updateAnimations();
     this.cameraController.updateFollowing();
     this.controls.update();
   }
 
+  /**
+   * Sets the global marker scale.
+   *
+   * @param {number} multiplier - Size multiplier.
+   * @returns {void}
+   */
   setMarkerSizeMultiplier(multiplier) {
     this.markerManager.setMarkerSizeMultiplier(multiplier);
   }
 
+  /**
+   * Returns the global marker scale.
+   *
+   * @returns {number} The current multiplier.
+   */
   getMarkerSizeMultiplier() {
     return this.markerManager.getMarkerSizeMultiplier();
   }
 
+  /**
+   * Hides every marker.
+   *
+   * @returns {void}
+   */
   hideAllMarkers() {
     this.visibilityManager.hideAllMarkers();
   }
 
+  /**
+   * Shows every marker.
+   *
+   * @returns {void}
+   */
   showAllMarkers() {
     this.visibilityManager.showAllMarkers();
   }
 
+  /**
+   * Flips the global marker switch.
+   *
+   * @param {Body|null} [currentSelectedBody=null] - Selected body, so per-selection
+   *   visibility can be restored.
+   * @returns {boolean} `true` if markers are now enabled.
+   */
   toggleAllMarkers(currentSelectedBody = null) {
     return this.visibilityManager.toggleAllMarkers(currentSelectedBody);
   }
 
+  /**
+   * Reports the global marker switch.
+   *
+   * @returns {boolean} `true` if markers are enabled.
+   */
   areMarkersVisible() {
     return this.visibilityManager.areMarkersVisible();
   }
 
+  /**
+   * Hides every orbit line.
+   *
+   * @returns {void}
+   */
   hideAllOrbits() {
     this.visibilityManager.hideAllOrbits();
   }
 
+  /**
+   * Shows every orbit line.
+   *
+   * @returns {void}
+   */
   showAllOrbits() {
     this.visibilityManager.showAllOrbits();
   }
 
+  /**
+   * Flips the global orbit switch.
+   *
+   * @param {Body|null} [currentSelectedBody=null] - Selected body, so per-selection
+   *   visibility can be restored.
+   * @returns {boolean} `true` if orbits are now enabled.
+   */
   toggleAllOrbits(currentSelectedBody = null) {
     return this.visibilityManager.toggleAllOrbits(currentSelectedBody);
   }
 
+  /**
+   * Reports the global orbit switch.
+   *
+   * @returns {boolean} `true` if orbits are enabled.
+   */
   areOrbitsVisible() {
     return this.visibilityManager.areOrbitsVisible();
   }
 
+  /**
+   * Reports the global trail switch.
+   *
+   * @returns {boolean} `true` if trails are enabled.
+   */
   areOrbitTrailsVisible() {
     return this.visibilityManager.areOrbitTrailsVisible();
   }
 
+  /**
+   * Hides every trail.
+   *
+   * @returns {void}
+   */
   hideAllOrbitTrails() {
     this.visibilityManager.hideAllOrbitTrails();
   }
 
+  /**
+   * Shows every trail.
+   *
+   * @returns {void}
+   */
   showAllOrbitTrails() {
     this.visibilityManager.showAllOrbitTrails();
   }
 
+  /**
+   * Flips the global trail switch, stopping or resuming recording with it.
+   *
+   * @param {Body|null} [currentSelectedBody=null] - Selected body, so per-selection
+   *   visibility can be restored.
+   * @returns {boolean} `true` if trails are now enabled.
+   */
   toggleOrbitTrails(currentSelectedBody = null) {
     return this.visibilityManager.toggleOrbitTrails(currentSelectedBody);
   }
 
+  /**
+   * Discards every trail's recorded history.
+   *
+   * @returns {void}
+   */
   clearAllOrbitTrails() {
     this.visibilityManager.clearAllOrbitTrails();
   }
 
+  /**
+   * Registers a marker with both the marker and visibility managers.
+   *
+   * Registering with only one leaves a marker that either cannot be sized or cannot
+   * be hidden, so both are done here.
+   *
+   * @param {Marker} marker - Marker to register.
+   * @returns {void}
+   */
   registerMarker(marker) {
     this.markerManager.registerMarker(marker);
     this.visibilityManager.registerMarker(marker);
   }
 
+  /**
+   * Registers an orbit for both position updates and visibility control.
+   *
+   * @param {Orbit} orbit - Orbit to register.
+   * @returns {void}
+   */
   registerOrbit(orbit) {
     this.orbitManager.registerOrbit(orbit);
     this.visibilityManager.registerOrbit(orbit);
   }
 
+  /**
+   * Registers a body's trail for both bulk control and visibility control.
+   *
+   * @param {Body} body - Body whose trail should be registered.
+   * @returns {void}
+   */
   registerOrbitTrail(body) {
     this.orbitTrailManager.registerOrbitTrail(body);
     this.visibilityManager.registerOrbitTrail(body);
   }
 
+  /**
+   * Moves a body under a new parent and refreshes what is on screen.
+   *
+   * Visibility has to be recomputed, since which orbits and markers are shown depends
+   * on the relationships that have just changed. It is only refreshed if the
+   * reparenting actually took effect, so a rejected request does not cause pointless
+   * work.
+   *
+   * @param {Body} body - Body to move.
+   * @param {Body} parentBody - Its new parent.
+   * @returns {void}
+   */
   reparentBody(body, parentBody) {
     if (!body?.name || !parentBody?.name) return;
     if (!this.hierarchyManager.setParent(body.name, parentBody.name)) return;
@@ -224,41 +436,93 @@ class SceneManager {
     }
   }
 
+  /**
+   * Removes a marker from both registries.
+   *
+   * @param {Marker} marker - Marker to unregister.
+   * @returns {void}
+   */
   unregisterMarker(marker) {
     this.markerManager.unregisterMarker(marker);
     this.visibilityManager.unregisterMarker(marker);
   }
 
+  /**
+   * Removes an orbit from both registries.
+   *
+   * @param {Orbit} orbit - Orbit to unregister.
+   * @returns {void}
+   */
   unregisterOrbit(orbit) {
     this.orbitManager.unregisterOrbit(orbit);
     this.visibilityManager.unregisterOrbit(orbit);
   }
 
+  /**
+   * Removes a body's trail from both registries.
+   *
+   * @param {Body} body - Body whose trail should be unregistered.
+   * @returns {void}
+   */
   unregisterOrbitTrail(body) {
     this.orbitTrailManager.unregisterOrbitTrail?.(body);
     this.visibilityManager.unregisterOrbitTrail(body);
   }
 
+  /**
+   * Marks an object as a star so bloom is applied to it.
+   *
+   * @param {THREE.Object3D} starObject - Object that should glow.
+   * @returns {void}
+   */
   registerStar(starObject) {
     if (this.bloomManager) {
       this.bloomManager.registerStar(starObject);
     }
   }
 
+  /**
+   * Stops applying bloom to an object.
+   *
+   * @param {THREE.Object3D} starObject - Object to drop.
+   * @returns {void}
+   */
   unregisterStar(starObject) {
     if (this.bloomManager) {
       this.bloomManager.unregisterStar(starObject);
     }
   }
 
+  /**
+   * Handles a marker being clicked.
+   *
+   * @param {Marker} selectedMarker - Marker that was selected.
+   * @returns {void}
+   */
   onMarkerSelected(selectedMarker) {
     this.markerManager.onMarkerSelected(selectedMarker);
   }
 
+  /**
+   * Handles a body being selected, from a click or from the UI.
+   *
+   * @param {Body} body - Body that was selected.
+   * @returns {void}
+   */
   onBodySelected(body) {
     this.markerManager.onBodySelected(body);
   }
 
+  /**
+   * Hands a freshly built hierarchy to every manager that needs it.
+   *
+   * Physics is initialised last, once the hierarchy has been indexed and the trails
+   * set up, because seeding the n-body state reads positions and masses from the
+   * structure the earlier calls established.
+   *
+   * @param {Object} hierarchy - Root hierarchy node.
+   * @returns {void}
+   */
   registerHierarchy(hierarchy) {
     this.hierarchyManager.registerHierarchy(hierarchy);
     this.markerManager.registerHierarchy(hierarchy);
@@ -269,6 +533,12 @@ class SceneManager {
     this.orbitManager.initializePhysics(this.scale);
   }
 
+  /**
+   * Flips the bloom effect.
+   *
+   * @returns {boolean} `true` if bloom is now enabled; `false` if there is no bloom
+   *   manager.
+   */
   toggleBloom() {
     if (this.bloomManager) {
       return this.bloomManager.toggleBloom();
@@ -276,18 +546,33 @@ class SceneManager {
     return false;
   }
 
+  /**
+   * Turns bloom on.
+   *
+   * @returns {void}
+   */
   enableBloom() {
     if (this.bloomManager) {
       this.bloomManager.enableBloom();
     }
   }
 
+  /**
+   * Turns bloom off, falling back to a plain render.
+   *
+   * @returns {void}
+   */
   disableBloom() {
     if (this.bloomManager) {
       this.bloomManager.disableBloom();
     }
   }
 
+  /**
+   * Reports whether bloom is on.
+   *
+   * @returns {boolean} `true` if bloom is enabled.
+   */
   isBloomEnabled() {
     if (this.bloomManager) {
       return this.bloomManager.isBloomEnabled();
@@ -295,6 +580,17 @@ class SceneManager {
     return false;
   }
 
+  /**
+   * Loads a panorama and installs it as the scene background.
+   *
+   * The error is logged and rethrown rather than swallowed, so the loading screen can
+   * report that startup failed instead of leaving a black sky with no explanation.
+   *
+   * @async
+   * @param {string} imageUrl - URL of the equirectangular image.
+   * @returns {Promise<THREE.CubeTexture>} The cube texture that was installed.
+   * @throws {Error} If the image cannot be loaded or converted.
+   */
   async createSkybox(imageUrl) {
     try {
       return await this.skyboxManager.createSkybox(this.scene, this.renderer, imageUrl);

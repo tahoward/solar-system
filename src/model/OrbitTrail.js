@@ -6,7 +6,32 @@ import SceneManager from '../managers/SceneManager.js';
 import MathUtils from '../utils/MathUtils.js';
 import { log } from '../utils/Logger.js';
 
+/**
+ * Fading ribbon tracing the path a body has actually travelled.
+ *
+ * Unlike an {@link Orbit} line, which draws the ideal ellipse, this records where
+ * the body has really been — so it shows the perturbations and drift the n-body
+ * integrator produces.
+ *
+ * Rendered with `LineSegments2` so the ribbon has real screen-space width, which
+ * a plain `THREE.Line` cannot provide. Points are held in a fixed-capacity ring
+ * of pooled vectors and written into preallocated typed arrays, since this
+ * updates every frame for every body.
+ */
 export class OrbitTrail {
+    /**
+     * Creates a trail and adds its line to the scene.
+     *
+     * Trails start disabled, so nothing is recorded until
+     * {@link OrbitTrail#setEnabled} is called.
+     *
+     * @param {string} bodyName - Name of the body, used in log messages.
+     * @param {THREE.Color} color - Trail colour; copied, not retained.
+     * @param {{maxLength?: number, fadeLength?: number, minOpacity?: number,
+     *   autoClearDistance?: number, lineWidth?: number}} [options={}] - Capacity in
+     *   points, length of the fade-in tail, opacity floor, the distance scale used
+     *   for tail trimming, and line width in pixels.
+     */
     constructor(bodyName, color, options = {}) {
         this.bodyName = bodyName;
         this.color = color.clone();
@@ -37,6 +62,18 @@ export class OrbitTrail {
         log.debug('OrbitTrail', `Created orbit trail for ${this.bodyName}`);
     }
 
+    /**
+     * Builds the line geometry, material and mesh, and registers them.
+     *
+     * The geometry is allocated at full capacity up front and drawn partially via
+     * `instanceCount`, so growing the trail never reallocates. Direct references to
+     * the interleaved buffers are kept so per-frame updates can flag them dirty
+     * without going back through the geometry. The material is registered with the
+     * scene manager, which owns keeping its resolution uniform in step with the
+     * canvas size.
+     *
+     * @returns {void}
+     */
     initializeRendering() {
         this.geometry = new LineSegmentsGeometry();
         this.geometry.setPositions(this.segmentPositions);
@@ -62,6 +99,15 @@ export class OrbitTrail {
         SceneManager.registerLineMaterial(this.material);
     }
 
+    /**
+     * Records a new trail point and rebuilds the line.
+     *
+     * No-ops while the trail is disabled. The oldest point is retired once
+     * capacity is reached.
+     *
+     * @param {THREE.Vector3} position - Position to append; copied, not retained.
+     * @returns {void}
+     */
     addPoint(position) {
         if (!this.enabled) {
             return;
@@ -80,10 +126,22 @@ export class OrbitTrail {
         this.updateGeometry();
     }
 
+    /**
+     * Takes a vector from the pool, or allocates one if the pool is empty.
+     *
+     * @private
+     * @returns {THREE.Vector3} A vector whose contents are undefined and must be set.
+     */
     #acquirePoint() {
         return this.pointPool.pop() || new THREE.Vector3();
     }
 
+    /**
+     * Retires the oldest point, returning its vector to the pool.
+     *
+     * @private
+     * @returns {void}
+     */
     #releaseOldestPoint() {
         const point = this.points.shift();
         if (point) {
@@ -91,6 +149,21 @@ export class OrbitTrail {
         }
     }
 
+    /**
+     * Trims the trail as the body catches up with its own tail.
+     *
+     * On a closed orbit the trail would otherwise wrap round and overlap itself,
+     * leaving an unreadable double line. The target length is therefore scaled by
+     * how close the body is to the older part of the trail: far away it keeps its
+     * full length, and as it closes in the tail is shortened towards a short stub.
+     *
+     * The proximity scan skips the most recent points, which are trivially close,
+     * and strides through the rest rather than checking every one — the result only
+     * drives a fade, so an approximate minimum is enough.
+     *
+     * @param {THREE.Vector3} currentPosition - The body's current position.
+     * @returns {void}
+     */
     performSmoothCleanup(currentPosition) {
         const minTrailBeforeCleanup = 50;
         if (this.points.length < minTrailBeforeCleanup) return;
@@ -120,6 +193,25 @@ export class OrbitTrail {
         }
     }
 
+    /**
+     * Rewrites the line's vertex and colour buffers from the current points.
+     *
+     * Opacity is baked into the vertex colours — the trail brightens from
+     * `minOpacity` at the tail to full at the body's current position, and older
+     * segments are dimmed further where the body is close to overlapping them, so
+     * a wrapping trail fades out instead of crossing itself.
+     *
+     * Positions are stored relative to the newest point, with that point used as
+     * the line's own origin. At solar-system distances absolute coordinates are
+     * large enough that float32 precision produces visible jitter; keeping the
+     * geometry local avoids it.
+     *
+     * The bounding sphere is computed from the vertices as they are written, since
+     * `LineSegments2` cannot derive one itself from a partially filled buffer, and
+     * without it the trail would be wrongly frustum-culled.
+     *
+     * @returns {void}
+     */
     updateGeometry() {
         if (!this.line || this.points.length < 2) {
             if (this.line && this.points.length === 0) {
@@ -215,6 +307,18 @@ export class OrbitTrail {
         this.#updateBoundingSphere(minX, minY, minZ, maxX, maxY, maxZ);
     }
 
+    /**
+     * Fits the geometry's bounding sphere around the trail's extent.
+     *
+     * @private
+     * @param {number} minX - Minimum x of the trail, in local coordinates.
+     * @param {number} minY - Minimum y of the trail.
+     * @param {number} minZ - Minimum z of the trail.
+     * @param {number} maxX - Maximum x of the trail.
+     * @param {number} maxY - Maximum y of the trail.
+     * @param {number} maxZ - Maximum z of the trail.
+     * @returns {void}
+     */
     #updateBoundingSphere(minX, minY, minZ, maxX, maxY, maxZ) {
         if (!this.geometry.boundingSphere) {
             this.geometry.boundingSphere = new THREE.Sphere();
@@ -223,6 +327,14 @@ export class OrbitTrail {
         MathUtils.setSphereFromBox(this.geometry.boundingSphere, minX, minY, minZ, maxX, maxY, maxZ);
     }
 
+    /**
+     * Collapses the line to draw nothing, without releasing its buffers.
+     *
+     * Used when the trail is emptied; the allocations are kept so it can start
+     * recording again immediately.
+     *
+     * @returns {void}
+     */
     resetToMinimalState() {
         if (this.line) {
             this.line.position.set(0, 0, 0);
@@ -238,6 +350,15 @@ export class OrbitTrail {
         }
     }
 
+    /**
+     * Turns recording on or off, clearing the trail when switched off.
+     *
+     * The line is only drawn when enabled *and* visible — enabling governs whether
+     * points accumulate, while visibility is the display toggle.
+     *
+     * @param {boolean} enabled - Whether the trail should record.
+     * @returns {void}
+     */
     setEnabled(enabled) {
         this.enabled = enabled;
         if (this.line) {
@@ -251,6 +372,12 @@ export class OrbitTrail {
         log.debug('OrbitTrail', `Trail ${enabled ? 'enabled' : 'disabled'} for ${this.bodyName}`);
     }
 
+    /**
+     * Shows or hides the trail without affecting whether it records.
+     *
+     * @param {boolean} visible - Whether the line should be drawn.
+     * @returns {void}
+     */
     setVisible(visible) {
         this.visible = visible;
         if (this.line) {
@@ -258,19 +385,39 @@ export class OrbitTrail {
         }
     }
 
+    /**
+     * Hides the trail, keeping its points.
+     *
+     * @returns {void}
+     */
     hide() {
         this.setVisible(false);
     }
 
+    /**
+     * Shows the trail again.
+     *
+     * @returns {void}
+     */
     show() {
         this.setVisible(true);
     }
 
+    /**
+     * Flips the trail between recording and off.
+     *
+     * @returns {boolean} The new enabled state.
+     */
     toggle() {
         this.setEnabled(!this.enabled);
         return this.enabled;
     }
 
+    /**
+     * Discards all recorded points, returning their vectors to the pool.
+     *
+     * @returns {void}
+     */
     clear() {
         while (this.points.length > 0) {
             this.#releaseOldestPoint();
@@ -281,6 +428,11 @@ export class OrbitTrail {
         log.debug('OrbitTrail', `Cleared trail for ${this.bodyName}`);
     }
 
+    /**
+     * Releases the trail's GPU resources and removes its line from the scene.
+     *
+     * @returns {void}
+     */
     dispose() {
         if (this.geometry) {
             this.geometry.dispose();

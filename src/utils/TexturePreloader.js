@@ -3,7 +3,18 @@ import { CELESTIAL_DATA } from '../constants.js';
 import { TEXTURES } from '../assets/index.js';
 import logger from './Logger.js';
 
+/**
+ * Loads every texture the scene needs up front, reporting progress.
+ *
+ * Building the solar system lazily would pop textures in one by one over the
+ * first few seconds, so the loading screen waits on this instead. Texture URLs
+ * are discovered by walking {@link CELESTIAL_DATA} rather than being listed
+ * separately, so adding a body needs no change here.
+ */
 export class TexturePreloader {
+    /**
+     * Creates an empty preloader with no callbacks attached.
+     */
     constructor() {
         this.textureLoader = new THREE.TextureLoader();
         this.loadedTextures = new Map();
@@ -14,12 +25,30 @@ export class TexturePreloader {
         this.onError = null;
     }
 
+    /**
+     * Registers the lifecycle callbacks, replacing any previously set.
+     *
+     * @param {?function(number, number, number): void} onProgress - Called after
+     *   each texture with the loaded count, total, and percentage.
+     * @param {?function(Map<string, THREE.Texture>): void} onComplete - Called
+     *   once all textures have loaded.
+     * @param {?function(Error): void} onError - Called if any texture fails.
+     * @returns {void}
+     */
     setCallbacks(onProgress, onComplete, onError) {
         this.onProgress = onProgress;
         this.onComplete = onComplete;
         this.onError = onError;
     }
 
+    /**
+     * Collects the full set of texture URLs referenced by the scene.
+     *
+     * Covers the standalone skybox and ring textures plus everything reachable
+     * from the celestial data tree.
+     *
+     * @returns {Set<string>} Deduplicated texture URLs.
+     */
     extractTextureUrls() {
         const textureUrls = new Set();
 
@@ -36,6 +65,16 @@ export class TexturePreloader {
         return textureUrls;
     }
 
+    /**
+     * Recursively gathers texture URLs from a body definition and its children.
+     *
+     * Accepts either a single definition or an array of them, so the celestial
+     * data tree can be walked without special-casing its root.
+     *
+     * @param {Object|Array<Object>} bodyData - Body configuration or array of them.
+     * @param {Set<string>} textureUrls - Set that discovered URLs are added to; mutated.
+     * @returns {void}
+     */
     extractTexturesFromBody(bodyData, textureUrls) {
         if (Array.isArray(bodyData)) {
             bodyData.forEach(body => this.extractTexturesFromBody(body, textureUrls));
@@ -59,6 +98,13 @@ export class TexturePreloader {
         }
     }
 
+    /**
+     * Loads every discovered texture concurrently.
+     *
+     * @async
+     * @throws {Error} The first load failure, after invoking the error callback.
+     * @returns {Promise<Map<string, THREE.Texture>>} Loaded textures keyed by URL.
+     */
     async preloadTextures() {
         const textureUrls = this.extractTextureUrls();
         this.totalTextures = textureUrls.size;
@@ -89,6 +135,17 @@ export class TexturePreloader {
         }
     }
 
+    /**
+     * Loads one texture and applies the project's standard sampling settings.
+     *
+     * Textures are set to repeat wrapping with full mipmapping and high
+     * anisotropy, which keeps surfaces sharp at the grazing angles produced by
+     * close planet fly-bys. Successful loads are cached and progress is reported.
+     *
+     * @param {string} url - Texture URL to load.
+     * @returns {Promise<THREE.Texture>} Resolves with the configured texture, or
+     *   rejects with the load error.
+     */
     loadSingleTexture(url) {
         return new Promise((resolve, reject) => {
             const texture = this.textureLoader.load(
@@ -122,6 +179,14 @@ export class TexturePreloader {
         });
     }
 
+    /**
+     * Clears the cache and counters so the preloader can be reused.
+     *
+     * Note that the cached textures are dropped, not disposed; ownership passes
+     * to whatever consumed the completion callback.
+     *
+     * @returns {void}
+     */
     reset() {
         this.loadedTextures.clear();
         this.loadedCount = 0;

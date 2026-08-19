@@ -1,7 +1,19 @@
 import configService, { debugConfig } from './ConfigService.js';
 import logger, { log } from './Logger.js';
 
+/**
+ * Registry of named debug commands, exposed on `window.dev` in development.
+ *
+ * Commands are plain functions returning inspectable objects, so their results
+ * render usefully when called straight from the browser console. Each invocation
+ * is recorded in a bounded history and thrown errors are captured rather than
+ * propagated, so a bad command cannot break the session.
+ */
 class DevConsole {
+    /**
+     * Registers the built-in commands and, unless disabled by configuration,
+     * publishes the `window.dev` helper.
+     */
     constructor() {
         this.commands = new Map();
         this.history = [];
@@ -14,6 +26,17 @@ class DevConsole {
         }
     }
 
+    /**
+     * Registers the commands available out of the box.
+     *
+     * Covers system/browser/WebGL info, configuration and log inspection, and a
+     * `cleanup` command that stops the render loop and empties the scene. The
+     * cleanup is deliberately destructive and one-way — it is a leak-hunting
+     * tool, and the page must be reloaded afterwards.
+     *
+     * @private
+     * @returns {void}
+     */
     _registerDefaultCommands() {
         this.register('info', () => this._getSystemInfo(), 'Show system information');
 
@@ -90,6 +113,14 @@ class DevConsole {
         this.register('help', () => this._getHelpInfo(), 'Show available commands');
     }
 
+    /**
+     * Publishes `window.dev` with `run` plus a shorthand per built-in command.
+     *
+     * No-ops outside a browser.
+     *
+     * @private
+     * @returns {void}
+     */
     _exposeToGlobal() {
         if (typeof window !== 'undefined') {
             window.dev = {
@@ -109,10 +140,27 @@ class DevConsole {
         }
     }
 
+    /**
+     * Adds or replaces a command.
+     *
+     * @param {string} name - Command name used by {@link DevConsole#run}.
+     * @param {function(...*): *} handler - Implementation; its return value is
+     *   surfaced to the caller.
+     * @param {string} [description=''] - Text shown by the `help` command.
+     * @returns {void}
+     */
     register(name, handler, description = '') {
         this.commands.set(name, { handler, description });
     }
 
+    /**
+     * Runs a registered command and records it in the history.
+     *
+     * @param {string} command - Name of the command to run.
+     * @param {...*} args - Arguments forwarded to the handler.
+     * @returns {*} The handler's return value; a message string if the command is
+     *   unknown, or `{error: string}` if the handler threw.
+     */
     run(command, ...args) {
         const cmd = this.commands.get(command);
         if (!cmd) {
@@ -134,6 +182,14 @@ class DevConsole {
         }
     }
 
+    /**
+     * Gathers a combined environment snapshot.
+     *
+     * @private
+     * @returns {{environment: Object, browser: Object|string, webgl: Object|string,
+     *   memory: Object|string, timestamp: string}} Configuration, browser, WebGL
+     *   and memory details with a capture time.
+     */
     _getSystemInfo() {
         return {
             environment: configService.getSummary(),
@@ -144,6 +200,12 @@ class DevConsole {
         };
     }
 
+    /**
+     * Reads identifying details from `navigator`.
+     *
+     * @private
+     * @returns {Object|string} Browser details, or `'Not available'` outside a browser.
+     */
     _getBrowserInfo() {
         if (typeof navigator === 'undefined') return 'Not available';
 
@@ -156,6 +218,17 @@ class DevConsole {
         };
     }
 
+    /**
+     * Queries driver and capability strings from a throwaway WebGL context.
+     *
+     * Uses its own canvas so it can be called before (or without) the renderer
+     * existing, and reports the shader-relevant limits that explain most
+     * device-specific rendering differences.
+     *
+     * @private
+     * @returns {Object|string} Vendor, renderer, version and limits; a message if
+     *   unavailable or unsupported; or `{error: string}` if the query threw.
+     */
     _getWebGLInfo() {
         if (typeof document === 'undefined') return 'Not available';
 
@@ -178,6 +251,17 @@ class DevConsole {
         }
     }
 
+    /**
+     * Reports JS heap usage, in megabytes.
+     *
+     * Relies on the non-standard `performance.memory`, so it is only available in
+     * Chromium-based browsers.
+     *
+     * @private
+     * @returns {{usedJSHeapSize: number, totalJSHeapSize: number,
+     *   jsHeapSizeLimit: number}|string} Heap sizes in MB, or a message when the
+     *   API is missing.
+     */
     _getMemoryInfo() {
         if (typeof performance === 'undefined' || !performance.memory) {
             return 'Memory information not available';
@@ -190,6 +274,14 @@ class DevConsole {
         };
     }
 
+    /**
+     * Collects page-load timings and heap usage.
+     *
+     * @private
+     * @returns {{navigation: PerformanceEntry[], memory: Object|string,
+     *   timing: Object|string}} Navigation entries, memory info and derived
+     *   load durations in milliseconds.
+     */
     _getPerformanceInfo() {
         return {
             navigation: typeof performance !== 'undefined' ? performance.getEntriesByType('navigation') : [],
@@ -201,6 +293,17 @@ class DevConsole {
         };
     }
 
+    /**
+     * Placeholder for scene inspection.
+     *
+     * This module is imported by low-level code and deliberately holds no
+     * reference to the scene, so the real command has to be supplied by the
+     * application via {@link DevConsole#register}.
+     *
+     * @private
+     * @returns {{notice: string, suggestion: string}|{error: string}} Guidance on
+     *   registering a scene command.
+     */
     _getSceneInfo() {
         try {
             return {
@@ -212,6 +315,13 @@ class DevConsole {
         }
     }
 
+    /**
+     * Lists the registered commands with usage examples.
+     *
+     * @private
+     * @returns {{availableCommands: Array<{command: string, description: string}>,
+     *   usage: string, examples: string[]}} Help payload for the `help` command.
+     */
     _getHelpInfo() {
         const commands = [];
         for (const [name, { description }] of this.commands) {
@@ -229,12 +339,30 @@ class DevConsole {
     }
 }
 
+/**
+ * Entry point for the development-only tooling.
+ *
+ * Owns the {@link DevConsole} and the debug keyboard shortcuts. A single instance
+ * is created and self-initialises on import unless `DEBUG.AUTO_INIT` is turned
+ * off; when `DEBUG.ENABLED` is false, {@link DevUtils#init} does nothing, so the
+ * tooling stays inert in production without needing to be tree-shaken out.
+ */
 class DevUtils {
+    /**
+     * Creates the dev console and reads the enabled flag from configuration.
+     */
     constructor() {
         this.console = new DevConsole();
         this.enabled = configService.get('DEBUG.ENABLED', false);
     }
 
+    /**
+     * Installs the debug shortcuts and publishes `window.DevUtils`.
+     *
+     * No-ops entirely when debug support is disabled.
+     *
+     * @returns {void}
+     */
     init() {
         if (!this.enabled) return;
 
@@ -247,6 +375,12 @@ class DevUtils {
         }
     }
 
+    /**
+     * Binds the debug keyboard shortcuts (F2 toggles wireframes).
+     *
+     * @private
+     * @returns {void}
+     */
     _setupKeyboardShortcuts() {
         if (typeof document === 'undefined') return;
 
@@ -258,6 +392,13 @@ class DevUtils {
         });
     }
 
+    /**
+     * Flips the `DEBUG.SHOW_WIREFRAMES` configuration flag.
+     *
+     * Materials read the flag themselves, so no scene traversal is needed here.
+     *
+     * @returns {void}
+     */
     toggleWireframes() {
         const currentState = debugConfig('SHOW_WIREFRAMES');
         configService.set('DEBUG.SHOW_WIREFRAMES', !currentState);

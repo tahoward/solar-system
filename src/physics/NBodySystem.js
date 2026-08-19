@@ -8,6 +8,31 @@ const _bodies = [];
 const _separation = new THREE.Vector3();
 const _relativeVelocity = new THREE.Vector3();
 
+/**
+ * Advances the whole system by one frame of gravitational n-body integration.
+ *
+ * This is the n-body physics mode's per-frame entry point, and the alternative
+ * to the analytic Kepler path. Every body attracts every other, so orbits
+ * perturb one another and respond to bodies added at runtime — but they also
+ * accumulate integration error and cannot be scrubbed backwards.
+ *
+ * The frame's requested time span is covered by as many sub-steps as stability
+ * allows: {@link calculateNBodyAccelerations} reports the largest safe step, and
+ * the loop keeps stepping until the span is covered or
+ * `NBODY.MAX_STEPS_PER_FRAME` is reached. When the budget runs out the shortfall
+ * is reported back to the clock as a speed limit, which is what stops the
+ * simulation from silently integrating garbage at extreme speed multipliers.
+ *
+ * Note that positions are carried in scene units while `G` is in AU³ yr⁻², so
+ * one internal time unit is not one year: at 21.55 scene units per AU the
+ * periods come out ~100× long. Convert before comparing against real ephemerides.
+ *
+ * @param {{body: ?Body, children: ?Array<Object>}} hierarchy - Root of the body tree.
+ * @param {{gravitationalConstant?: number, dampingFactor?: number}} [options={}]
+ *   Overrides for `G` (default 4π²) and an optional per-step velocity damping
+ *   factor (default 1, i.e. none).
+ * @returns {void}
+ */
 export function updateHierarchyNBodyPhysics(hierarchy, options = {}) {
     const G = options.gravitationalConstant || 39.478;
     const dampingFactor = options.dampingFactor || 1.0;
@@ -42,6 +67,16 @@ export function updateHierarchyNBodyPhysics(hierarchy, options = {}) {
     applyPositions(bodies);
 }
 
+/**
+ * Flattens the body tree into a list.
+ *
+ * The integrator treats gravity as global rather than parent-relative, so the
+ * hierarchy is flattened before each frame's force calculation.
+ *
+ * @param {{body: ?Body, children: ?Array<Object>}} hierarchy - Node to walk.
+ * @param {Body[]} bodies - Array that bodies are appended to; mutated.
+ * @returns {void}
+ */
 export function collectBodiesFromHierarchy(hierarchy, bodies) {
     if (hierarchy.body) {
         bodies.push(hierarchy.body);
@@ -54,10 +89,40 @@ export function collectBodiesFromHierarchy(hierarchy, bodies) {
     }
 }
 
+/**
+ * Tests whether a body carries the state the integrator needs.
+ *
+ * Markers, barycentre placeholders and partially built bodies appear in the
+ * hierarchy without full physics state and are skipped rather than crashing the
+ * force loop.
+ *
+ * @param {Body} body - Body to test.
+ * @returns {boolean} `true` if it has position, velocity, acceleration and a
+ *   numeric mass.
+ */
 function isIntegrable(body) {
     return !!(body.position && body.velocity && body.acceleration && typeof body.mass === 'number');
 }
 
+/**
+ * Recomputes every body's gravitational acceleration and reports a safe step size.
+ *
+ * Runs over unique pairs and applies each interaction to both bodies, halving the
+ * work. The separation is softened by a small multiple of the two radii, which
+ * caps the force during close passes — without it a near-miss produces an
+ * effectively infinite acceleration and ejects the body from the system.
+ *
+ * The returned step limit is the strictest of two conditions across all pairs:
+ * resolving the tightest local orbit into at least `NBODY.MIN_STEPS_PER_ORBIT`
+ * steps, and never closing more than `NBODY.MAX_APPROACH_FRACTION` of the
+ * current separation in a single step.
+ *
+ * @param {Body[]} bodies - Bodies to update; their `acceleration` and optional
+ *   `force` vectors are overwritten.
+ * @param {number} G - Gravitational constant to use.
+ * @returns {number} Largest time step considered stable, or `Infinity` if no
+ *   pair constrains it.
+ */
 function calculateNBodyAccelerations(bodies, G) {
     for (let i = 0; i < bodies.length; i++) {
         if (bodies[i].acceleration) bodies[i].acceleration.set(0, 0, 0);
@@ -107,6 +172,21 @@ function calculateNBodyAccelerations(bodies, G) {
     return maxStep;
 }
 
+/**
+ * Advances the system by one velocity Verlet (leapfrog) step.
+ *
+ * Velocities are kicked by half a step, positions drifted a full step,
+ * accelerations recomputed, then velocities kicked by the remaining half. This
+ * ordering is symplectic: unlike plain Euler integration it conserves orbital
+ * energy over long runs, so orbits stay closed instead of spiralling.
+ *
+ * @param {Body[]} bodies - Bodies to advance; positions and velocities mutated.
+ * @param {number} dt - Step size, in internal time units.
+ * @param {number} dampingFactor - Velocity multiplier applied mid-step; 1 for none.
+ * @param {number} G - Gravitational constant to use.
+ * @returns {number} Safe step size for the next iteration, from the accelerations
+ *   computed at the new positions.
+ */
 function integrateStep(bodies, dt, dampingFactor, G) {
     const halfStep = dt * 0.5;
 
@@ -135,6 +215,15 @@ function integrateStep(bodies, dt, dampingFactor, G) {
     return maxStep;
 }
 
+/**
+ * Pushes integrated positions onto the scene graph and extends orbit trails.
+ *
+ * Kept separate from the integration loop so the sub-steps stay pure maths and
+ * only the final state of the frame reaches the renderer.
+ *
+ * @param {Body[]} bodies - Bodies whose scene position is synced.
+ * @returns {void}
+ */
 function applyPositions(bodies) {
     for (let i = 0; i < bodies.length; i++) {
         const body = bodies[i];
@@ -148,6 +237,18 @@ function applyPositions(bodies) {
     }
 }
 
+/**
+ * Seeds the integrator's state from the bodies' orbital elements.
+ *
+ * The integrator needs a consistent set of positions and velocities to start
+ * from, which are derived analytically from each orbit rather than hand-authored.
+ * Must be called before {@link updateHierarchyNBodyPhysics}. The root body starts
+ * at rest at the origin.
+ *
+ * @param {{body: ?Body, children: ?Array<Object>}} hierarchy - Root of the body tree.
+ * @param {number} [sceneScale=0.1] - Scene scale, forwarded to the recursive pass.
+ * @returns {void}
+ */
 export function initializeHierarchyPhysics(hierarchy, sceneScale = 0.1) {
     if (hierarchy.body) {
         hierarchy.body.setInitialPhysicsConditions(
@@ -161,6 +262,25 @@ export function initializeHierarchyPhysics(hierarchy, sceneScale = 0.1) {
     }
 }
 
+/**
+ * Recursively seeds a node's children with Keplerian state, then rebalances the parent.
+ *
+ * Children already holding non-trivial state are left alone, so a runtime-added
+ * body is not reset. The rest have their position and velocity evaluated at
+ * `t = 0` from their orbital elements.
+ *
+ * The parent is then displaced by the mass-weighted negative sum of its
+ * children's states, which puts the system's barycentre at rest at the parent's
+ * intended location. Skipping that step would give the whole system a net
+ * momentum and make it drift out of frame over time.
+ *
+ * @param {{children: ?Array<{body: Body, data: Object, orbit: ?Orbit}>}} parent -
+ *   Node whose children are initialised.
+ * @param {Body} parentBody - The parent's body; its position and velocity are
+ *   adjusted to cancel the children's momentum.
+ * @param {number} sceneScale - Scene scale, forwarded to deeper levels.
+ * @returns {void}
+ */
 function initializeChildPhysics(parent, parentBody, sceneScale) {
     if (!parent.children) {
         return;

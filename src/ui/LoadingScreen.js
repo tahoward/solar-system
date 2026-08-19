@@ -1,4 +1,21 @@
+/**
+ * The black screen with a progress bar shown while textures load.
+ *
+ * Built entirely in JavaScript with inline styles rather than markup in the page. That keeps
+ * it self-contained — it can be shown and torn down without the host page needing to know it
+ * exists — and means it has no stylesheet to wait on, which matters for something whose whole
+ * job is to be on screen before anything else is ready.
+ *
+ * Sits at a very high z-index and covers the viewport, so the scene can be built underneath
+ * it in whatever half-finished state it likes.
+ */
 export class LoadingScreen {
+    /**
+     * Builds the elements but does not attach them.
+     *
+     * Nothing appears until {@link LoadingScreen#show} is called, so a caller can construct
+     * this early and decide later whether it is needed.
+     */
     constructor() {
         this.container = null;
         this.progressBar = null;
@@ -9,6 +26,15 @@ export class LoadingScreen {
         this.createLoadingScreen();
     }
 
+    /**
+     * Assembles the overlay: title, status line, progress bar and percentage.
+     *
+     * The bar's fill has a CSS width transition, which is what makes the progress glide
+     * between values instead of stepping. Texture loads complete in bursts, so without it the
+     * bar would jump and stall in a way that reads as a hang.
+     *
+     * @returns {void}
+     */
     createLoadingScreen() {
         this.container = document.createElement('div');
         this.container.id = 'solar-system-loading-screen';
@@ -88,6 +114,14 @@ export class LoadingScreen {
         this.addAnimations();
     }
 
+    /**
+     * Injects the keyframes into the document head, once.
+     *
+     * Keyframes cannot be expressed as inline styles, so this is the one part that has to go
+     * into a stylesheet. Guarded by id so a second loading screen does not add a duplicate.
+     *
+     * @returns {void}
+     */
     addAnimations() {
         if (document.getElementById('loading-screen-styles')) return;
 
@@ -102,6 +136,14 @@ export class LoadingScreen {
         document.head.appendChild(style);
     }
 
+    /**
+     * Puts the overlay on screen.
+     *
+     * Attaches on first call only; later calls just make the existing element visible again,
+     * which is what allows it to be reshown after a fade-out that has not yet removed it.
+     *
+     * @returns {void}
+     */
     show() {
         if (!this.isVisible) {
             document.body.appendChild(this.container);
@@ -111,6 +153,20 @@ export class LoadingScreen {
         this.container.style.display = 'flex';
     }
 
+    /**
+     * Fades the overlay out and removes it.
+     *
+     * The promise resolves after the element is actually gone, not when the fade starts, so a
+     * caller can wait for the screen to be clear before doing anything that would be visible
+     * through it.
+     *
+     * The duration is only a timer — the fade itself is the CSS transition set in
+     * {@link LoadingScreen#createLoadingScreen} — so it should match that transition, and
+     * passing 0 removes the element immediately.
+     *
+     * @param {number} [duration=500] - Milliseconds to wait before removing the element.
+     * @returns {Promise<void>} Resolves once the overlay has been removed.
+     */
     hide(duration = 500) {
         return new Promise(resolve => {
             if (!this.isVisible) {
@@ -130,26 +186,67 @@ export class LoadingScreen {
         });
     }
 
+    /**
+     * Moves the bar to a new position.
+     *
+     * @param {number} loaded - Assets finished so far. Accepted for callers that report counts,
+     *   but the display uses the percentage.
+     * @param {number} total - Assets expected in total. Also unused by the display.
+     * @param {number} percentage - Progress from 0 to 100; this is what is shown.
+     * @returns {void}
+     */
     updateProgress(loaded, total, percentage) {
         this.progressBar.style.width = `${percentage}%`;
         this.progressText.textContent = `${Math.round(percentage)}%`;
     }
 
+    /**
+     * Replaces the line above the bar.
+     *
+     * @param {string} message - What is happening, e.g. which stage is running.
+     * @returns {void}
+     */
     updateStatus(message) {
         this.statusText.textContent = message;
     }
 
+    /**
+     * Marks loading as finished.
+     *
+     * The percentage is cleared rather than set to 100: the bar is already full, and "100%"
+     * lingering under it is noise.
+     *
+     * @returns {void}
+     */
     showComplete() {
         this.statusText.textContent = 'Ready';
         this.progressText.textContent = '';
     }
 
+    /**
+     * Turns the overlay red to show loading failed.
+     *
+     * The overlay is deliberately left on screen: whatever failed to load, the scene behind is
+     * incomplete, and revealing it would be worse than saying so.
+     *
+     * @param {string} errorMessage - The error. Not displayed — the status line shows a fixed
+     *   message instead, since a raw loader error means nothing to a viewer.
+     * @returns {void}
+     */
     showError(errorMessage) {
         this.statusText.textContent = 'Error loading';
         this.statusText.style.color = '#ff6b6b';
         this.progressBar.style.background = '#ff6b6b';
     }
 
+    /**
+     * Removes the overlay and its injected stylesheet.
+     *
+     * Hides with no delay, since this is a teardown rather than a transition, and takes the
+     * stylesheet with it so nothing is left behind in the document head.
+     *
+     * @returns {void}
+     */
     dispose() {
         this.hide(0);
 

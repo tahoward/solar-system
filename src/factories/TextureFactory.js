@@ -1,6 +1,28 @@
 import * as THREE from 'three';
 
+/**
+ * Paints stand-in surface textures on a canvas.
+ *
+ * Used for bodies that have no image supplied — the smaller moons, and any body
+ * added at runtime. A flat sphere in a single colour reads as a featureless ball
+ * with no sense of rotation, so a crude pattern is drawn instead: it gives the
+ * surface something to turn, at no download cost.
+ *
+ * Static only; there is no state worth keeping.
+ */
 export class TextureFactory {
+    /**
+     * Draws a placeholder surface texture for a body.
+     *
+     * Mipmaps are skipped deliberately — these textures are only used on bodies small
+     * enough on screen that the extra memory would buy nothing.
+     *
+     * The canvas is kept on `userData` so it can be released along with the texture.
+     *
+     * @param {Object} bodyData - Body definition; its `color` sets the base tone and
+     *   its `name` picks the pattern.
+     * @returns {THREE.CanvasTexture} A repeat-wrapped texture ready to apply.
+     */
     static createPlanetTexture(bodyData) {
         const canvas = document.createElement('canvas');
         canvas.width = 512;
@@ -24,6 +46,20 @@ export class TextureFactory {
         return texture;
     }
 
+    /**
+     * Draws a recognisable pattern over the base colour.
+     *
+     * Keyed by name rather than by any property of the body, since the aim is only to
+     * be recognisable: horizontal bands for the gas giants, blue and green blocks for
+     * Earth, scattered craters for Mars. Anything else gets vertical stripes, which are
+     * enough to make rotation visible.
+     *
+     * @param {CanvasRenderingContext2D} context - Canvas context to draw into.
+     * @param {HTMLCanvasElement} canvas - Canvas being drawn on, for its dimensions.
+     * @param {string} planetName - Name of the body, selecting the pattern.
+     * @param {THREE.Color} baseColor - Colour the pattern is shaded from.
+     * @returns {void}
+     */
     static addPlanetSurfaceFeatures(context, canvas, planetName, baseColor) {
         const width = canvas.width;
         const height = canvas.height;

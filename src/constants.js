@@ -2,20 +2,67 @@ import MathUtils from './utils/MathUtils.js';
 import { TEXTURES } from './assets/index.js';
 import logger from './utils/Logger.js';
 
+/**
+ * Every tunable value in the project, plus the system it draws.
+ *
+ * Grouped by subject and exported as frozen-by-convention objects rather than as loose names,
+ * so a value can be traced to its subject and related settings sit together. Most of these
+ * numbers were arrived at by looking at the result rather than derived, and the comments record
+ * what each one does to the picture where that is not evident from the name.
+ */
+
+/**
+ * Which integrator is running.
+ *
+ * The only mutable group here, and the only one with methods: the physics mode is a runtime
+ * switch, not a setting, so it lives with the flag it toggles rather than in a manager that
+ * everything would then have to import.
+ *
+ * @type {{USE_N_BODY_PHYSICS: boolean, togglePhysicsMode: function(): boolean,
+ *   getPhysicsMode: function(): string}}
+ */
 export const SIMULATION = {
   USE_N_BODY_PHYSICS: true,
 
+  /**
+   * Flips between n-body integration and Kepler orbits.
+   *
+   * @returns {boolean} True if n-body physics is now active.
+   */
   togglePhysicsMode() {
     this.USE_N_BODY_PHYSICS = !this.USE_N_BODY_PHYSICS;
     logger.info('SIMULATION', `Physics mode switched to: ${this.USE_N_BODY_PHYSICS ? 'N-Body' : 'Kepler'}`);
     return this.USE_N_BODY_PHYSICS;
   },
 
+  /**
+   * The current mode's name, for display.
+   *
+   * @returns {string} `'N-Body'` or `'Kepler'`.
+   */
   getPhysicsMode() {
     return this.USE_N_BODY_PHYSICS ? 'N-Body' : 'Kepler';
   }
 };
 
+/**
+ * Timestep and stability limits for the n-body integrator.
+ *
+ * The two step limits pull against each other, deliberately. The first sets accuracy: the
+ * fastest orbit in the system gets at least this many steps, and a moon integrated in a handful
+ * of steps per orbit spirals visibly. The second caps how much work one frame may do, which is
+ * what stops a high speed multiplier from freezing the browser — reaching it is what makes
+ * {@link ClockManager} report the speed as physics-limited.
+ *
+ * The approach fraction shortens the step when two bodies close on each other, since the
+ * accelerations there are what a fixed step gets most wrong.
+ *
+ * Softening puts a floor under the separation used in the force law, so a near-miss cannot
+ * divide by something approaching zero and fling a body out of the system. Expressed in body
+ * radii, with an absolute minimum for the case where both radii are tiny.
+ *
+ * @type {Object<string, number>}
+ */
 export const NBODY = {
   MIN_STEPS_PER_ORBIT: 60,
 
@@ -27,6 +74,21 @@ export const NBODY = {
   MIN_SOFTENING: 1e-9
 };
 
+/**
+ * Parameters for the tidal locking model.
+ *
+ * The asymmetry is how far from spherical a locked body's mass distribution is taken to be —
+ * without it there would be no torque to lock at all, since a perfect sphere has no preferred
+ * orientation. Dissipation damps the resulting libration, so a body settles instead of rocking
+ * forever.
+ *
+ * The substep limits are for the rotation integration: a body spun far enough in one step
+ * overshoots and the torque then pulls it back, which shows as jitter. Capping the angle per
+ * substep prevents that, and capping the substep count keeps a fast-spinning body from costing
+ * an unbounded amount of work.
+ *
+ * @type {Object<string, number>}
+ */
 export const TIDAL_LOCK = {
   FIGURE_ASYMMETRY: 0.0208,
 
@@ -37,6 +99,18 @@ export const TIDAL_LOCK = {
   MAX_SUBSTEPS: 12
 };
 
+/**
+ * The body created by shift-clicking in n-body mode.
+ *
+ * The mass is the same as the Sun's, which is the point: something comparable to the primary is
+ * what actually disturbs the system, and a realistically small mass would be invisible in its
+ * effect. Orange so it is obviously not one of the real bodies.
+ *
+ * The drag tolerance is how far the pointer may travel between press and release and still count
+ * as a click — see {@link InputController#handlePointerUp}.
+ *
+ * @type {Object<string, number>}
+ */
 export const MASS_DROP = {
   MASS: 1.0,
 
@@ -49,6 +123,15 @@ export const MASS_DROP = {
   DRAG_TOLERANCE_PIXELS: 5
 };
 
+/**
+ * Scene-wide rendering settings.
+ *
+ * The scale converts the model's units into the ones the renderer works in, chosen so the whole
+ * system fits in a range float32 can resolve. Multisampling is on at four samples, which is
+ * what keeps the thin orbit lines and body limbs from crawling as the camera moves.
+ *
+ * @type {Object<string, number>}
+ */
 export const SCENE = {
   SCALE: 0.1,
   DEFAULT_RADIUS_FALLBACK: 1,
@@ -56,6 +139,31 @@ export const SCENE = {
   MSAA_SAMPLES: 4
 };
 
+/**
+ * Orbit computation, drawing and time control.
+ *
+ * `AU_SCALE_METERS` is the conversion from astronomical units to scene units, and is why the
+ * bodies are far closer together relative to their sizes than they really are — at true scale
+ * the planets would be invisible specks.
+ *
+ * Kepler's equation is transcendental and has to be solved numerically; the iteration count and
+ * tolerance bound that. Eight iterations is comfortably enough at these eccentricities.
+ *
+ * The speed multipliers are in percent-like units — 1.0 is real time and the maximum is about
+ * 65 000× — which is why {@link InputController} converts by 100 when talking to
+ * {@link ClockManager}. The factor is how much each keypress changes it.
+ *
+ * `LOD` governs how finely orbit paths are tessellated, aiming for a segment every few pixels
+ * and only rebuilding when the required count has moved by a quarter, so a slow zoom does not
+ * rebuild the geometry every frame. The jitter budget bounds how much a path may visibly wobble
+ * from floating-point error before it is recentred.
+ *
+ * The sphere-of-influence ratio is deliberately below 1: a body must come meaningfully back
+ * inside its parent's influence to be recaptured, rather than flipping between parents each time
+ * it grazes the boundary.
+ *
+ * @type {Object<string, *>}
+ */
 export const ORBIT = {
   AU_SCALE_METERS: 215.5,
   KEPLER_EQUATION_ITERATIONS: 8,
@@ -82,6 +190,19 @@ export const ORBIT = {
   COMPANION_LOOP_MASS_SHARE: 0.99
 };
 
+/**
+ * The barycentre marker and its traced path.
+ *
+ * Off by default — it is a diagnostic, not part of the picture. When shown, the path covers sixty
+ * years, long enough for the Sun's wander under Jupiter to be a recognisable loop rather than an
+ * arc.
+ *
+ * The segment and rebuild settings mirror {@link ORBIT}'s `LOD`. The minimum pixel radius keeps
+ * a barycentre very close to the primary's centre from collapsing into a single point, which is
+ * exactly the case one wants to see.
+ *
+ * @type {Object<string, *>}
+ */
 export const BARYCENTRE = {
   SHOW: false,
 
@@ -96,6 +217,17 @@ export const BARYCENTRE = {
   MIN_PIXEL_RADIUS: 1.5
 };
 
+/**
+ * The screen-space dots that stand in for distant bodies.
+ *
+ * They are sized in screen space rather than world space because their whole purpose is to be
+ * visible when the body itself is sub-pixel; a marker that shrank with distance would disappear
+ * exactly when it was needed.
+ *
+ * The multiplier bounds and increment are what the `+` and `-` keys move between.
+ *
+ * @type {Object<string, number>}
+ */
 export const MARKER = {
   DEFAULT_SCREEN_SIZE: 0.2,
   DEFAULT_SCALE: 0.02,
@@ -109,10 +241,31 @@ export const MARKER = {
   DEFAULT_SIZE_MULTIPLIER: 1.0
 };
 
+/**
+ * Camera flight timing.
+ *
+ * Two seconds, which is slow enough that the viewer can follow where they are being taken —
+ * across distances this large a quick cut leaves no sense of the journey.
+ *
+ * @type {{DEFAULT_TRANSITION_DURATION: number}}
+ */
 export const ANIMATION = {
   DEFAULT_TRANSITION_DURATION: 2000
 };
 
+/**
+ * The bloom pass and the rules for backing it off.
+ *
+ * A threshold of 1 means only genuinely over-bright pixels bloom, which in practice is the stars
+ * and their effects — everything lit by reflected light stays clean.
+ *
+ * The distance settings exist because bloom is measured in screen space: standing close to a
+ * star, its disc fills the frame and the bloom washes the whole image out. So it is faded down as
+ * the camera approaches and switched off entirely very close in. The fade start being larger than
+ * the fade end is not a mistake — these are distances, and the effect fades as they decrease.
+ *
+ * @type {Object<string, number>}
+ */
 export const BLOOM = {
   RESOLUTION_MULTIPLIER: 1.0,
 
@@ -126,6 +279,16 @@ export const BLOOM = {
   MAX_BLOOM_DISTANCE: 2000
 };
 
+/**
+ * When a star's surface is drawn and when only its glare is.
+ *
+ * From far away a star is smaller than a pixel, and drawing a sphere for it produces a flickering
+ * speck; the glare billboard reads correctly instead. `KEEP_GLARE_VISIBLE` is what makes the
+ * handover work — the glare stays on at all distances, so there is never a gap where the star is
+ * not represented by anything.
+ *
+ * @type {Object<string, number|boolean>}
+ */
 export const STAR_VISIBILITY = {
   MAX_VISIBILITY_DISTANCE: 5.0,
   MIN_VISIBILITY_DISTANCE: 0.1,
@@ -135,6 +298,22 @@ export const STAR_VISIBILITY = {
   KEEP_GLARE_VISIBLE: true
 };
 
+/**
+ * Curve fitting for turning a star's temperature into a brightness.
+ *
+ * Module-private, since it exists only to feed {@link temperatureToGlareBrightness}.
+ *
+ * The Sun is the reference point: its temperature and intensity anchor the curve, so a star at
+ * 5778 K comes out looking right by construction and everything else is relative to it.
+ *
+ * Three exponents rather than one because the relationship is not a single power law over the
+ * whole range — real luminosity climbs very steeply with temperature, and a hot star given the
+ * cool-star exponent would be far too dim while a single steep exponent would blow the cool ones
+ * out. The bounds are the final safety net.
+ *
+ * @type {Object<string, number>}
+ * @private
+ */
 const STAR_EMISSIVE = {
   BASE_MULTIPLIER: 1.0,
 
@@ -149,6 +328,19 @@ const STAR_EMISSIVE = {
   MIN_EMISSIVE_INTENSITY: 1.0
 };
 
+/**
+ * Inline styles for the debug overlays.
+ *
+ * Style objects rather than CSS classes so the overlays can be built and styled entirely from
+ * JavaScript, with no stylesheet to keep in step. Green monospace on translucent black, which is
+ * legible over anything the scene puts behind it.
+ *
+ * Pointer events are off on both, so an overlay cannot swallow a camera drag that passes over it,
+ * and text selection is off so a drag does not highlight the text instead.
+ *
+ * @type {{CONTROLS_OVERLAY_STYLE: Object<string, string|number>,
+ *   STATS_OVERLAY_STYLE: Object<string, string|number>}}
+ */
 export const UI = {
   CONTROLS_OVERLAY_STYLE: {
     position: 'fixed',
@@ -183,6 +375,22 @@ export const UI = {
   }
 };
 
+/**
+ * Sphere tessellation tiers for the level-of-detail system.
+ *
+ * A fixed set of tiers rather than a segment count computed per frame, because the geometry for
+ * each tier is built once and cached; an arbitrary count would mean rebuilding buffers whenever
+ * the camera moved. Doubling each step keeps the set small while covering everything from a
+ * distant speck to a moon filling the frame.
+ *
+ * The error budget is the sagitta tolerance {@link segmentsForScreenRadius} solves against —
+ * half a pixel of deviation from a true circle, which is below what the eye picks up as
+ * faceting. The hysteresis is what stops a body hovering on a tier boundary from switching
+ * geometry every frame.
+ *
+ * @type {{SPHERE_DETAIL_TIERS: number[], SPHERE_DETAIL_MAX_ERROR_PIXELS: number,
+ *   SPHERE_DETAIL_INITIAL_SEGMENTS: number, SPHERE_DETAIL_HYSTERESIS: number}}
+ */
 export const GEOMETRY = {
   SPHERE_DETAIL_TIERS: [8, 16, 32, 64, 128],
 
@@ -193,12 +401,30 @@ export const GEOMETRY = {
   SPHERE_DETAIL_HYSTERESIS: 0.4
 };
 
+/**
+ * Indices into the targetable-bodies list.
+ *
+ * The root body is first, which is why focusing it and starting up both use index 0. The
+ * not-found value is `Array.prototype.findIndex`'s sentinel, named so the comparison in
+ * {@link InputController#handlePlanetSelection} reads as intent rather than as a bare `-1`.
+ *
+ * @type {{SUN_INDEX: number, NOT_FOUND_INDEX: number, INITIAL_TARGET_INDEX: number}}
+ */
 export const TARGETING = {
   SUN_INDEX: 0,
   NOT_FOUND_INDEX: -1,
   INITIAL_TARGET_INDEX: 0
 };
 
+/**
+ * The star field behind everything.
+ *
+ * Dimmed heavily by default: at full brightness the background competes with the bodies, which
+ * are the subject. The cube face size is the resolution each of the six faces is rendered to when
+ * the equirectangular source image is converted.
+ *
+ * @type {Object<string, number>}
+ */
 export const SKYBOX = {
   DEFAULT_BRIGHTNESS: 0.16,
   MIN_BRIGHTNESS: 0.0,
@@ -206,12 +432,52 @@ export const SKYBOX = {
   CUBE_FACE_SIZE: 1536
 };
 
+/**
+ * Precomputed constants used in the hot paths.
+ *
+ * Named so the conversions read clearly and so nothing has to recompute them per body per frame.
+ *
+ * @type {{PI_OVER_180: number, TWO_PI: number, TWO: number}}
+ */
 export const MATH = {
   PI_OVER_180: Math.PI / 180,
   TWO_PI: 2 * Math.PI,
   TWO: 2
 };
 
+/**
+ * The system itself: every body, nested by what it orbits.
+ *
+ * This is the input {@link SolarSystemFactory} builds the scene from, and it is the only place a
+ * body is described. Nesting rather than a flat list with parent references, because the nesting
+ * *is* the orbital hierarchy — a moon's elements are relative to its planet, and the tree makes
+ * that structural instead of something a reader has to reconstruct. `parent` is still carried on
+ * each entry, for the places that need to look upwards.
+ *
+ * Orbits are given as classical elements — semi-major axis `a` in AU, eccentricity `e`,
+ * inclination `i`, longitude of ascending node `omega`, argument of periapsis `w` and mean
+ * anomaly at epoch `M0`, the angles in degrees. In Kepler mode these are evaluated directly; in
+ * n-body mode they are converted once into a starting position and velocity and then not
+ * consulted again.
+ *
+ * Radii are given as `radiusScale`, relative to the Sun for planets but relative to the *parent*
+ * for moons — which is why the Moon's 0.274 and Charon's 0.511 look so large next to Mercury's
+ * 0.0035. Masses are in solar masses throughout. A negative `rotationPeriod` means retrograde
+ * rotation, as for Venus and Uranus.
+ *
+ * Everything past those is optional and additive: `surfaceTexture`, `atmosphere`, `clouds`,
+ * `rings`, and on a star a `star` block carrying the temperature and the settings for each of its
+ * effects. `tidallyLocked` turns on the locking model, with `tidalLockTarget` where the body
+ * locks to something other than its parent — Pluto to Charon, since they lock to each other.
+ * `equatorialOrbit` states that the orbit follows the parent's equator rather than the reference
+ * plane, which is how the major moon systems actually sit. `lightIntensity` is `null` on every
+ * non-star, since only stars emit.
+ *
+ * Elements are J2000 values from JPL where they exist. Sizes and distances are not to a common
+ * scale, and are not meant to be — see {@link ORBIT}'s `AU_SCALE_METERS`.
+ *
+ * @type {Array<Object>}
+ */
 export const CELESTIAL_DATA = [{
   name: 'Sun',
   markerColor: 0xFFD700,
@@ -699,6 +965,23 @@ export const CELESTIAL_DATA = [{
   ]
 }];
 
+/**
+ * The colour of light a star at a given temperature emits.
+ *
+ * Tanner Helland's blackbody approximation, which fits the Planck curve with a handful of power
+ * and log terms rather than integrating it — accurate enough to be indistinguishable by eye and
+ * cheap enough to call freely.
+ *
+ * The 6600 K breakpoints are where the fit changes form. Below it red is saturated and blue is
+ * still climbing; above it blue is saturated and red is falling. Below about 1900 K there is no
+ * blue at all, so that branch returns zero rather than taking the logarithm of a negative number.
+ *
+ * Used for the light a star casts, not for how the star itself looks —
+ * {@link temperatureToColor} does that.
+ *
+ * @param {number} temperature - Surface temperature in kelvin; clamped to 1000–50000.
+ * @returns {number} Packed 24-bit RGB, as Three.js colours are given.
+ */
 export function temperatureToBlackbodyLight(temperature) {
   const temp = MathUtils.clamp(temperature, 1000, 50000);
 
@@ -735,6 +1018,22 @@ export function temperatureToBlackbodyLight(temperature) {
   return (r << 16) | (g << 8) | b;
 }
 
+/**
+ * How brightly a star at a given temperature should glare.
+ *
+ * Physically the emitted power goes as the fourth power of temperature, which over the range of
+ * real stars spans several orders of magnitude — far more than a display can show. So this is a
+ * deliberately compressed version of that: a power law relative to the Sun, with the exponent
+ * chosen by temperature band, and then two logarithmic knees above 15 and 50 that flatten the top
+ * end. A hot star ends up clearly brighter than a cool one without the cool one being reduced to
+ * nothing.
+ *
+ * The result is finally clamped, so no data value can produce a glare that swamps the frame or
+ * one that vanishes.
+ *
+ * @param {number} temperature - Surface temperature in kelvin; clamped to 1000–50000.
+ * @returns {number} Emissive intensity, within {@link STAR_EMISSIVE}'s bounds.
+ */
 export function temperatureToGlareBrightness(temperature) {
   const SOLAR_TEMPERATURE = STAR_EMISSIVE.SOLAR_TEMPERATURE;
   const SOLAR_GLARE_BASE = STAR_EMISSIVE.SOLAR_BASE_INTENSITY;
@@ -767,6 +1066,21 @@ export function temperatureToGlareBrightness(temperature) {
   return MathUtils.clamp(finalIntensity, STAR_EMISSIVE.MIN_EMISSIVE_INTENSITY, STAR_EMISSIVE.MAX_EMISSIVE_INTENSITY);
 }
 
+/**
+ * The colour to draw a star's own surface.
+ *
+ * A hand-picked gradient rather than the blackbody fit, and intentionally not physical: real
+ * stars run from orange through white to faint blue-white, a range too narrow to tell apart on
+ * screen. These points exaggerate it into something readable — deep red at the cool end through
+ * yellow and white to a strong blue at the hot end — so a star's temperature can be seen at a
+ * glance.
+ *
+ * Interpolated linearly between the bracketing points. The loop falls back to the first and last
+ * points, which covers the clamped endpoints where no bracket is found.
+ *
+ * @param {number} temperature - Surface temperature in kelvin; clamped to 2000–50000.
+ * @returns {number} Packed 24-bit RGB.
+ */
 export function temperatureToColor(temperature) {
   const temp = MathUtils.clamp(temperature, 2000, 50000);
 
