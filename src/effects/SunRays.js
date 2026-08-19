@@ -25,8 +25,6 @@ uniform float uWidth;
 uniform float uTime;
 uniform float uNoiseFrequency;
 uniform float uNoiseAmplitude;
-uniform vec3  uCamPos;
-uniform mat4  uViewProjection;
 uniform float uOpacity;
 uniform float uBendAmount;
 uniform float uWhispyAmount;
@@ -122,27 +120,29 @@ void main(void) {
     vec3 p  = getRayPosition(aPos.x,        animPhase);
     vec3 p1 = getRayPosition(aPos.x + 0.01, animPhase);
 
-    // Transform ray positions to world space
-    vec3 p0w = (modelMatrix * vec4(p , 1.0)).xyz;
-    vec3 p1w = (modelMatrix * vec4(p1, 1.0)).xyz;
+    // Ray endpoints as offsets from the star center, along world axes. The mesh sits
+    // at the star's center, so mat3(modelMatrix) gives that offset exactly, and
+    // modelViewMatrix puts the center in view space from a matrix the CPU built in
+    // double precision. Everything below is then a difference of small numbers:
+    // subtracting absolute world positions would collapse a ray (a few thousandths of
+    // a unit long) to nothing once a slingshotted star reaches skybox distances.
+    vec3 offset  = mat3(modelMatrix) * p;
+    vec3 offset1 = mat3(modelMatrix) * p1;
+    vec3 centerView = (modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    vec3 p0View = centerView + mat3(viewMatrix) * offset;
 
-    // Calculate ray direction in world space
-    vec3 dirW = normalize(p1w - p0w);
-
-    // Create perpendicular vector for ray width
-    vec3 viewW = normalize(p0w - uCamPos);
-    vec3 sideW = normalize(cross(viewW, dirW));
+    // Ray direction and the perpendicular that gives the ray its width, in view
+    // space, where the camera sits at the origin
+    vec3 dirView = normalize(mat3(viewMatrix) * (offset1 - offset));
+    vec3 sideView = normalize(cross(normalize(p0View), dirView));
 
     // Ray width - thin base tapering to pointy tips
     float widthFactor = (1.0 - aPos.x); // Start at full width, taper to zero at tip
     float width = uWidth * aPos.z * widthFactor * animPhase * 1.0;
 
-    // Apply width perpendicular to ray direction
-    vec3 pWorld = p0w + sideW * width;
-
-    // Use ray direction from sun center for proper visibility culling
-    vec3 sunCenter = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-    vNormal = normalize(pWorld - sunCenter);
+    // Direction out from the sun center, for visibility culling in the fragment
+    // shader, which compares it against the world-space sun -> camera direction
+    vNormal = normalize(offset);
 
     // Disable edge detection temporarily - show all rays
     float edgeFactor = 1.0; // Show all rays regardless of viewing angle
@@ -153,7 +153,12 @@ void main(void) {
     vec3 spectrumColor = hue(aWireRandom.w * uHueSpread + uHue);
     vColor = mix(uBaseColor, spectrumColor, 0.1); // 10% spectrum variation, 90% base color
 
-    gl_Position = uViewProjection * vec4(pWorld, 1.0);
+    // Project with three's own matrices rather than one captured in update(): the
+    // camera is still moved (follow, then controls) after the bodies update and
+    // before the draw, so a captured matrix is a frame stale and the rays land
+    // offset from the star by however far the camera travelled that frame - glaring
+    // when the camera is tracking a fast-moving star.
+    gl_Position = projectionMatrix * vec4(p0View + sideView * width, 1.0);
 }`;
 
 // Sun rays fragment shader main code - same as flares architecture
@@ -393,8 +398,8 @@ class SunRays extends SunEffect {
 
         if (!this.material) return;
 
-        // Update camera and time using parent methods - shader handles individual ray timing
-        this.updateCameraUniforms(camera);
+        // Update time - the shader handles individual ray timing, and reads the camera
+        // from three's own per-draw uniforms rather than a snapshot taken here
         this.updateTime(this.time);
 
         // Update light direction (from sun to camera)

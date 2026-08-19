@@ -6,17 +6,6 @@ import * as THREE from 'three';
  */
 class ShaderUniformConfig {
     /**
-     * Create common camera-related uniforms
-     * @returns {Object} Camera uniform definitions
-     */
-    static createCameraUniforms() {
-        return {
-            uViewProjection: { value: new THREE.Matrix4() },
-            uCamPos: { value: new THREE.Vector3() }
-        };
-    }
-
-    /**
      * Create time-related uniforms
      * @returns {Object} Time uniform definitions
      */
@@ -105,7 +94,10 @@ class ShaderUniformConfig {
 
     /**
      * Create all common sun effect uniforms
-     * Combines camera, time, visibility, color, and opacity uniforms
+     * Combines time, visibility, color, and opacity uniforms. Camera uniforms are
+     * deliberately absent: the effect shaders read three's own per-draw camera
+     * uniforms, since anything captured during the update pass is a frame stale by
+     * the time the camera has been moved to follow its target and the draw happens.
      * @param {Object} options - Configuration options
      * @param {boolean} options.lowres - Low resolution mode affects opacity (default: false)
      * @param {number} options.baseColor - Base color (default: 0xffaa00)
@@ -127,7 +119,6 @@ class ShaderUniformConfig {
         const finalOpacity = opacity !== undefined ? opacity : (lowres ? 3 : 0.2);
 
         return {
-            ...this.createCameraUniforms(),
             ...this.createTimeUniforms(),
             ...this.createVisibilityUniforms(),
             ...this.createColorUniforms(colorOptions),

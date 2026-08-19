@@ -42,15 +42,6 @@ class SunEffect {
     }
 
     /**
-     * Update camera-related uniforms
-     * @param {THREE.Camera} camera - Camera for view calculations
-     */
-    updateCameraUniforms(camera) {
-        if (!this.material) return;
-        ShaderUniformHelper.updateCameraUniforms(this.material, camera);
-    }
-
-    /**
      * Update time uniform
      * @param {number} time - Current time in seconds
      */
@@ -131,10 +122,6 @@ class SunEffect {
      */
     createCommonUniforms(customUniforms = {}) {
         const commonUniforms = {
-            // Camera and transforms
-            uViewProjection: { value: new THREE.Matrix4() },
-            uCamPos: { value: new THREE.Vector3() },
-
             // Time
             uTime: { value: 0 },
 

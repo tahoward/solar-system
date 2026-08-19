@@ -21,8 +21,6 @@ uniform float uAmp;
 uniform float uTime;
 uniform float uNoiseFrequency;
 uniform float uNoiseAmplitude;
-uniform vec3  uCamPos;       // Camera world position
-uniform mat4  uViewProjection;
 uniform float uOpacity;
 uniform float uHueSpread;
 uniform float uHue;
@@ -154,13 +152,21 @@ void main(void){
   vec3 pOBJ  = getPosOBJ(aPos.x,        animPhase);
   vec3 p1OBJ = getPosOBJ(aPos.x + 0.01, animPhase);
 
-  // Transform to world space
-  vec3 pW  = (modelMatrix * vec4(pOBJ , 1.0)).xyz;
-  vec3 p1W = (modelMatrix * vec4(p1OBJ, 1.0)).xyz;
+  // Offsets from the star center, along world axes. The mesh sits at the star's
+  // center, so mat3(modelMatrix) gives that offset exactly, and everything below
+  // stays star-relative: absolute world positions would both lose all precision at
+  // skybox distances and, worse, silently assume the star never leaves the origin.
+  vec3 pOff  = mat3(modelMatrix) * pOBJ;
+  vec3 p1Off = mat3(modelMatrix) * p1OBJ;
 
-  vec3 dirW  = normalize(p1W - pW);
-  vec3 vW    = normalize(pW - uCamPos);
-  vec3 sideW = normalize(cross(vW, dirW));
+  // View space for the width offsets, where the camera sits at the origin. The
+  // star's center comes from modelViewMatrix, which the CPU built in double
+  // precision, so it is exact however far out the star has been flung.
+  vec3 centerView = (modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+  vec3 pView = centerView + mat3(viewMatrix) * pOff;
+
+  vec3 dirView  = normalize(mat3(viewMatrix) * (p1Off - pOff));
+  vec3 sideView = normalize(cross(normalize(pView), dirView));
 
   // Sun radius reference
   float R = length(aPos0);
@@ -169,31 +175,31 @@ void main(void){
 
   // Add 3D spread to individual strands within the flare for volume
   // Create perpendicular vectors for 3D spread
-  vec3 up = normalize(cross(sideW, dirW)); // Up direction relative to flare
+  vec3 upView = normalize(cross(sideView, dirView)); // Up direction relative to flare
 
   // Use random values to create 3D strand offset - but only in the outward direction
   // This keeps strands anchored to star surface while allowing spread
   // Parabolic spread: zero at both ends (star contact points), maximum at apex (middle)
   float spreadAmount = 0.04 * sin(aPos.x * 3.14159); // Very subtle sine wave: 0 at ends, minimal spread at middle
   vec3 strandOffset = (
-    sideW * (aWireRandom.z - 0.5) * spreadAmount * R +     // Side spread
-    up * (aWireRandom.w - 0.5) * spreadAmount * R          // Up/down spread
+    sideView * (aWireRandom.z - 0.5) * spreadAmount * R +   // Side spread
+    upView * (aWireRandom.w - 0.5) * spreadAmount * R       // Up/down spread
   );
 
   // Apply base width
-  pW += sideW * width;
+  pView += sideView * width;
 
   // Apply 3D strand spread with sine curve: zero at both ends, maximum at apex
   // At both ends (aPos.x = 0 or 1): no spread, stays connected to star
   // At middle (aPos.x = 0.5): maximum spread at arc apex
   float spreadFactor = sin(aPos.x * 3.14159); // Same sine pattern as spreadAmount
-  pW += strandOffset * spreadFactor;
+  pView += strandOffset * spreadFactor;
 
-  // World normal for lighting calculations
-  vNormal  = normalize(pW);
+  // Direction out from the star center, for lighting calculations
+  vNormal  = normalize(pOff);
 
-  // Opacity calculation with distance falloff
-  float lenW = length(pW);
+  // Opacity calculation with distance falloff, measured from the star center
+  float lenW = length(pOff);
   vOpacity  = smoothstep(R, R * 1.03, lenW);
 
   // Apply individual flare fade timing
@@ -204,7 +210,11 @@ void main(void){
   vec3 hueVariation = hue(aWireRandom.w * uHueSpread + uHue);
   vColor = mix(uBaseColor, hueVariation, 0.1); // 10% hue variation, 90% base color
 
-  gl_Position = uViewProjection * vec4(pW, 1.0);
+  // Project with three's own matrices rather than one captured in update(): the
+  // camera is still moved (follow, then controls) after the bodies update and before
+  // the draw, so a captured matrix is a frame stale and the flares land offset from
+  // the star by however far the camera travelled that frame.
+  gl_Position = projectionMatrix * vec4(pView, 1.0);
 }`;
 
 const fragmentShaderMainCode = `
@@ -485,8 +495,8 @@ class SunFlares extends SunEffect {
     update(time, camera, sunMaterialUniforms = {}) {
         if (!this.material) return;
 
-        // Update camera and time using parent methods - shader handles individual flare timing
-        this.updateCameraUniforms(camera);
+        // Update time - the shader handles individual flare timing, and reads the camera
+        // from three's own per-draw uniforms rather than a snapshot taken here
         this.updateTime(time);
 
         // Real-time relocation is disabled - flares follow their natural cycles

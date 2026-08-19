@@ -6,32 +6,6 @@ import * as THREE from 'three';
  */
 class ShaderUniformHelper {
     /**
-     * Update camera-related uniforms (view projection matrix and camera position)
-     * @param {THREE.ShaderMaterial} material - The shader material to update
-     * @param {THREE.Camera} camera - The camera to use for calculations
-     */
-    static updateCameraUniforms(material, camera) {
-        if (!material || !material.uniforms || !camera) return;
-
-        // Update camera position
-        if (material.uniforms.uCamPos) {
-            const cameraWorldPosition = new THREE.Vector3();
-            camera.getWorldPosition(cameraWorldPosition);
-            material.uniforms.uCamPos.value.copy(cameraWorldPosition);
-        }
-
-        // Update view projection matrix
-        if (material.uniforms.uViewProjection) {
-            camera.updateMatrixWorld(true);
-            camera.updateProjectionMatrix();
-
-            const view = new THREE.Matrix4().copy(camera.matrixWorld).invert();
-            const viewProjection = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, view);
-            material.uniforms.uViewProjection.value.copy(viewProjection);
-        }
-    }
-
-    /**
      * Set base color uniform
      * @param {THREE.ShaderMaterial} material - The shader material to update
      * @param {number|THREE.Color} color - Color as hex number or THREE.Color object

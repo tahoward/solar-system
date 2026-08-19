@@ -57,14 +57,20 @@ class SunCorona {
         const vertexShader = `
             varying vec3 vNormal;
             varying vec3 vViewPosition;
-            varying vec3 vWorldPosition;
+            varying vec3 vNoisePosition;
             varying vec2 vUv;
 
             void main() {
                 vNormal = normalize(normalMatrix * normal);
                 vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
                 vViewPosition = -mvPosition.xyz;
-                vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+
+                // Coordinate the corona's noise is sampled at. Object space, so the
+                // pattern is nailed to the star: sampled at the world position it
+                // would instead be nailed to the world origin, and the whole corona
+                // spans well under one noise cell, so the star drifting even a
+                // fraction of its own radius slides the pattern visibly across it.
+                vNoisePosition = position;
                 vUv = uv;
 
                 gl_Position = projectionMatrix * mvPosition;
@@ -83,7 +89,7 @@ class SunCorona {
 
             varying vec3 vNormal;
             varying vec3 vViewPosition;
-            varying vec3 vWorldPosition;
+            varying vec3 vNoisePosition;
             varying vec2 vUv;
 
             // Noise functions for corona density variation
@@ -129,13 +135,13 @@ class SunCorona {
                 float centerToEdgeFade = pow(fresnel, uFresnelPower);
 
                 // Create animated noise for corona density variation
-                vec3 noisePos = vWorldPosition * uNoiseScale + uTime * uAnimationSpeed;
+                vec3 noisePos = vNoisePosition * uNoiseScale + uTime * uAnimationSpeed;
 
                 // Multiple noise octaves for complex corona structure
                 float coronaDensity = fractalNoise(noisePos, 3);
 
                 // Add some directional flow for corona streams
-                float streamFlow = fractalNoise(vWorldPosition * uNoiseScale * 0.5 + vec3(uTime * uAnimationSpeed * 2.0, 0.0, 0.0), 2);
+                float streamFlow = fractalNoise(vNoisePosition * uNoiseScale * 0.5 + vec3(uTime * uAnimationSpeed * 2.0, 0.0, 0.0), 2);
                 coronaDensity = mix(coronaDensity, streamFlow, 0.3);
 
                 // Combine center-to-edge fade with noise
@@ -148,7 +154,7 @@ class SunCorona {
                 vec3 finalColor = uCoronaColor;
 
                 // Add some color variation based on noise for more realistic corona
-                float colorVariation = fractalNoise(vWorldPosition * uNoiseScale * 2.0, 2);
+                float colorVariation = fractalNoise(vNoisePosition * uNoiseScale * 2.0, 2);
                 finalColor = mix(finalColor, finalColor * 1.3, colorVariation * 0.2);
 
                 gl_FragColor = vec4(finalColor, finalAlpha);
