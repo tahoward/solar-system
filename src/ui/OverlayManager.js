@@ -1,25 +1,8 @@
-/**
- * OverlayManager - UI Overlay Management Functions
- *
- * Manages all UI overlays in the solar system application:
- * - Controls overlay (keyboard/mouse help)
- * - State overlay (system status and current target info)
- * - Stats overlay (performance statistics)
- * - Debug overlay (development information)
- */
-
 import { UI, SIMULATION } from '../constants.js';
 import configService from '../utils/ConfigService.js';
 import clockManager from '../managers/ClockManager.js';
 import SceneManager from '../managers/SceneManager.js';
 
-// Target info display removed - info now shown in state overlay
-
-
-/**
- * Creates or updates the controls overlay display
- * @param {boolean} [isVisible=true] - Whether to show or hide the overlay
- */
 export function createControlsOverlay(isVisible = true) {
     let controlsOverlay = document.getElementById('controls-overlay');
 
@@ -27,13 +10,11 @@ export function createControlsOverlay(isVisible = true) {
         controlsOverlay = document.createElement('div');
         controlsOverlay.id = 'controls-overlay';
 
-        // Apply styles from constants
         Object.assign(controlsOverlay.style, UI.CONTROLS_OVERLAY_STYLE);
 
         document.body.appendChild(controlsOverlay);
     }
 
-    // Update content
     controlsOverlay.innerHTML = `
         <div><strong>🎮 Solar System Controls</strong></div>
         <div><strong>Mouse:</strong></div>
@@ -53,15 +34,11 @@ export function createControlsOverlay(isVisible = true) {
         <div>• F3: Toggle all overlays</div>
     `;
 
-    // Set visibility
     controlsOverlay.style.display = isVisible ? 'block' : 'none';
 
     return controlsOverlay;
 }
 
-/**
- * Toggles the controls overlay visibility
- */
 export function toggleControlsOverlay() {
     const controlsOverlay = document.getElementById('controls-overlay');
 
@@ -73,10 +50,6 @@ export function toggleControlsOverlay() {
     }
 }
 
-/**
- * Creates or updates the state overlay display
- * @param {boolean} [isVisible=true] - Whether to show or hide the overlay
- */
 export function createStateOverlay(isVisible = true) {
     let stateOverlay = document.getElementById('state-overlay');
 
@@ -84,7 +57,6 @@ export function createStateOverlay(isVisible = true) {
         stateOverlay = document.createElement('div');
         stateOverlay.id = 'state-overlay';
 
-        // Apply same styles as controls overlay but position bottom right
         const style = { ...UI.CONTROLS_OVERLAY_STYLE };
         style.bottom = '10px';
         style.right = '10px';
@@ -95,16 +67,11 @@ export function createStateOverlay(isVisible = true) {
         document.body.appendChild(stateOverlay);
     }
 
-    // Set visibility
     stateOverlay.style.display = isVisible ? 'block' : 'none';
 
     return stateOverlay;
 }
 
-/**
- * Updates the state overlay with current system state
- * @param {Object} stateData - Object containing current state information
- */
 export function updateStateOverlay(stateData = {}) {
     const stateOverlay = document.getElementById('state-overlay');
     if (!stateOverlay || stateOverlay.style.display === 'none') return;
@@ -140,9 +107,6 @@ export function updateStateOverlay(stateData = {}) {
     `;
 }
 
-/**
- * Toggles the state overlay visibility
- */
 export function toggleStateOverlay() {
     const stateOverlay = document.getElementById('state-overlay');
 
@@ -154,10 +118,6 @@ export function toggleStateOverlay() {
     }
 }
 
-/**
- * Creates or updates the stats overlay display
- * @param {boolean} [isVisible=true] - Whether to show or hide the overlay
- */
 export function createStatsOverlay(isVisible = true) {
     let statsOverlay = document.getElementById('stats-overlay');
 
@@ -165,22 +125,16 @@ export function createStatsOverlay(isVisible = true) {
         statsOverlay = document.createElement('div');
         statsOverlay.id = 'stats-overlay';
 
-        // Apply styles from constants
         Object.assign(statsOverlay.style, UI.STATS_OVERLAY_STYLE);
 
         document.body.appendChild(statsOverlay);
     }
 
-    // Set visibility
     statsOverlay.style.display = isVisible ? 'block' : 'none';
 
     return statsOverlay;
 }
 
-/**
- * Updates the stats overlay with performance data
- * @param {Object} statsData - Object containing performance statistics
- */
 export function updateStatsOverlay(statsData = {}) {
     const statsOverlay = document.getElementById('stats-overlay');
     if (!statsOverlay || statsOverlay.style.display === 'none') return;
@@ -191,18 +145,16 @@ export function updateStatsOverlay(statsData = {}) {
         sampleCount = 0
     } = statsData;
 
-    // Create SVG line charts for time series data
     const createLineChart = (data, label, max = 100, color = '#00ff00') => {
         if (data.length === 0) return '';
 
         const width = 200;
         const height = 40;
         const padding = 2;
-        const maxValue = Math.max(...data, max * 0.1); // Ensure some scale
+        const maxValue = Math.max(...data, max * 0.1);
         const minValue = Math.min(...data, 0);
         const valueRange = maxValue - minValue || 1;
 
-        // Create path points
         let pathData = '';
         data.forEach((value, index) => {
             const x = padding + (index / (data.length - 1 || 1)) * (width - 2 * padding);
@@ -215,7 +167,6 @@ export function updateStatsOverlay(statsData = {}) {
             }
         });
 
-        // Create grid lines for reference
         const gridLines = [];
         for (let i = 0; i <= 4; i++) {
             const y = padding + (i / 4) * (height - 2 * padding);
@@ -248,10 +199,6 @@ export function updateStatsOverlay(statsData = {}) {
     `;
 }
 
-/**
- * Creates or updates the debug overlay display
- * @param {boolean} [isVisible=true] - Whether to show or hide the overlay
- */
 export function createDebugOverlay(isVisible = true) {
     let debugOverlay = document.getElementById('debug-overlay');
 
@@ -276,7 +223,6 @@ export function createDebugOverlay(isVisible = true) {
         document.body.appendChild(debugOverlay);
     }
 
-    // Update content
     const memory = getMemoryInfo();
 
     debugOverlay.innerHTML = `
@@ -286,13 +232,9 @@ export function createDebugOverlay(isVisible = true) {
         <div><small>Press F12 → type dev.help()</small></div>
     `;
 
-    // Show or hide the overlay
     debugOverlay.style.display = isVisible ? 'block' : 'none';
 }
 
-/**
- * Toggles the debug overlay visibility
- */
 export function toggleDebugOverlay() {
     const debugOverlay = document.getElementById('debug-overlay');
 
@@ -304,18 +246,13 @@ export function toggleDebugOverlay() {
     }
 }
 
-/**
- * Updates the debug overlay content if it exists and is visible
- */
 export function updateDebugOverlay() {
     const debugOverlay = document.getElementById('debug-overlay');
 
-    // Only update if overlay exists and is visible
     if (!debugOverlay || debugOverlay.style.display === 'none') {
         return;
     }
 
-    // Update content with fresh data
     const memory = getMemoryInfo();
 
     debugOverlay.innerHTML = `
@@ -326,9 +263,6 @@ export function updateDebugOverlay() {
     `;
 }
 
-/**
- * Get memory information
- */
 function getMemoryInfo() {
     if (typeof performance === 'undefined' || !performance.memory) {
         return { usedJSHeapSize: null };
@@ -339,45 +273,24 @@ function getMemoryInfo() {
     };
 }
 
-/**
- * Whether an overlay is on screen and so worth gathering data for. All of these overlays start
- * out hidden, and the gathering is not free - the stats display in particular summarises its
- * whole history - so the check belongs ahead of the work rather than inside the function that
- * finally writes the markup.
- *
- * @param {string} id - The overlay element's id
- * @returns {boolean} True if the overlay exists and is displayed
- */
 function isOverlayVisible(id) {
     const overlay = document.getElementById(id);
     return !!overlay && overlay.style.display !== 'none';
 }
 
-/**
- * Whether the stats overlay is on screen. Exposed so the animation loop can leave the GPU timer
- * queries that feed it alone while it is hidden.
- *
- * @returns {boolean} True if the stats overlay is displayed
- */
 export function isStatsOverlayVisible() {
     return isOverlayVisible('stats-overlay');
 }
 
-/**
- * Updates the state display with current system information
- * Call this every frame - it returns early when the overlay is hidden
- */
 export function updateStateDisplay(animationManager) {
     if (!isOverlayVisible('state-overlay')) return;
 
-    // Get current target from InputController (globally accessible)
     let targetName = 'Unknown';
     let bodyPosition = { x: 0, y: 0, z: 0 };
     if (typeof window !== 'undefined' && window.InputController) {
         const currentTarget = window.InputController.getCurrentTarget();
         targetName = currentTarget?.name || 'Unknown';
 
-        // Get the body position if available
         if (currentTarget?.body?.group?.position) {
             const pos = currentTarget.body.group.position;
             bodyPosition = {
@@ -388,24 +301,19 @@ export function updateStateDisplay(animationManager) {
         }
     }
 
-    // Get current speed from clock manager and convert to display scale. When the physics cannot
-    // keep up, what was asked for is shown alongside so the shortfall is not a mystery.
     const speed = clockManager.getSpeedMultiplier() * 100.0;
     const requestedSpeed = clockManager.isSpeedLimitedByPhysics()
         ? clockManager.getRequestedSpeedMultiplier() * 100.0
         : null;
 
-    // Get zoom distance from camera to target
     let zoomDistance = 0;
     if (SceneManager.camera && SceneManager.controls?.target) {
         zoomDistance = SceneManager.camera.position.distanceTo(SceneManager.controls.target);
     }
 
-    // Get state from various managers
     const bloomEnabled = SceneManager.isBloomEnabled() || false;
     const markersVisible = animationManager.getMarkersVisibility();
 
-    // Check if orbit trails/lines are visible - we'll need to track this
     const orbitLinesVisible = animationManager.getOrbitLinesVisibility();
     const trailsVisible = animationManager.getTrailsVisibility();
 
@@ -423,10 +331,6 @@ export function updateStateDisplay(animationManager) {
     });
 }
 
-/**
- * Updates the stats display with performance data
- * Call this every frame - it will check if overlay is visible and return early if not needed
- */
 export function updateStatsDisplay(performanceStats) {
     if (!isOverlayVisible('stats-overlay')) return;
 
@@ -442,9 +346,6 @@ export function updateStatsDisplay(performanceStats) {
     });
 }
 
-/**
- * Toggles the stats overlay visibility
- */
 export function toggleStatsOverlay() {
     const statsOverlay = document.getElementById('stats-overlay');
 

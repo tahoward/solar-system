@@ -10,9 +10,6 @@ void main() {
     vUv = uv;
     vNormal = normalize(normalMatrix * normal);
 
-    // Position relative to the planet center, along world axes, for shadow
-    // calculations. Kept planet-relative so it stays precise however far the
-    // body drifts from the origin.
     vSurfaceOffset = mat3(modelMatrix) * position;
 
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -32,57 +29,43 @@ varying vec2 vUv;
 varying vec3 vSurfaceOffset;
 varying vec3 vNormal;
 
-// planetToRing is the ring point relative to the planet center. Passed in that
-// form rather than differenced from absolute world positions here: at
-// skybox-scale distances float32 coordinates quantize coarser than the ring
-// radius, which collapses the difference and shadows the whole ring in blocks.
 float calculatePlanetShadow(vec3 planetToRing) {
     if (!hasPlanetShadow) return 1.0;
 
     vec3 sunDirection = normalize(lightDirection);
 
-    // Project ring position onto the sun direction (shadow axis)
     float projectionLength = dot(planetToRing, sunDirection);
 
-    // Only consider points behind the planet (negative projection)
     if (projectionLength > 0.0) {
-        return 1.0; // Ring is on sun side, no shadow
+        return 1.0;
     }
 
-    // Calculate perpendicular distance from shadow axis
     vec3 shadowAxis = projectionLength * sunDirection;
     vec3 perpendicular = planetToRing - shadowAxis;
     float perpDistance = length(perpendicular);
 
-    // Shadow radius is equal to planet radius (circular shadow)
     if (perpDistance <= planetRadius) {
-        return 0.001; // Completely black shadow
+        return 0.001;
     }
 
-    return 1.0; // No shadow
+    return 1.0;
 }
 
 void main() {
-    // Sample ring texture
     vec4 baseColor = texture2D(ringTexture, vUv);
 
-    // Use uniform lighting for rings (no normal-based dimming)
     vec3 lightDir = normalize(lightDirection);
     vec3 normal = normalize(vNormal);
 
-    // For rings, use more uniform lighting to avoid unwanted darkening
     float lightIntensity = 0.8 + 0.2 * max(dot(normal, lightDir), 0.0);
 
-    // Calculate planet shadow on ring
     float shadowFactor = calculatePlanetShadow(vSurfaceOffset);
 
-    // Apply lighting and shadows
     vec3 ambient = baseColor.rgb * lightColor * 0.1;
     vec3 diffuse = baseColor.rgb * lightColor * lightIntensity;
 
     vec3 litColor = ambient + diffuse;
 
-    // Apply shadow to the entire final color, not just diffuse
     vec3 finalColor = litColor * shadowFactor;
     float finalOpacity = baseColor.a * opacity;
 
@@ -90,10 +73,6 @@ void main() {
 }
 `;
 
-/**
- * RingShaderMaterial - A custom shader material for rings with planet shadow casting
- * Based on BaseCelestialShaderMaterial with ring-specific features
- */
 class RingShaderMaterial extends BaseCelestialShaderMaterial {
     constructor(options = {}) {
         const ringSpecificUniforms = {
@@ -106,32 +85,22 @@ class RingShaderMaterial extends BaseCelestialShaderMaterial {
 
         super({
             ...options,
-            supportsShadows: false, // Rings don't need the complex shadow system
+            supportsShadows: false,
             additionalUniforms: ringSpecificUniforms,
             materialOptions: {
                 vertexShader: vertexShader,
                 fragmentShader: fragmentShader,
                 transparent: true,
-                side: THREE.FrontSide, // Match original ring material
+                side: THREE.FrontSide,
                 alphaTest: 0.1
             }
         });
     }
 
-    // Inherited methods: updateLighting(), setLightColor()
-
-    /**
-     * Set planet parameters for shadow casting
-     * @param {number} radius - Planet radius
-     */
     setPlanetRadius(radius) {
         this.uniforms.planetRadius.value = radius;
     }
 
-    /**
-     * Enable or disable planet shadows
-     * @param {boolean} enabled - Whether planet shadows are enabled
-     */
     setPlanetShadowEnabled(enabled) {
         this.uniforms.hasPlanetShadow.value = enabled;
     }

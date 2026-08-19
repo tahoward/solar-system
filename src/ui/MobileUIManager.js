@@ -1,13 +1,3 @@
-/**
- * MobileUIManager - Mobile UI Management for Solar System
- *
- * Handles mobile-specific UI functionality including:
- * - Hamburger menu functionality and interactions
- * - Mobile-optimized status displays
- * - Touch event handling
- * - Mobile device detection and adaptations
- */
-
 import { log } from '../utils/Logger.js';
 
 class MobileUIManager {
@@ -24,7 +14,6 @@ class MobileUIManager {
     }
 
     init() {
-        // Wait for DOM to be ready
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => this.setupElements());
         } else {
@@ -35,11 +24,9 @@ class MobileUIManager {
     }
 
     setupElements() {
-        // Get DOM elements
         this.hamburgerBtn = document.getElementById('hamburger-btn');
         this.mobileMenu = document.getElementById('mobile-menu');
 
-        // Get status display elements
         this.statusElements = {
             target: document.getElementById('current-target'),
             speed: document.getElementById('current-speed'),
@@ -54,21 +41,18 @@ class MobileUIManager {
 
         this.setupEventListeners();
 
-        // Set up periodic status updates
         this.startStatusUpdates();
 
         log.info('MobileUI', 'Mobile UI elements setup complete');
     }
 
     setupEventListeners() {
-        // Hamburger button toggle
         this.hamburgerBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
             this.toggleMenu();
         });
 
-        // Menu button clicks
         this.mobileMenu.addEventListener('click', (e) => {
             if (e.target.classList.contains('menu-btn')) {
                 e.preventDefault();
@@ -77,7 +61,6 @@ class MobileUIManager {
             }
         });
 
-        // Close menu when clicking outside
         document.addEventListener('click', (e) => {
             if (this.isMenuOpen &&
                 !this.mobileMenu.contains(e.target) &&
@@ -86,31 +69,26 @@ class MobileUIManager {
             }
         });
 
-        // Prevent menu from closing when clicking inside it
         this.mobileMenu.addEventListener('click', (e) => {
             e.stopPropagation();
         });
 
-        // Handle touch events for better mobile experience
         this.setupTouchEvents();
 
         log.info('MobileUI', 'Event listeners setup complete');
     }
 
     setupTouchEvents() {
-        // Prevent double-tap zoom on buttons
         const buttons = this.mobileMenu.querySelectorAll('.menu-btn');
         buttons.forEach(button => {
             button.addEventListener('touchend', (e) => {
                 e.preventDefault();
-                // Trigger click after preventing default
                 setTimeout(() => {
                     button.click();
                 }, 10);
             });
         });
 
-        // Handle hamburger button touch
         this.hamburgerBtn.addEventListener('touchend', (e) => {
             e.preventDefault();
             setTimeout(() => {
@@ -132,7 +110,6 @@ class MobileUIManager {
         this.hamburgerBtn.classList.add('active');
         this.mobileMenu.classList.add('active');
 
-        // Update status when menu opens
         this.updateStatus();
 
         log.debug('MobileUI', 'Mobile menu opened');
@@ -201,20 +178,15 @@ class MobileUIManager {
                     return;
             }
 
-            // Update status after action
             setTimeout(() => this.updateStatus(), 100);
-
-            // Menu stays open after all actions for easier use
 
         } catch (error) {
             log.error('MobileUI', `Error handling action ${action}:`, error);
         }
     }
 
-    // Navigation actions
     focusSun() {
         if (typeof window !== 'undefined' && window.SceneManager) {
-            // Press spacebar programmatically
             const event = new KeyboardEvent('keydown', { code: 'Space', key: ' ' });
             document.dispatchEvent(event);
         }
@@ -222,7 +194,6 @@ class MobileUIManager {
 
     navigateToPreviousBody() {
         if (typeof window !== 'undefined' && window.SceneManager) {
-            // Press left arrow programmatically
             const event = new KeyboardEvent('keydown', { code: 'ArrowLeft', key: 'ArrowLeft' });
             document.dispatchEvent(event);
         }
@@ -230,7 +201,6 @@ class MobileUIManager {
 
     navigateToNextBody() {
         if (typeof window !== 'undefined' && window.SceneManager) {
-            // Press right arrow programmatically
             const event = new KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight' });
             document.dispatchEvent(event);
         }
@@ -238,13 +208,11 @@ class MobileUIManager {
 
     resetCamera() {
         if (typeof window !== 'undefined' && window.SceneManager) {
-            // Press backspace programmatically
             const event = new KeyboardEvent('keydown', { code: 'Backspace', key: 'Backspace' });
             document.dispatchEvent(event);
         }
     }
 
-    // Speed control actions
     increaseSpeed() {
         const event = new KeyboardEvent('keydown', { code: 'KeyQ', key: 'q' });
         document.dispatchEvent(event);
@@ -260,7 +228,6 @@ class MobileUIManager {
         document.dispatchEvent(event);
     }
 
-    // Display toggle actions
     toggleTrails() {
         const event = new KeyboardEvent('keydown', { code: 'KeyT', key: 't' });
         document.dispatchEvent(event);
@@ -301,11 +268,9 @@ class MobileUIManager {
         document.dispatchEvent(event);
     }
 
-    // Status updates
     updateStatus() {
         try {
             if (typeof window !== 'undefined') {
-                // Get current target from InputController
                 let currentTarget = null;
                 if (window.InputController && window.InputController.getCurrentTarget) {
                     currentTarget = window.InputController.getCurrentTarget();
@@ -317,7 +282,6 @@ class MobileUIManager {
                     this.statusElements.target.textContent = 'Unknown';
                 }
 
-                // Get animation speed from clock manager
                 if (this.statusElements.speed) {
                     let speed = 1.0;
                     try {
@@ -331,11 +295,9 @@ class MobileUIManager {
                     this.statusElements.speed.textContent = speedText;
                 }
 
-                // Get physics mode from SIMULATION
                 if (this.statusElements.physics) {
                     try {
-                        // Import SIMULATION from constants if available
-                        let physicsMode = 'N-Body'; // Default
+                        let physicsMode = 'N-Body';
                         if (typeof window !== 'undefined' && window.SIMULATION) {
                             physicsMode = window.SIMULATION.getPhysicsMode();
                         }
@@ -345,7 +307,6 @@ class MobileUIManager {
                     }
                 }
 
-                // Get camera distance
                 if (window.SceneManager && window.SceneManager.camera && window.SceneManager.controls && this.statusElements.distance) {
                     const distance = window.SceneManager.camera.position.distanceTo(
                         window.SceneManager.controls.target
@@ -361,7 +322,6 @@ class MobileUIManager {
         }
     }
 
-    // Set references to other managers
     setInputController(inputController) {
         this.inputController = inputController;
         log.debug('MobileUI', 'Input controller reference set');
@@ -372,9 +332,7 @@ class MobileUIManager {
         log.debug('MobileUI', 'Animation manager reference set');
     }
 
-    // Start periodic status updates
     startStatusUpdates() {
-        // Update status every 500ms when menu is open
         this.statusUpdateInterval = setInterval(() => {
             if (this.isMenuOpen) {
                 this.updateStatus();
@@ -382,7 +340,6 @@ class MobileUIManager {
         }, 500);
     }
 
-    // Public API
     isOpen() {
         return this.isMenuOpen;
     }
@@ -396,7 +353,6 @@ class MobileUIManager {
         if (container) {
             container.style.display = 'none';
             this.isContainerHidden = true;
-            // Also close menu if it's open
             this.closeMenu();
         }
     }
@@ -417,7 +373,6 @@ class MobileUIManager {
         }
     }
 
-    // Cleanup
     dispose() {
         if (this.hamburgerBtn) {
             this.hamburgerBtn.removeEventListener('click', this.toggleMenu);
@@ -429,7 +384,6 @@ class MobileUIManager {
 
         document.removeEventListener('click', this.closeMenu);
 
-        // Clear status update interval
         if (this.statusUpdateInterval) {
             clearInterval(this.statusUpdateInterval);
             this.statusUpdateInterval = null;
@@ -439,9 +393,7 @@ class MobileUIManager {
     }
 }
 
-// Create singleton instance
 const mobileUI = new MobileUIManager();
 
-// Export both the class and the singleton
 export default mobileUI;
 export { MobileUIManager };

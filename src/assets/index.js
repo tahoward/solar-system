@@ -1,4 +1,3 @@
-// Planet textures - ES module imports ensure they're bundled by Vite
 import mercuryTexture from '../../assets/mercury.jpg'
 import venusTexture from '../../assets/venus_atmosphere.jpg'
 import earthTexture from '../../assets/earth.jpg'
@@ -23,13 +22,10 @@ import neptuneTexture from '../../assets/neptune.jpg'
 import plutoTexture from '../../assets/pluto.jpg'
 import charonTexture from '../../assets/charon.jpg'
 
-// Environment textures
 import nightSkyTexture from '../../assets/night_sky.jpg'
 
-// UI assets
 import markerSVG from '../../assets/marker.svg'
 
-// Export all assets for easy importing
 export const TEXTURES = {
   mercury: mercuryTexture,
   venus: venusTexture,
@@ -58,7 +54,6 @@ export const TEXTURES = {
   marker: markerSVG
 }
 
-// Individual exports for direct imports
 export {
   mercuryTexture,
   venusTexture,

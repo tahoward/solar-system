@@ -6,24 +6,19 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { BLOOM, SCENE, STAR_VISIBILITY } from '../constants.js';
 import { log } from '../utils/Logger.js';
 
-// Scratch vector reused when computing the bloom resolution on resize
 const _bloomResolution = new THREE.Vector2();
 
-/**
- * BloomManager handles selective bloom effects for stars in the solar system
- */
 export class BloomManager {
     constructor(scene, camera, renderer) {
         this.scene = scene;
         this.camera = camera;
         this.renderer = renderer;
 
-        // Bloom enable/disable flag - disable on mobile devices for performance
         const isMobile = this.isMobileDevice();
-        this.enabled = !isMobile;  // Actual bloom state (controlled by distance and user preference)
-        this.userEnabled = !isMobile;  // User's preference for bloom (what they want when not close to stars)
-        this.manuallyControlled = false;  // Track if user has manually overridden bloom (either enabled or disabled)
-        this.mobileDevice = isMobile;   // Store mobile status to prevent re-enabling
+        this.enabled = !isMobile;
+        this.userEnabled = !isMobile;
+        this.manuallyControlled = false;
+        this.mobileDevice = isMobile;
 
         log.info('BloomManager', '🌟 BloomManager initialized', {
             isMobile: isMobile,
@@ -35,24 +30,17 @@ export class BloomManager {
             log.info('BloomManager', '🌟 Mobile device detected - bloom disabled for performance');
         }
 
-        // Bloom configuration - use constants for centralized control
         this.bloomConfig = {
-            strength: BLOOM.STRENGTH,      // Bloom strength from constants
-            radius: BLOOM.RADIUS,          // Bloom radius from constants
-            threshold: BLOOM.THRESHOLD     // Threshold - only emissive materials > 1.0 will bloom
+            strength: BLOOM.STRENGTH,
+            radius: BLOOM.RADIUS,
+            threshold: BLOOM.THRESHOLD
         };
 
-        // Track star objects for distance-based bloom control
-        this.starObjects = new Map(); // Map of starObject -> { material, baseEmissiveIntensity }
+        this.starObjects = new Map();
 
         this.initializePostProcessing();
     }
 
-    /**
-     * Detect if the current device is a mobile device
-     * @returns {boolean} True if mobile device detected
-     * @private
-     */
     isMobileDevice() {
         if (typeof window === 'undefined' || typeof navigator === 'undefined') {
             log.info('BloomManager', '🌟 BloomManager: No window/navigator - assuming desktop');
@@ -62,7 +50,6 @@ export class BloomManager {
         const userAgent = navigator.userAgent.toLowerCase();
         const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
 
-        // Also check for touch capability and screen size
         const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
         const isSmallScreen = window.innerWidth <= 768 || window.innerHeight <= 768;
 
@@ -80,104 +67,66 @@ export class BloomManager {
         return result;
     }
 
-    /**
-     * Work out the resolution the bloom mip chain should be built at.
-     *
-     * This has to be measured against the renderer's drawing buffer, not window.innerWidth.
-     * UnrealBloomPass blurs with a fixed kernel measured in texels, so if its render targets
-     * are smaller than the canvas the blur gets proportionally wider and coarser on screen.
-     * On a HiDPI display the canvas is up to 2x the CSS size, so sizing from CSS pixels
-     * halves the bloom resolution and visibly smears the star.
-     *
-     * @param {THREE.Vector2} target - Vector to write the resolution into
-     * @returns {THREE.Vector2} Bloom resolution in drawing-buffer pixels
-     * @private
-     */
     #getBloomResolution(target) {
         this.renderer.getDrawingBufferSize(target);
         return target.multiplyScalar(BLOOM.RESOLUTION_MULTIPLIER);
     }
 
-    /**
-     * Initialize the post-processing pipeline
-     */
     initializePostProcessing() {
-        // Create simple composer with selective bloom
         this.composer = new EffectComposer(this.renderer);
 
-        // The composer's render targets carry no multisampling of their own, and the OutputPass
-        // that ends the chain draws a full-screen quad - so antialiasing asked of the canvas has
-        // no geometry edges left to work on, and the scene comes out aliased however many samples
-        // the canvas was given. Asking these targets for the samples instead puts the
-        // multisampling where the scene is actually drawn. Has to be set before the first render,
-        // while the framebuffers are still to be built.
         this.composer.renderTarget1.samples = SCENE.MSAA_SAMPLES;
         this.composer.renderTarget2.samples = SCENE.MSAA_SAMPLES;
 
-        // Add render pass
         const renderPass = new RenderPass(this.scene, this.camera);
         this.composer.addPass(renderPass);
 
-        // Create bloom pass with threshold 1.0 for selective bloom
         const bloomPass = new UnrealBloomPass(
             this.#getBloomResolution(new THREE.Vector2()),
             this.bloomConfig.strength,
             this.bloomConfig.radius,
-            this.bloomConfig.threshold  // 1.0 threshold - only emissive > 1.0 blooms
+            this.bloomConfig.threshold
         );
         this.bloomPass = bloomPass;
         this.composer.addPass(bloomPass);
 
-        // Add output pass
         const outputPass = new OutputPass();
         this.composer.addPass(outputPass);
     }
 
-    /**
-     * Register a star object for distance-based bloom control
-     * @param {THREE.Object3D} starObject - The star object (Body.group)
-     */
     registerStar(starObject) {
-        // Find the star's material (usually in starObject.children[0].material)
         let starMaterial = null;
-        let baseEmissiveIntensity = 2.0; // Default fallback
+        let baseEmissiveIntensity = 2.0;
         let starRays = null;
         let starFlares = null;
-        const meshes = []; // Cache mesh references for visibility updates (optimization)
-        const lights = []; // Cache light references (optimization)
-        const orbitLines = []; // Cache orbit line references (optimization)
+        const meshes = [];
+        const lights = [];
+        const orbitLines = [];
 
-        // Look for the star material in the object hierarchy (done once during registration)
         starObject.traverse((child) => {
-            // Cache meshes for later visibility updates
             if (child.isMesh && child.material) {
                 meshes.push(child);
 
-                // Check for regular materials with emissiveIntensity property
                 if (child.material.emissiveIntensity !== undefined) {
                     starMaterial = child.material;
                     baseEmissiveIntensity = child.material.emissiveIntensity;
                 }
 
-                // Check for shader materials with setEmissiveIntensity method (like SunShaderMaterial)
                 if (typeof child.material.setEmissiveIntensity === 'function' && child.material.uEmissiveIntensity) {
                     starMaterial = child.material;
                     baseEmissiveIntensity = child.material.uEmissiveIntensity.value;
                 }
             }
 
-            // Cache lights for later visibility preservation
             if (child.isLight) {
                 lights.push(child);
             }
 
-            // Cache orbit lines for visibility preservation
             if (child.isLineSegments2) {
                 orbitLines.push(child);
             }
         });
 
-        // Check for sun rays and flares on the star object (Body instance)
         if (starObject.sunRays && typeof starObject.sunRays.setEmissiveIntensity === 'function') {
             starRays = starObject.sunRays;
         }
@@ -187,13 +136,11 @@ export class BloomManager {
         }
 
         if (starMaterial) {
-            // Store base brightness value for restoration
-            let baseBrightness = 1.4; // Default fallback
+            let baseBrightness = 1.4;
             if (starMaterial.uBrightness) {
                 baseBrightness = starMaterial.uBrightness.value;
             }
 
-            // Extract radiusScale from the Body instance for proportional bloom distances
             const radiusScale = starObject.bodyInstance?.radiusScale || 1.0;
 
             this.starObjects.set(starObject, {
@@ -204,53 +151,38 @@ export class BloomManager {
                 flares: starFlares,
                 baseRaysIntensity: starRays ? starRays.getEmissiveIntensity() : null,
                 baseFlaresIntensity: starFlares ? starFlares.getEmissiveIntensity() : null,
-                radiusScale: radiusScale,  // Store for distance scaling
-                meshes: meshes,  // Cached mesh references (optimization)
-                lights: lights,  // Cached light references (optimization)
-                orbitLines: orbitLines  // Cached orbit line references (optimization)
+                radiusScale: radiusScale,
+                meshes: meshes,
+                lights: lights,
+                orbitLines: orbitLines
             });
         } else {
             log.warn('BloomManager', 'Could not find star material for bloom control in:', starObject.name || 'unnamed');
         }
     }
 
-    /**
-     * Unregister a star object from distance-based bloom control
-     */
     unregisterStar(starObject) {
         this.starObjects.delete(starObject);
     }
 
-    /**
-     * Update bloom intensity and star visibility based on camera distance to stars
-     * @param {THREE.Vector3} cameraPosition - Current camera position
-     */
     updateBloomIntensity(cameraPosition) {
-        // Find the closest star to determine overall bloom strength
-        let closestScaledDistance = Infinity;  // Use scaled distance for comparison
+        let closestScaledDistance = Infinity;
         let closestStarName = 'unknown';
         let bloomStrength = this.bloomConfig.strength;
 
-        // Update each registered star's visibility and emissive intensity based on camera distance
         for (const [starObject, starData] of this.starObjects) {
             const actualDistance = cameraPosition.distanceTo(starObject.position);
-            // For bloom logic, we compare actual distance against scaled thresholds
-            // This way larger stars (higher radiusScale) have larger disable distances
 
-            // Track closest actual distance and associated star data for bloom logic
             const effectiveDisableDistance = BLOOM.DISABLE_DISTANCE * starData.radiusScale;
 
             if (actualDistance < closestScaledDistance) {
                 closestScaledDistance = actualDistance;
                 closestStarName = starObject.name || 'unnamed star';
-                // Store the star data for the closest star so we can use its radiusScale for thresholds
                 this.closestStarData = starData;
             }
 
-            // Control star mesh visibility based on actual distance (while keeping glare visible)
             this.updateStarMeshVisibility(starObject, starData, actualDistance);
 
-            // Keep material emissive intensity high for bloom detection
             if (typeof starData.material.setEmissiveIntensity === 'function') {
                 starData.material.setEmissiveIntensity(starData.baseEmissiveIntensity);
             } else {
@@ -258,109 +190,78 @@ export class BloomManager {
             }
         }
 
-        // Calculate scaled thresholds based on the closest star's radiusScale
         const radiusScale = this.closestStarData ? this.closestStarData.radiusScale : 1.0;
         const scaledMaxDistance = BLOOM.MAX_BLOOM_DISTANCE * radiusScale;
         const scaledFadeStartDistance = BLOOM.FADE_START_DISTANCE * radiusScale;
         const scaledFadeEndDistance = BLOOM.FADE_END_DISTANCE * radiusScale;
         const scaledDisableDistance = BLOOM.DISABLE_DISTANCE * radiusScale;
 
-        // Adjust overall bloom pass strength based on closest star distance
-        // Use scaled thresholds that are proportional to star size
         if (closestScaledDistance >= scaledMaxDistance) {
-            // No bloom when beyond max scaled distance units from stars
             bloomStrength = 0;
         } else if (closestScaledDistance >= scaledFadeStartDistance) {
-            // Bloom increases from 0 to full strength (max distance → fade start distance)
             const fadeRatio = (scaledMaxDistance - closestScaledDistance) / (scaledMaxDistance - scaledFadeStartDistance);
             bloomStrength = this.bloomConfig.strength * fadeRatio;
         } else if (closestScaledDistance >= scaledFadeEndDistance) {
-            // Bloom decreases from full to 0 (fade start distance → fade end distance)
             const fadeRatio = (closestScaledDistance - scaledFadeEndDistance) / (scaledFadeStartDistance - scaledFadeEndDistance);
             bloomStrength = this.bloomConfig.strength * fadeRatio;
         } else {
-            // No bloom when closer than fade end distance
             bloomStrength = 0;
         }
 
-        // Distance-based bloom control - always disable when close to stars
         const shouldDisable = closestScaledDistance <= scaledDisableDistance;
 
         if (shouldDisable) {
-            // ALWAYS disable bloom when close to stars, regardless of user preference
             this.enabled = false;
         } else {
-            // When far from stars, use user's preference (if manually controlled) or automatic control
             if (this.manuallyControlled) {
-                // User has manually controlled bloom - use their preference (allow on mobile if user wants it)
                 this.enabled = this.userEnabled;
             } else {
-                // No manual control - use automatic distance-based control (disabled on mobile by default for performance)
                 this.enabled = !this.mobileDevice;
             }
         }
 
-        // Always set strength if enabled
         if (this.enabled) {
-            this.bloomPass.strength = bloomStrength;  // Use calculated strength
+            this.bloomPass.strength = bloomStrength;
         }
 
     }
 
-    /**
-     * Update star mesh visibility based on distance (keeping glare effects visible)
-     * @param {THREE.Object3D} starObject - The star object
-     * @param {Object} starData - Star data from registration
-     * @param {number} distance - Distance from camera to star
-     */
     updateStarMeshVisibility(starObject, starData, distance) {
         if (!STAR_VISIBILITY.HIDE_MESH_BY_DEFAULT) {
-            return; // Visibility control disabled
+            return;
         }
 
-        // Calculate opacity based on distance
         let starMeshOpacity = 1.0;
 
         if (distance > STAR_VISIBILITY.MAX_VISIBILITY_DISTANCE) {
-            // Beyond max distance - hide star mesh completely
             starMeshOpacity = 0.0;
         } else if (distance > STAR_VISIBILITY.MAX_VISIBILITY_DISTANCE - STAR_VISIBILITY.FADE_TRANSITION_RANGE) {
-            // In fade zone - smooth transition
             const fadeRatio = (STAR_VISIBILITY.MAX_VISIBILITY_DISTANCE - distance) / STAR_VISIBILITY.FADE_TRANSITION_RANGE;
             starMeshOpacity = Math.max(0, Math.min(1, fadeRatio));
         } else if (distance > STAR_VISIBILITY.MIN_VISIBILITY_DISTANCE) {
-            // Within visibility range - fully visible
             starMeshOpacity = 1.0;
         } else {
-            // Very close - might want to fade for close approach
             starMeshOpacity = 1.0;
         }
 
-        // Apply visibility using cached references instead of traverse (optimization)
-
-        // Preserve orbit lines visibility (don't override user's 'L' key toggle)
         if (starData.orbitLines) {
             for (const line of starData.orbitLines) {
                 if (line.visible) {
-                    line.visible = true; // Keep it visible
+                    line.visible = true;
                 }
             }
         }
 
-        // Always preserve lights
         if (starData.lights) {
             for (const light of starData.lights) {
                 light.visible = true;
             }
         }
 
-        // Update star mesh materials (not glare effects)
         if (starData.meshes) {
             for (const mesh of starData.meshes) {
                 if (mesh.material === starData.material ||
                     (mesh.material.type && !mesh.material.type.includes('Glare'))) {
-
-                    // Set transparency and visibility for star mesh only
                     if (starMeshOpacity < 1.0) {
                         mesh.material.transparent = true;
                         mesh.material.opacity = starMeshOpacity;
@@ -373,12 +274,10 @@ export class BloomManager {
             }
         }
 
-        // Also ensure the emittedLight property is always visible
         if (starObject.emittedLight) {
             starObject.emittedLight.visible = true;
         }
 
-        // Ensure glare effects remain visible if configured to do so
         if (STAR_VISIBILITY.KEEP_GLARE_VISIBLE && starObject.sunGlare) {
             starObject.sunGlare.mesh.visible = true;
             if (starObject.sunGlare.mesh.material) {
@@ -386,7 +285,6 @@ export class BloomManager {
             }
         }
 
-        // Keep other effects visible (rays, flares, etc.)
         if (STAR_VISIBILITY.KEEP_GLARE_VISIBLE) {
             if (starObject.sunRays && starObject.sunRays.mesh) {
                 starObject.sunRays.mesh.visible = true;
@@ -397,45 +295,21 @@ export class BloomManager {
         }
     }
 
-    /**
-     * Render the scene with built-in selective bloom
-     */
     render() {
         if (this.enabled) {
-            // Render with bloom effect using composer
             this.composer.render();
         } else {
-            // Render without bloom effect using standard renderer.
-            //
-            // This deliberately bypasses the composer rather than just switching the bloom pass
-            // off. The composer's targets are half-float, so a star's emissive - which runs well
-            // above 1.0 to trip the bloom threshold - and the additive glare layers over it keep
-            // their range all the way to the output. Rendering straight to the canvas clamps them
-            // at each step instead, and that flatter look is half of what turning bloom off means
-            // here: leaving the composer in the way makes the toggle look like it does nothing.
             this.renderer.render(this.scene, this.camera);
         }
     }
 
-
-    /**
-     * Handle window resize
-     * @param {number} width - New window width
-     * @param {number} height - New window height
-     */
     handleResize(width, height) {
-        // Resize composer (this already forwards drawing-buffer sizes to every pass)
         this.composer.setSize(width, height);
 
-        // Re-apply the bloom quality multiplier on top of the drawing-buffer size
         const resolution = this.#getBloomResolution(_bloomResolution);
         this.bloomPass.setSize(resolution.x, resolution.y);
     }
 
-    /**
-     * Update bloom configuration
-     * @param {Object} config - New bloom configuration
-     */
     updateBloomConfig(config) {
         if (config.strength !== undefined) {
             this.bloomConfig.strength = config.strength;
@@ -452,45 +326,27 @@ export class BloomManager {
 
     }
 
-    /**
-     * Toggle bloom effect on/off
-     * @returns {boolean} True if bloom is now enabled, false if disabled
-     */
     toggleBloom() {
         this.userEnabled = !this.userEnabled;
-        this.manuallyControlled = true;  // User has manually overridden bloom
-        return this.userEnabled;  // Return user's preference
+        this.manuallyControlled = true;
+        return this.userEnabled;
     }
 
-    /**
-     * Enable bloom effect (allows on mobile if explicitly called)
-     */
     enableBloom() {
         this.userEnabled = true;
         this.manuallyControlled = true;
     }
 
-    /**
-     * Disable bloom effect
-     */
     disableBloom() {
         this.userEnabled = false;
         this.manuallyControlled = true;
     }
 
-    /**
-     * Check if bloom is currently enabled (user's preference)
-     * @returns {boolean} True if bloom is enabled by user
-     */
     isBloomEnabled() {
-        return this.userEnabled;  // Return user's preference, not actual state
+        return this.userEnabled;
     }
 
-    /**
-     * Dispose of resources
-     */
     dispose() {
-        // Dispose composer
         this.composer.dispose();
     }
 }

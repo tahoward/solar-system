@@ -1,9 +1,5 @@
 import { log } from '../utils/Logger.js';
 
-/**
- * Manages visibility of orbits, markers, and orbit trails based on hierarchical relationships
- * Uses unified visibility logic and maintains global visibility state for all visual elements
- */
 export class VisibilityManager {
     constructor(hierarchyManager) {
         this.hierarchyManager = hierarchyManager;
@@ -11,8 +7,6 @@ export class VisibilityManager {
         this.markers = new Set();
         this.orbitTrails = new Set();
 
-        // Global visibility states - VisibilityManager is the source of truth
-        // Start with orbits hidden as they get hidden by initial hierarchical visibility logic
         this.globalOrbitLinesVisible = true;
         this.globalMarkersVisible = true;
         this.globalOrbitTrailsVisible = true;
@@ -21,10 +15,6 @@ export class VisibilityManager {
         log.init('VisibilityManager', 'VisibilityManager');
     }
 
-    /**
-     * Register an orbit for visibility management
-     * @param {Object} orbit - The orbit to register
-     */
     registerOrbit(orbit) {
         if (!orbit) {
             log.warn('VisibilityManager', 'Cannot register null or undefined orbit');
@@ -34,10 +24,6 @@ export class VisibilityManager {
         this.orbits.add(orbit);
     }
 
-    /**
-     * Register a marker for visibility management
-     * @param {Object} marker - The marker to register
-     */
     registerMarker(marker) {
         if (!marker) {
             log.warn('VisibilityManager', 'Cannot register null or undefined marker');
@@ -47,10 +33,6 @@ export class VisibilityManager {
         this.markers.add(marker);
     }
 
-    /**
-     * Register a body with orbit trail for visibility management
-     * @param {Object} body - The body with orbit trail to register
-     */
     registerOrbitTrail(body) {
         if (!body || !body.orbitTrail) {
             log.warn('VisibilityManager', 'Cannot register body without orbit trail');
@@ -59,16 +41,11 @@ export class VisibilityManager {
 
         this.orbitTrails.add(body);
 
-        // Enable the orbit trail if globally enabled
         if (this.globalOrbitTrailsVisible && body.setOrbitTrailEnabled) {
             body.setOrbitTrailEnabled(true);
         }
     }
 
-    /**
-     * Unregister an orbit from visibility management
-     * @param {Object} orbit - The orbit to unregister
-     */
     unregisterOrbit(orbit) {
         if (!orbit) return;
 
@@ -78,10 +55,6 @@ export class VisibilityManager {
         }
     }
 
-    /**
-     * Unregister a marker from visibility management
-     * @param {Object} marker - The marker to unregister
-     */
     unregisterMarker(marker) {
         if (!marker) return;
 
@@ -91,10 +64,6 @@ export class VisibilityManager {
         }
     }
 
-    /**
-     * Unregister a body with orbit trail from visibility management
-     * @param {Object} body - The body to unregister
-     */
     unregisterOrbitTrail(body) {
         if (!body) return;
 
@@ -104,76 +73,46 @@ export class VisibilityManager {
         }
     }
 
-    /**
-     * Update visibility of all orbits, markers, and orbit trails based on selected body
-     * Uses unified visibility logic for all items
-     * @param {Object} selectedBody - The currently selected body
-     */
     updateVisibility(selectedBody) {
         const selectedBodyName = selectedBody.name;
         const hierarchyData = this.hierarchyManager.getHierarchyData(selectedBodyName);
         const selectedBodyParent = hierarchyData.parent;
 
-        // Apply unified visibility logic to orbits, markers, and orbit trails
         this.orbits.forEach(orbit => this.applyVisibilityLogic(orbit, selectedBodyName, selectedBodyParent, 'orbit'));
         this.markers.forEach(marker => this.applyVisibilityLogic(marker, selectedBodyName, selectedBodyParent, 'marker'));
         this.orbitTrails.forEach(body => this.applyVisibilityLogic(body, selectedBodyName, selectedBodyParent, 'orbitTrail'));
     }
 
-    /**
-     * Update visibility of only orbits based on selected body
-     * @param {Object} selectedBody - The currently selected body
-     */
     updateOrbitVisibility(selectedBody) {
         const selectedBodyName = selectedBody.name;
         const hierarchyData = this.hierarchyManager.getHierarchyData(selectedBodyName);
         const selectedBodyParent = hierarchyData.parent;
 
-        // Apply visibility logic only to orbits
         this.orbits.forEach(orbit => this.applyVisibilityLogic(orbit, selectedBodyName, selectedBodyParent, 'orbit'));
     }
 
-    /**
-     * Update visibility of only markers based on selected body
-     * @param {Object} selectedBody - The currently selected body
-     */
     updateMarkerVisibility(selectedBody) {
         const selectedBodyName = selectedBody.name;
         const hierarchyData = this.hierarchyManager.getHierarchyData(selectedBodyName);
         const selectedBodyParent = hierarchyData.parent;
 
-        // Apply visibility logic only to markers
         this.markers.forEach(marker => this.applyVisibilityLogic(marker, selectedBodyName, selectedBodyParent, 'marker'));
     }
 
-    /**
-     * Update visibility of only orbit trails based on selected body
-     * @param {Object} selectedBody - The currently selected body
-     */
     updateOrbitTrailVisibility(selectedBody) {
         const selectedBodyName = selectedBody.name;
         const hierarchyData = this.hierarchyManager.getHierarchyData(selectedBodyName);
         const selectedBodyParent = hierarchyData.parent;
 
-        // Apply visibility logic only to orbit trails
         this.orbitTrails.forEach(body => this.applyVisibilityLogic(body, selectedBodyName, selectedBodyParent, 'orbitTrail'));
     }
 
-    /**
-     * Apply unified visibility logic to an item (orbit, marker, or orbitTrail)
-     * @param {Object} item - The orbit, marker, or body with orbit trail
-     * @param {string} selectedBodyName - Name of the selected body
-     * @param {string|null} selectedBodyParent - Parent of the selected body
-     * @param {string} type - 'orbit', 'marker', or 'orbitTrail' for different show/hide behavior
-     */
     applyVisibilityLogic(item, selectedBodyName, selectedBodyParent, type) {
         let itemBodyName;
 
         if (type === 'orbitTrail') {
-            // For orbit trails, the item is the body itself
             itemBodyName = item.name;
         } else {
-            // For orbits and markers, the item has a body property
             if (!item?.body?.name) return;
             itemBodyName = item.body.name;
         }
@@ -181,15 +120,10 @@ export class VisibilityManager {
         const itemHierarchyData = this.hierarchyManager.getHierarchyData(itemBodyName);
 
         if (!itemHierarchyData) {
-            // Default to hidden for unknown bodies during selection (to be safe)
             this.hideItem(item, type);
             return;
         }
 
-        // Skip the selected body's orbit (orbits don't orbit themselves)
-        // For markers and orbit trails, the selected item gets special handling elsewhere
-        // The root body is the exception: what it draws is the path it takes about the centre of mass
-        // of the system it holds, and that is the thing to look at when the root is the one selected
         const isRootPath = itemHierarchyData.parent === null;
         if (itemBodyName === selectedBodyName && !isRootPath
             && (type === 'orbit' || type === 'orbitTrail')) {
@@ -197,7 +131,6 @@ export class VisibilityManager {
             return;
         }
 
-        // For markers, skip the selected body as it's handled elsewhere
         if (itemBodyName === selectedBodyName && type === 'marker') {
             return;
         }
@@ -218,18 +151,7 @@ export class VisibilityManager {
         }
     }
 
-    /**
-     * Determine if an item should be visible based on unified visibility rules
-     * @param {string} itemBodyName - Name of the item's body
-     * @param {Object} itemHierarchyData - Hierarchy data for the item's body
-     * @param {string} selectedBodyName - Name of the selected body
-     * @param {string|null} selectedBodyParent - Parent of the selected body
-     * @param {string} type - 'orbit', 'marker', or 'orbitTrail'
-     * @returns {Object} Object with shouldBeVisible (boolean) and reason (string)
-     * @private
-     */
     _shouldItemBeVisible(itemBodyName, itemHierarchyData, selectedBodyName, selectedBodyParent, type) {
-        // Rule 0: Check global visibility flags first
         if (type === 'orbit' && !this.globalOrbitLinesVisible) {
             return { shouldBeVisible: false, reason: 'orbit lines globally disabled' };
         }
@@ -240,39 +162,25 @@ export class VisibilityManager {
             return { shouldBeVisible: false, reason: 'orbit trails globally disabled' };
         }
 
-        // Rule 1: Direct children of selected body should be visible
         if (itemHierarchyData.parent === selectedBodyName) {
             return { shouldBeVisible: true, reason: `direct child ${type}` };
         }
 
-        // Rule 2: Root body handling
         if (itemHierarchyData.parent === null) {
             if (type === 'orbit' || type === 'orbitTrail') {
-                // The root body has no orbit, but it does have a path: it runs round the centre of
-                // mass of the whole system, pulled about by everything in it. That belongs to no one
-                // body's selection, and is smaller than the body itself until the camera is right up
-                // against it, so it is left visible throughout.
                 return { shouldBeVisible: true, reason: 'root body (path about the barycentre)' };
             } else {
-                // Root body marker should always be visible (unless it's selected)
                 return { shouldBeVisible: true, reason: 'root body' };
             }
         }
 
-        // Rule 3: Parent of selected body should remain visible (for navigation context)
         if (selectedBodyParent && itemBodyName === selectedBodyParent) {
             return { shouldBeVisible: true, reason: `parent ${type} for navigation` };
         }
 
-        // Rule 4: All other items should be hidden
         return { shouldBeVisible: false, reason: `sibling/grandchild/unrelated ${type}` };
     }
 
-    /**
-     * Show an item (orbit, marker, or orbit trail)
-     * @param {Object} item - The item to show
-     * @param {string} type - 'orbit', 'marker', or 'orbitTrail'
-     */
     showItem(item, type) {
         if (type === 'orbit') {
             if (item && typeof item.show === 'function') {
@@ -292,11 +200,6 @@ export class VisibilityManager {
         }
     }
 
-    /**
-     * Hide an item (orbit, marker, or orbit trail)
-     * @param {Object} item - The item to hide
-     * @param {string} type - 'orbit', 'marker', or 'orbitTrail'
-     */
     hideItem(item, type) {
         if (type === 'orbit') {
             if (item && typeof item.hide === 'function') {
@@ -313,60 +216,34 @@ export class VisibilityManager {
         }
     }
 
-    /**
-     * Show all orbits
-     */
     showAllOrbits() {
         this.orbits.forEach(orbit => this.showItem(orbit, 'orbit'));
     }
 
-    /**
-     * Hide all orbits
-     */
     hideAllOrbits() {
         this.orbits.forEach(orbit => this.hideItem(orbit, 'orbit'));
     }
 
-    /**
-     * Show all markers
-     */
     showAllMarkers() {
         this.markers.forEach(marker => this.showItem(marker, 'marker'));
     }
 
-    /**
-     * Hide all markers
-     */
     hideAllMarkers() {
         this.markers.forEach(marker => this.hideItem(marker, 'marker'));
     }
 
-    /**
-     * Show all orbit trails
-     */
     showAllOrbitTrails() {
         this.orbitTrails.forEach(body => this.showItem(body, 'orbitTrail'));
     }
 
-    /**
-     * Hide all orbit trails
-     */
     hideAllOrbitTrails() {
         this.orbitTrails.forEach(body => this.hideItem(body, 'orbitTrail'));
     }
 
-    /**
-     * Toggle visibility of all markers
-     * @param {Object} currentSelectedBody - The currently selected body (optional)
-     * @returns {boolean} True if markers are now visible, false if hidden
-     */
     toggleAllMarkers(currentSelectedBody = null) {
-        // Toggle global state
         this.globalMarkersVisible = !this.globalMarkersVisible;
 
         if (this.globalMarkersVisible) {
-            // Don't show all - respect current hierarchical selection
-            // Only update marker visibility, not orbits or orbit trails
             this.updateMarkerVisibility(currentSelectedBody);
         } else {
             this.hideAllMarkers();
@@ -375,26 +252,14 @@ export class VisibilityManager {
         return this.globalMarkersVisible;
     }
 
-    /**
-     * Check if markers are currently visible
-     * @returns {boolean} True if markers are visible, false if hidden
-     */
     areMarkersVisible() {
         return this.globalMarkersVisible;
     }
 
-    /**
-     * Toggle visibility of all orbits
-     * @param {Object} currentSelectedBody - The currently selected body (optional)
-     * @returns {boolean} True if orbits are now visible, false if hidden
-     */
     toggleAllOrbits(currentSelectedBody = null) {
-        // Toggle global state
         this.globalOrbitLinesVisible = !this.globalOrbitLinesVisible;
 
         if (this.globalOrbitLinesVisible) {
-            // Don't show all - respect current hierarchical selection
-            // Only update orbit visibility, not markers or orbit trails
             this.updateOrbitVisibility(currentSelectedBody);
         } else {
             this.hideAllOrbits();
@@ -403,32 +268,19 @@ export class VisibilityManager {
         return this.globalOrbitLinesVisible;
     }
 
-    /**
-     * Check if orbits are currently visible
-     * @returns {boolean} True if orbits are visible, false if hidden
-     */
     areOrbitsVisible() {
         return this.globalOrbitLinesVisible;
     }
 
-    /**
-     * Toggle orbit trails enabled/disabled for all bodies
-     * @param {Object} currentSelectedBody - The currently selected body (optional)
-     * @returns {boolean} New enabled state
-     */
     toggleOrbitTrails(currentSelectedBody = null) {
-        // Toggle global state
         this.globalOrbitTrailsVisible = !this.globalOrbitTrailsVisible;
 
-        // Apply the state to all orbit trails
         this.orbitTrails.forEach(body => {
             if (body.setOrbitTrailEnabled) {
                 body.setOrbitTrailEnabled(this.globalOrbitTrailsVisible);
             }
         });
 
-        // If we just enabled orbit trails, respect current hierarchical selection
-        // Only update orbit trail visibility, not orbits or markers
         if (this.globalOrbitTrailsVisible) {
             this.updateOrbitTrailVisibility(currentSelectedBody);
         }
@@ -437,17 +289,10 @@ export class VisibilityManager {
         return this.globalOrbitTrailsVisible;
     }
 
-    /**
-     * Check if orbit trails are currently enabled
-     * @returns {boolean} True if orbit trails are enabled, false if disabled
-     */
     areOrbitTrailsVisible() {
         return this.globalOrbitTrailsVisible;
     }
 
-    /**
-     * Clear all orbit trails
-     */
     clearAllOrbitTrails() {
         this.orbitTrails.forEach(body => {
             if (body.clearOrbitTrail) {

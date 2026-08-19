@@ -1,6 +1,3 @@
-/**
- * Loading Screen UI component for texture preloading
- */
 export class LoadingScreen {
     constructor() {
         this.container = null;
@@ -12,11 +9,7 @@ export class LoadingScreen {
         this.createLoadingScreen();
     }
 
-    /**
-     * Create the loading screen HTML elements and styles
-     */
     createLoadingScreen() {
-        // Create container
         this.container = document.createElement('div');
         this.container.id = 'solar-system-loading-screen';
         this.container.style.cssText = `
@@ -37,7 +30,6 @@ export class LoadingScreen {
             transition: opacity 0.5s ease-out;
         `;
 
-        // Create title
         const title = document.createElement('h1');
         title.textContent = 'Solar System';
         title.style.cssText = `
@@ -49,7 +41,6 @@ export class LoadingScreen {
             letter-spacing: 0.1em;
         `;
 
-        // Create status text
         this.statusText = document.createElement('div');
         this.statusText.textContent = 'Loading...';
         this.statusText.style.cssText = `
@@ -60,7 +51,6 @@ export class LoadingScreen {
             color: #999999;
         `;
 
-        // Create progress container
         const progressContainer = document.createElement('div');
         progressContainer.style.cssText = `
             width: 300px;
@@ -72,7 +62,6 @@ export class LoadingScreen {
             margin-bottom: 1rem;
         `;
 
-        // Create progress bar
         this.progressBar = document.createElement('div');
         this.progressBar.style.cssText = `
             height: 100%;
@@ -81,7 +70,6 @@ export class LoadingScreen {
             transition: width 0.4s ease-out;
         `;
 
-        // Create progress text
         this.progressText = document.createElement('div');
         this.progressText.textContent = '';
         this.progressText.style.cssText = `
@@ -91,20 +79,15 @@ export class LoadingScreen {
             margin-top: 0.5rem;
         `;
 
-        // Assemble elements
         progressContainer.appendChild(this.progressBar);
         this.container.appendChild(title);
         this.container.appendChild(this.statusText);
         this.container.appendChild(progressContainer);
         this.container.appendChild(this.progressText);
 
-        // Add CSS animations
         this.addAnimations();
     }
 
-    /**
-     * Add CSS keyframe animations
-     */
     addAnimations() {
         if (document.getElementById('loading-screen-styles')) return;
 
@@ -119,9 +102,6 @@ export class LoadingScreen {
         document.head.appendChild(style);
     }
 
-    /**
-     * Show the loading screen
-     */
     show() {
         if (!this.isVisible) {
             document.body.appendChild(this.container);
@@ -131,11 +111,6 @@ export class LoadingScreen {
         this.container.style.display = 'flex';
     }
 
-    /**
-     * Hide the loading screen with fade animation
-     * @param {number} duration - Fade duration in milliseconds (default: 500)
-     * @returns {Promise} Promise that resolves when fade is complete
-     */
     hide(duration = 500) {
         return new Promise(resolve => {
             if (!this.isVisible) {
@@ -155,58 +130,33 @@ export class LoadingScreen {
         });
     }
 
-    /**
-     * Update loading progress
-     * @param {number} loaded - Number of textures loaded
-     * @param {number} total - Total number of textures
-     * @param {number} percentage - Completion percentage (0-100)
-     */
     updateProgress(loaded, total, percentage) {
         this.progressBar.style.width = `${percentage}%`;
         this.progressText.textContent = `${Math.round(percentage)}%`;
     }
 
-    /**
-     * Update status message
-     * @param {string} message - Status message to display
-     */
     updateStatus(message) {
         this.statusText.textContent = message;
     }
 
-    /**
-     * Show completion message
-     */
     showComplete() {
         this.statusText.textContent = 'Ready';
         this.progressText.textContent = '';
     }
 
-    /**
-     * Show error message
-     * @param {string} errorMessage - Error message to display
-     */
     showError(errorMessage) {
         this.statusText.textContent = 'Error loading';
         this.statusText.style.color = '#ff6b6b';
         this.progressBar.style.background = '#ff6b6b';
     }
 
-    /**
-     * Check if loading screen is currently visible
-     * @returns {boolean} True if visible
-     */
     isShown() {
         return this.isVisible;
     }
 
-    /**
-     * Clean up the loading screen
-     */
     dispose() {
         this.hide(0);
 
-        // Remove styles
         const styles = document.getElementById('loading-screen-styles');
         if (styles) {
             styles.remove();

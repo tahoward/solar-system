@@ -20,13 +20,10 @@ varying vec3  vNormal;
 uniform float uAlphaBlended;
 
 void main(void){
-    // Create smooth falloff along the flare
     float alpha = smoothstep(1.0, 0.0, abs(vUVY));
     alpha *= alpha;
     alpha *= vOpacity;
-    alpha *= getAlpha(vNormal);  // Lighting-based visibility
-
-    // No occlusion for now - keep flares always visible
+    alpha *= getAlpha(vNormal);
 
     gl_FragColor = vec4(vColor * alpha, alpha * uAlphaBlended);
 }

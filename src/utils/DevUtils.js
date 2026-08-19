@@ -1,45 +1,28 @@
-/**
- * Development utilities and debugging aids for the solar system application
- * Provides tools for debugging, performance analysis, and development workflow
- */
-
 import configService, { debugConfig } from './ConfigService.js';
 import logger, { log } from './Logger.js';
 
-/**
- * Development console commands and debugging utilities
- */
 class DevConsole {
     constructor() {
         this.commands = new Map();
         this.history = [];
         this.maxHistory = 50;
 
-        // Register default commands
         this._registerDefaultCommands();
 
-        // Expose to global scope in development
         if (configService.get('DEBUG.CONSOLE_ENABLED', true)) {
             this._exposeToGlobal();
         }
     }
 
-    /**
-     * Register default development commands
-     * @private
-     */
     _registerDefaultCommands() {
-        // System information
         this.register('info', () => this._getSystemInfo(), 'Show system information');
 
         this.register('cleanup', () => {
-            // Stop animation first - force stop the renderer animation loop
             log.info('DevUtils', '🧹 Cleanup: Stopping animation...');
             if (typeof window !== 'undefined' && window.SceneManager?.renderer) {
                 window.SceneManager.renderer.setAnimationLoop(null);
             }
 
-            // Clear the entire scene as a nuclear option
             log.info('DevUtils', '🧹 Cleanup: Clearing scene...');
             let sceneChildrenBefore = 0;
             let sceneChildrenAfter = 0;
@@ -48,13 +31,11 @@ class DevConsole {
                 sceneChildrenBefore = window.SceneManager.scene.children.length;
                 log.info('DevUtils', `🧹 Scene children before cleanup: ${sceneChildrenBefore}`);
 
-                // Remove all children from the scene
                 const childrenToRemove = [...window.SceneManager.scene.children];
                 childrenToRemove.forEach((child, index) => {
                     log.info('DevUtils', `🧹 Removing child ${index}: ${child.type} (${child.name || 'unnamed'})`);
                     window.SceneManager.scene.remove(child);
 
-                    // Dispose of the child if it has dispose methods
                     if (child.geometry?.dispose) {
                         child.geometry.dispose();
                         log.info('DevUtils', `🧹 Disposed geometry for ${child.type}`);
@@ -68,10 +49,8 @@ class DevConsole {
                 sceneChildrenAfter = window.SceneManager.scene.children.length;
                 log.info('DevUtils', `🧹 Scene children after cleanup: ${sceneChildrenAfter}`);
 
-                // The skybox is a scene background, not a child, so clearing children misses it
                 window.SceneManager.skyboxManager?.removeSkybox(window.SceneManager.scene);
 
-                // Force a render to update the display
                 if (window.SceneManager.renderer && window.SceneManager.camera) {
                     log.info('DevUtils', '🧹 Forcing render update...');
                     window.SceneManager.renderer.render(window.SceneManager.scene, window.SceneManager.camera);
@@ -96,30 +75,21 @@ class DevConsole {
             };
         }, 'Clean up all resources and clear scene');
 
-        // Configuration
         this.register('config', (category = null) => {
             return category ? configService.getCategory(category.toUpperCase()) : configService.getSummary();
         }, 'Show configuration (optional category)');
 
-        // Logging
         this.register('logs', (count = 20) => {
             return logger.getHistory(parseInt(count));
         }, 'Show recent log entries');
 
-        // Performance
         this.register('perf', () => this._getPerformanceInfo(), 'Show performance information');
 
-        // Scene debugging
         this.register('scene', () => this._getSceneInfo(), 'Show scene information');
 
-        // Help command
         this.register('help', () => this._getHelpInfo(), 'Show available commands');
     }
 
-    /**
-     * Expose development console to global scope
-     * @private
-     */
     _exposeToGlobal() {
         if (typeof window !== 'undefined') {
             window.dev = {
@@ -140,22 +110,10 @@ class DevConsole {
         }
     }
 
-    /**
-     * Register a new console command
-     * @param {string} name - Command name
-     * @param {Function} handler - Command handler function
-     * @param {string} [description] - Command description
-     */
     register(name, handler, description = '') {
         this.commands.set(name, { handler, description });
     }
 
-    /**
-     * Run a console command
-     * @param {string} command - Command name
-     * @param {...any} args - Command arguments
-     * @returns {any} Command result
-     */
     run(command, ...args) {
         const cmd = this.commands.get(command);
         if (!cmd) {
@@ -177,10 +135,6 @@ class DevConsole {
         }
     }
 
-    /**
-     * Get system information
-     * @private
-     */
     _getSystemInfo() {
         return {
             environment: configService.getSummary(),
@@ -191,10 +145,6 @@ class DevConsole {
         };
     }
 
-    /**
-     * Get browser information
-     * @private
-     */
     _getBrowserInfo() {
         if (typeof navigator === 'undefined') return 'Not available';
 
@@ -207,10 +157,6 @@ class DevConsole {
         };
     }
 
-    /**
-     * Get WebGL information
-     * @private
-     */
     _getWebGLInfo() {
         if (typeof document === 'undefined') return 'Not available';
 
@@ -233,10 +179,6 @@ class DevConsole {
         }
     }
 
-    /**
-     * Get memory information
-     * @private
-     */
     _getMemoryInfo() {
         if (typeof performance === 'undefined' || !performance.memory) {
             return 'Memory information not available';
@@ -249,10 +191,6 @@ class DevConsole {
         };
     }
 
-    /**
-     * Get performance information
-     * @private
-     */
     _getPerformanceInfo() {
         return {
             navigation: typeof performance !== 'undefined' ? performance.getEntriesByType('navigation') : [],
@@ -264,13 +202,8 @@ class DevConsole {
         };
     }
 
-    /**
-     * Get scene information (requires SceneManager)
-     * @private
-     */
     _getSceneInfo() {
         try {
-            // Try to access SceneManager - this would need to be injected in real usage
             return {
                 notice: 'Scene information would require SceneManager injection',
                 suggestion: 'Register scene commands via DevConsole.register() in your main application'
@@ -280,10 +213,6 @@ class DevConsole {
         }
     }
 
-    /**
-     * Get help information
-     * @private
-     */
     _getHelpInfo() {
         const commands = [];
         for (const [name, { description }] of this.commands) {
@@ -302,48 +231,28 @@ class DevConsole {
     }
 }
 
-
-/**
- * Development utilities collection
- */
 class DevUtils {
     constructor() {
         this.console = new DevConsole();
         this.enabled = configService.get('DEBUG.ENABLED', false);
     }
 
-    /**
-     * Initialize development utilities
-     */
     init() {
         if (!this.enabled) return;
 
         log.info('DevUtils', 'Development utilities initialized');
 
-        // Setup keyboard shortcuts
         this._setupKeyboardShortcuts();
 
-        // Expose utilities globally
         if (typeof window !== 'undefined') {
             window.DevUtils = this;
         }
     }
 
-    /**
-     * Setup development keyboard shortcuts
-     * @private
-     */
     _setupKeyboardShortcuts() {
         if (typeof document === 'undefined') return;
 
         document.addEventListener('keydown', (event) => {
-            // Debug overlay now toggles with F3 along with other UI elements
-            // if (event.key === 'F1') {
-            //     event.preventDefault();
-            //     this.toggleOverlay();
-            // }
-
-            // Toggle wireframes with F2
             if (event.key === 'F2') {
                 event.preventDefault();
                 this.toggleWireframes();
@@ -351,28 +260,18 @@ class DevUtils {
         });
     }
 
-
-    /**
-     * Toggle wireframe mode (would need SceneManager integration)
-     */
     toggleWireframes() {
         const currentState = debugConfig('SHOW_WIREFRAMES');
         configService.set('DEBUG.SHOW_WIREFRAMES', !currentState);
         log.info('DevUtils', `Wireframes ${!currentState ? 'enabled' : 'disabled'}`);
     }
 
-    /**
-     * Record performance frame
-     */
     recordFrame() {
-        // Performance frame recording moved to ui.js
     }
 }
 
-// Create singleton instance
 const devUtils = new DevUtils();
 
-// Auto-initialize in development
 if (configService.get('DEBUG.AUTO_INIT', true)) {
     devUtils.init();
 }

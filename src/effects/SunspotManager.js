@@ -27,12 +27,10 @@ class SunspotManager {
 
     _createSpot() {
         let pos;
-        // 60% chance to spawn near an existing active spot
         if (this.spots && this.spots.length > 0 && Math.random() < 0.6) {
             const activeSpots = this.spots.filter(s => s.opacity > 0.5);
             if (activeSpots.length > 0) {
                 const parent = activeSpots[Math.floor(Math.random() * activeSpots.length)];
-                // Offset by 0.05–0.15 from the parent spot
                 const offset = new THREE.Vector3(
                     Math.random() * 2 - 1,
                     Math.random() * 2 - 1,
@@ -77,12 +75,10 @@ class SunspotManager {
             if (spot.age < flareStart) {
                 active = 0.0;
             } else if (spot.age < flareStart + maxFlareLifespan) {
-                // Fade in over one flare cycle
                 active = (spot.age - flareStart) / maxFlareLifespan;
             } else if (spot.age <= flareEnd) {
                 active = 1.0;
             } else if (spot.age < flareEnd + maxFlareLifespan) {
-                // Fade out over one flare cycle so current flares can finish
                 active = 1.0 - (spot.age - flareEnd) / maxFlareLifespan;
             }
             this.flareActive[i] = Math.max(0, Math.min(1, active));

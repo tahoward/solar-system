@@ -1,15 +1,6 @@
 import * as THREE from 'three';
 
-/**
- * ShaderUniformHelper - Utility class for managing common shader uniform operations
- * Reduces code duplication across shader-based visual effects
- */
 class ShaderUniformHelper {
-    /**
-     * Set base color uniform
-     * @param {THREE.ShaderMaterial} material - The shader material to update
-     * @param {number|THREE.Color} color - Color as hex number or THREE.Color object
-     */
     static setBaseColor(material, color) {
         if (!material || !material.uniforms || !material.uniforms.uBaseColor) return;
 
@@ -22,13 +13,6 @@ class ShaderUniformHelper {
         }
     }
 
-    /**
-     * Set visibility-related uniforms
-     * @param {THREE.ShaderMaterial} material - The shader material to update
-     * @param {number} visibility - Visibility value
-     * @param {number} direction - Direction value
-     * @param {THREE.Vector3} lightView - Light direction in view space
-     */
     static setVisibility(material, visibility, direction, lightView) {
         if (!material || !material.uniforms) return;
 
@@ -45,26 +29,13 @@ class ShaderUniformHelper {
         }
     }
 
-    /**
-     * Update time uniform
-     * @param {THREE.ShaderMaterial} material - The shader material to update
-     * @param {number} time - Time value in seconds
-     */
     static updateTime(material, time) {
         if (!material || !material.uniforms || !material.uniforms.uTime) return;
 
-        // Wrap time to prevent floating point precision loss in shaders
-        // Use modulo to keep time within a reasonable range for GPU float32 precision
-        const wrappedTime = time % 1000; // Reset every ~16.7 minutes of simulation time
+        const wrappedTime = time % 1000;
         material.uniforms.uTime.value = wrappedTime;
     }
 
-    /**
-     * Sync visibility uniforms from a source material to a target material
-     * Useful for keeping multiple effects in sync (e.g., sun rays and flares)
-     * @param {THREE.ShaderMaterial} targetMaterial - Material to update
-     * @param {Object} sourceUniforms - Source uniforms object to copy from
-     */
     static syncVisibilityUniforms(targetMaterial, sourceUniforms) {
         if (!targetMaterial || !targetMaterial.uniforms || !sourceUniforms) return;
 

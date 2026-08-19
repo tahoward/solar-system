@@ -7,52 +7,36 @@ import { updateStateDisplay, updateStatsDisplay, updateDebugOverlay, isStatsOver
 import { SIMULATION } from '../constants.js';
 import PerformanceStats from '../utils/PerformanceStats.js';
 
-/**
- * Manages the main animation loop and all animated objects in the solar system
- */
 export class AnimationManager {
     constructor(hierarchy, stats) {
-        // Input validation
         if (!hierarchy || typeof hierarchy !== 'object') {
             throw new Error('AnimationManager constructor: hierarchy must be an object');
         }
 
-        // Extract orbits from hierarchy
         this.orbits = [];
         this._extractOrbits(hierarchy);
 
-        // Store hierarchy reference for future use
         this.hierarchy = hierarchy;
         this.stats = stats;
-        // nBodySystem parameter is deprecated but kept for compatibility
         this.isRunning = false;
 
-        // Get OrbitManager from SceneManager
         this.orbitManager = SceneManager.orbitManager;
 
-        // Initialize performance stats tracker
-        this.performanceStats = new PerformanceStats(60); // 60 samples = ~1 second
+        this.performanceStats = new PerformanceStats(60);
 
-        // Physics timing - simplified for adaptive timestep
         this.lastTime = 0;
-        this.lastFrameTime = 0; // For rotation deltaTime calculation
+        this.lastFrameTime = 0;
 
-        // Kepler system accumulated time
         this.keplerAccumulatedTime = 0;
 
-        // Frame counter for UI update throttling (optimization)
         this.frameCount = 0;
 
-        // Bind the animate method to preserve 'this' context
         this.animate = this.animate.bind(this);
 
         logger.info('AnimationManager', `Initialized with ${SIMULATION.USE_N_BODY_PHYSICS ? 'n-body physics' : 'Kepler orbits'}`);
         logger.info('AnimationManager', 'Using unified ClockManager for time coordination');
     }
 
-    /**
-     * Start the animation loop
-     */
     start() {
         if (this.isRunning) {
             logger.warn('AnimationManager', 'Animation loop is already running');
@@ -60,14 +44,11 @@ export class AnimationManager {
         }
 
         this.isRunning = true;
-        // Initialize the unified clock with proper time scaling for orbital synchronization
         clockManager.start(performance.now());
 
-        // Set orbital time scale (legacy - no longer used with simplified ClockManager)
         clockManager.setOrbitalTimeScale(5.0);
-        clockManager.setSpeedMultiplier(1.0); // 1.0 = 100x speed equivalent for both modes
+        clockManager.setSpeedMultiplier(1.0);
 
-        // Initialize performance stats with stats-gl if available
         if (this.stats) {
             this.performanceStats.setStatsGL(this.stats);
         }
@@ -76,9 +57,6 @@ export class AnimationManager {
         SceneManager.renderer.setAnimationLoop(this.animate);
     }
 
-    /**
-     * Stop the animation loop
-     */
     stop() {
         if (!this.isRunning) {
             logger.warn('AnimationManager', 'Animation loop is not running');
@@ -90,44 +68,26 @@ export class AnimationManager {
         SceneManager.renderer.setAnimationLoop(null);
     }
 
-    /**
-     * Main animation loop function
-     * @param {number} timestamp - Current timestamp from requestAnimationFrame
-     */
     animate(timestamp) {
         if (!this.isRunning) {
             return;
         }
 
         try {
-            // Update stats-gl first if available. It is built with GPU tracking on, which issues
-            // timer queries against the driver every frame, so it is only worth driving while
-            // something is actually reading it - its own panel or the stats overlay.
             if (this.stats && typeof this.stats.update === 'function' && this.#isPerformanceDisplayVisible()) {
                 this.stats.update();
             }
 
-            // Update performance stats (call at start of frame)
             this.performanceStats.update();
 
-            // Update the unified clock system
             clockManager.update(timestamp);
 
-            // Update all planetary orbits using unified clock first
             this.updateOrbits();
 
-            // Two bodies that have arrived at one another are merged, which has to be settled as soon
-            // as they have moved: the step the integrator is prepared to take shortens without limit
-            // as two bodies overlap, so a pass left unresolved holds the whole simulation at a
-            // standstill
             collisionManager.resolveCollisions();
 
-            // Bring the camera along to the positions the bodies have just taken, before the bodies
-            // are asked how large they appear from it - see SceneManager.updateCamera
             SceneManager.updateCamera();
 
-            // Update star rotation and effects using unified clock (after orbit positions are updated)
-            // Use the same accumulated time as orbital positions for synchronized rotation
             const star = this.getFirstStar()
             this.hierarchy.body.update(
                 this.keplerAccumulatedTime,
@@ -135,121 +95,73 @@ export class AnimationManager {
                 star.starLightColor,
             )
 
-            // Render the scene
             this.render();
 
-            // Increment frame counter for UI update throttling
             this.frameCount++;
 
-            // Update UI overlays less frequently (every 3 frames) for performance
             if (this.frameCount % 3 === 0) {
-                // Update state overlay with current system state
                 updateStateDisplay(this);
 
-                // Update stats overlay with performance data
                 updateStatsDisplay(this.performanceStats);
 
-                // Update debug overlay with live data
                 updateDebugOverlay();
             }
 
-            // Record frame for development tools
             devUtils.recordFrame();
 
         } catch (error) {
             logger.error('AnimationManager', 'Error in animation loop', error);
-            // Continue animation even if one frame fails
         }
     }
 
-    /**
-     * Whether anything on screen is showing the performance figures: stats-gl's own panel, which
-     * is only attached to the page when stats are enabled in config, or the stats overlay.
-     * @returns {boolean} True if the figures are being displayed
-     * @private
-     */
     #isPerformanceDisplayVisible() {
         return !!this.stats?.dom?.isConnected || isStatsOverlayVisible();
     }
 
-    /**
-     * Update all planetary orbits or physics bodies using unified clock with adaptive timestep
-     */
     updateOrbits() {
-        // Get adaptive timestep increment from ClockManager
         const timeIncrement = clockManager.getKeplerTimeIncrement();
         this.keplerAccumulatedTime += timeIncrement;
 
-        // Update all Kepler orbit positions using OrbitManager
         this.orbitManager.updateBodyPositions(this.keplerAccumulatedTime, SceneManager.scale);
     }
 
-
-    /**
-     * Update atmosphere lighting for all bodies with atmospheres
-     */
     getFirstStar() {
-        // This is read every frame, but the star and its light colour don't change, and
-        // the traverse() below walks the whole star group. So the result is cached and
-        // only recomputed when the set of orbits changes.
         if (!this._starCache || this._starCache.orbitCount !== this.orbits.length) {
             this._starCache = this.#findFirstStar();
         }
 
-        // starPosition is a live reference to the star's group position, which is copied
-        // into rather than replaced, so the cached vector stays current.
         return this._starCache;
     }
 
-    /**
-     * Locate the first star in the orbit list and read its light colour
-     * @returns {{starLightColor: number, starPosition: THREE.Vector3|null, orbitCount: number}}
-     * @private
-     */
     #findFirstStar() {
         let starPosition = null;
-        let starLightColor = 0xffffff; // Default white
+        let starLightColor = 0xffffff;
 
         for (const orbit of this.orbits) {
             if (orbit.body.isStar) {
                 starPosition = orbit.body.group.position;
 
-                // Get star light color from the attached light
                 orbit.body.group.traverse((child) => {
                     if (child.isLight && child.color) {
                         starLightColor = child.color.getHex();
                     }
                 });
-                break; // Use first star found
+                break;
             }
         }
 
         return { starLightColor, starPosition, orbitCount: this.orbits.length };
     }
 
-    /**
-     * Render the scene
-     */
     render() {
         SceneManager.render();
     }
 
-    /**
-     * Update performance statistics
-     * Note: Removed duplicate - stats.update() is called at start of animate() loop
-     */
-
-    /**
-     * Pause the animation loop (keeps it registered but stops updates)
-     */
     pause() {
         this.isRunning = false;
         logger.info('AnimationManager', 'Animation paused');
     }
 
-    /**
-     * Resume a paused animation loop
-     */
     resume() {
         if (!this.isRunning) {
             this.isRunning = true;
@@ -257,24 +169,15 @@ export class AnimationManager {
         }
     }
 
-
-    /**
-     * Check if orbit lines are currently visible
-     */
     getOrbitLinesVisibility() {
-        // Get orbit lines state from SceneManager's VisibilityManager
         if (typeof window !== 'undefined' && window.SceneManager) {
             return window.SceneManager.areOrbitsVisible();
         }
 
-        return true; // Default to visible
+        return true;
     }
 
-    /**
-     * Check if orbit trails are currently visible
-     */
     getTrailsVisibility() {
-        // Get orbit trails state from SceneManager's VisibilityManager
         if (SceneManager && typeof SceneManager.areOrbitTrailsVisible === 'function') {
             return SceneManager.areOrbitTrailsVisible();
         }
@@ -282,25 +185,17 @@ export class AnimationManager {
         return true;
     }
 
-    /**
-     * Check if markers are currently visible
-     */
     getMarkersVisibility() {
-        // Check SceneManager for marker visibility
         if (SceneManager && typeof SceneManager.areMarkersVisible === 'function') {
             return SceneManager.areMarkersVisible();
         }
 
-        return true; // Default to visible
+        return true;
     }
 
-    /**
-     * Clean up resources and stop animation
-     */
     dispose() {
         this.stop();
 
-        // Dispose of all orbits and their bodies (including stars)
         if (this.orbits) {
             this.orbits.forEach(orbit => {
                 if (orbit && orbit.body && typeof orbit.body.dispose === 'function') {
@@ -309,23 +204,16 @@ export class AnimationManager {
             });
         }
 
-        // Dispose performance stats
         if (this.performanceStats) {
             this.performanceStats.dispose();
             this.performanceStats = null;
         }
 
-        // Clear references
         this.orbits = [];
         this.hierarchy = null;
         this.stats = null;
     }
 
-    /**
-     * Extract all orbits from hierarchy structure into flat array
-     * @private
-     * @param {Object} node - Hierarchy node to traverse
-     */
     _extractOrbits(node) {
         if (node.orbit) {
             this.orbits.push(node.orbit);

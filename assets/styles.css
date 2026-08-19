@@ -1,12 +1,11 @@
 body, html {
     margin: 0;
     padding: 0;
-    overflow: hidden; /* Prevent scrollbars */
+    overflow: hidden;
     width: 100%;
     height: 100%;
 }
 
-/* Mobile Menu Styles */
 #mobile-menu-container {
     position: fixed;
     top: 20px;
@@ -15,7 +14,6 @@ body, html {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-/* Hamburger Button */
 .hamburger-btn {
     --btn-size: 48px;
     --btn-padding: 8px;
@@ -56,7 +54,6 @@ body, html {
     transform-origin: center;
 }
 
-/* Hamburger animation when menu is open */
 .hamburger-btn.active .hamburger-line:nth-child(1) {
     transform: translateY(calc(var(--line-gap) + var(--line-height))) rotate(45deg);
 }
@@ -69,7 +66,6 @@ body, html {
     transform: translateY(calc(-1 * (var(--line-gap) + var(--line-height)))) rotate(-45deg);
 }
 
-/* Mobile Menu Panel */
 .mobile-menu {
     position: absolute;
     top: 60px;
@@ -96,7 +92,6 @@ body, html {
     visibility: visible;
 }
 
-/* Menu Sections */
 .menu-section {
     padding: 15px;
     border-bottom: 1px solid rgba(0, 255, 0, 0.2);
@@ -113,7 +108,6 @@ body, html {
     font-weight: 600;
 }
 
-/* Menu Buttons */
 .menu-btn {
     display: block;
     width: 100%;
@@ -141,7 +135,6 @@ body, html {
     transform: translateX(2px);
 }
 
-/* Status Display */
 .status-display {
     background: rgba(0, 20, 0, 0.5);
     border-radius: 6px;
@@ -162,19 +155,16 @@ body, html {
     font-weight: 500;
 }
 
-/* Hide desktop overlays by default (but allow F3 toggle) */
 #controls-overlay,
 #state-overlay,
 #stats-overlay {
     display: none;
 }
 
-/* Hide debug overlay by default (but allow F1 toggle) */
 #debug-overlay {
     display: none;
 }
 
-/* Responsive Design */
 @media (max-width: 768px) {
     .hamburger-btn {
         --btn-size: 44px;
@@ -205,7 +195,7 @@ body, html {
         max-width: calc(100vw - 50px);
         top: 50px;
         max-height: calc(100vh - 80px);
-        max-height: calc(100dvh - 80px); /* Use dynamic viewport height on supported browsers */
+        max-height: calc(100dvh - 80px);
     }
 
     .menu-section {
@@ -218,15 +208,13 @@ body, html {
     }
 }
 
-/* Desktop - Keep mobile menu visible for now (for testing) */
 @media (min-width: 769px) {
     #mobile-menu-container {
-        display: block; /* Changed from none to block for testing */
-        opacity: 0.9; /* Slightly transparent on desktop so you can see it */
+        display: block;
+        opacity: 0.9;
     }
 }
 
-/* Touch-friendly improvements */
 @media (hover: none) and (pointer: coarse) {
     .menu-btn {
         min-height: 44px;
@@ -239,7 +227,6 @@ body, html {
     }
 }
 
-/* Scrollbar styling for menu */
 .mobile-menu::-webkit-scrollbar {
     width: 6px;
 }

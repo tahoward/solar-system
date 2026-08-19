@@ -6,42 +6,24 @@ import { cancelSystemDrift } from '../physics/barycentre.js';
 import { TARGETING, MARKER, ORBIT, SIMULATION, MASS_DROP } from '../constants.js';
 import { toggleControlsOverlay, toggleStateOverlay, toggleStatsOverlay, toggleDebugOverlay } from '../ui/OverlayManager.js';
 
-/**
- * Handles all keyboard and mouse input for the solar system application
- */
 export class InputController {
     constructor(targetableBodies, animationManager = null) {
         this.targetableBodies = targetableBodies;
         this.animationManager = animationManager;
         this.currentTargetIndex = TARGETING.INITIAL_TARGET_INDEX;
-        this.pressOrigin = null;  // Where the current pointer press started, for click detection
-
-        // Global orbit line visibility state
-        // Orbit visibility is now managed by SceneManager/VisibilityManager
+        this.pressOrigin = null;
 
         this.setupEventListeners();
 
-        // The list of things worth pointing the camera at is taken once at startup, and a body that
-        // has been swallowed is no longer one of them: left in, cycling through targets would arrive
-        // at a body with nothing left to look at
         collisionManager.onBodyRemoved((survivor, removed) => this.forgetTarget(survivor, removed));
-        // Target info now shown in state overlay
     }
 
-    /**
-     * Drop a body that has left the scene from the target list, following whatever swallowed it if
-     * it was the one being watched
-     * @param {Object|null} survivor - What to follow instead
-     * @param {Object} removed - The body that has gone
-     */
     forgetTarget(survivor, removed) {
         const index = this.targetableBodies.findIndex(entry => entry.body === removed);
         if (index === -1) return;
 
         this.targetableBodies.splice(index, 1);
 
-        // Everything past the removed body has shifted down one, so the index has to follow it to
-        // stay on the body it was on
         if (index < this.currentTargetIndex) {
             this.currentTargetIndex--;
         } else if (index === this.currentTargetIndex) {
@@ -50,16 +32,10 @@ export class InputController {
         }
     }
 
-    /**
-     * Get the root body (highest in hierarchy) for reset operations
-     * @returns {Object|null} The root body object, or null if not found
-     */
     getRootBody() {
-        // Get root body name from hierarchy manager
         const rootBodyName = SceneManager.hierarchyManager.getRootBodyName();
         if (!rootBodyName) return null;
 
-        // Find the corresponding body in targetableBodies
         const rootBodyData = this.targetableBodies.find(body =>
             body.name.toLowerCase() === rootBodyName.toLowerCase()
         );
@@ -67,51 +43,32 @@ export class InputController {
         return rootBodyData ? rootBodyData.body : null;
     }
 
-    /**
-     * Set up all event listeners for input handling
-     */
     setupEventListeners() {
-        // Keyboard controls
         document.addEventListener('keydown', (event) => this.handleKeydown(event));
 
-        // Planet selection events from marker clicks
         window.addEventListener('planetSelected', (event) => this.handlePlanetSelection(event));
 
-        // Shift-click drops a mass into the simulation
         const canvas = SceneManager.renderer.domElement;
         canvas.addEventListener('pointerdown', (event) => this.handlePointerDown(event));
         canvas.addEventListener('pointerup', (event) => this.handlePointerUp(event));
     }
 
-    /**
-     * Remember where a press started, so a drag can be told from a click
-     * @param {PointerEvent} event - The pointer event
-     */
     handlePointerDown(event) {
         this.pressOrigin = { x: event.clientX, y: event.clientY, button: event.button };
     }
 
-    /**
-     * Drop a mass if this was a shift-click rather than a shift-drag of the camera
-     * @param {PointerEvent} event - The pointer event
-     */
     handlePointerUp(event) {
         const press = this.pressOrigin;
         this.pressOrigin = null;
 
         if (!event.shiftKey || !press || press.button !== 0 || event.button !== 0) return;
 
-        // Shift-dragging turns the camera, and that must not leave a wake of stars behind it
         const travelled = Math.hypot(event.clientX - press.x, event.clientY - press.y);
         if (travelled > MASS_DROP.DRAG_TOLERANCE_PIXELS) return;
 
         massDropManager.dropAt(event.clientX, event.clientY);
     }
 
-    /**
-     * Handle keyboard input
-     * @param {KeyboardEvent} event - The keyboard event
-     */
     handleKeydown(event) {
         switch(event.key) {
             case 'ArrowLeft':
@@ -120,61 +77,60 @@ export class InputController {
             case 'ArrowRight':
                 this.switchToNextTarget();
                 break;
-            case ' ': // Spacebar to reset to Sun
+            case ' ':
                 this.resetToRoot();
                 break;
-            case 's': // 's' key for smooth transition
+            case 's':
                 this.smoothTransitionToCurrent();
                 break;
-            case '=': // '+' key to increase marker size
+            case '=':
             case '+':
                 this.adjustMarkerSize(MARKER.SIZE_INCREMENT);
                 break;
-            case '-': // '-' key to decrease marker size
+            case '-':
                 this.adjustMarkerSize(-MARKER.SIZE_INCREMENT);
                 break;
-            case 'Backspace': // Backspace to reset camera to initial position
+            case 'Backspace':
                 this.resetCamera();
                 break;
-            case 'q': // 'q' key to increase simulation speed
+            case 'q':
             case 'Q':
                 this.increaseSpeed();
                 break;
-            case 'a': // 'a' key to decrease simulation speed
+            case 'a':
             case 'A':
                 this.decreaseSpeed();
                 break;
-            case 'w': // 'w' key to reset to normal speed
+            case 'w':
             case 'W':
                 this.resetSpeed();
                 break;
-            case 't': // 't' key to toggle orbit trails
+            case 't':
             case 'T':
                 this.toggleOrbitTrails();
                 break;
-            case 'l': // 'l' key to toggle orbit lines
+            case 'l':
             case 'L':
                 this.toggleOrbitLines();
                 break;
-            case 'm': // 'm' key to toggle marker visibility
+            case 'm':
             case 'M':
                 this.toggleMarkerVisibility();
                 break;
-            case 'p': // 'p' key to toggle physics mode
+            case 'p':
             case 'P':
                 this.togglePhysicsMode();
                 break;
-            case 'b': // 'b' key to toggle bloom effect
+            case 'b':
             case 'B':
                 this.toggleBloom();
                 break;
-            case 'F3': // F3 key to toggle all overlays
-                event.preventDefault(); // Prevent browser default behavior
+            case 'F3':
+                event.preventDefault();
                 toggleControlsOverlay();
                 toggleStateOverlay();
                 toggleStatsOverlay();
                 toggleDebugOverlay();
-                // Toggle mobile UI container (hide hamburger icon and menu)
                 if (typeof window !== 'undefined' && window.mobileUI) {
                     window.mobileUI.toggleContainer();
                 }
@@ -182,60 +138,38 @@ export class InputController {
         }
     }
 
-    /**
-     * Switch to the previous target in the list
-     */
     switchToPreviousTarget() {
         this.currentTargetIndex = (this.currentTargetIndex - 1 + this.targetableBodies.length) % this.targetableBodies.length;
         this.transitionToCurrentTarget();
     }
 
-    /**
-     * Switch to the next target in the list
-     */
     switchToNextTarget() {
         this.currentTargetIndex = (this.currentTargetIndex + 1) % this.targetableBodies.length;
         this.transitionToCurrentTarget();
     }
 
-    /**
-     * Reset target to the root body (highest in hierarchy)
-     */
     resetToRoot() {
         const rootBody = this.getRootBody();
         if (rootBody) {
-            this.currentTargetIndex = TARGETING.SUN_INDEX; // Keep using SUN_INDEX for consistency with constants
+            this.currentTargetIndex = TARGETING.SUN_INDEX;
             SceneManager.setTargetSmooth(rootBody.group);
             SceneManager.onBodySelected(rootBody);
         }
-        // Target info now shown in state overlay
     }
 
-    /**
-     * Apply smooth transition to current target
-     */
     smoothTransitionToCurrent() {
         const currentBody = this.targetableBodies[this.currentTargetIndex].body;
         SceneManager.setTargetSmooth(currentBody.group);
         SceneManager.onBodySelected(currentBody);
     }
 
-    /**
-     * Transition to the currently selected target with appropriate method
-     */
     transitionToCurrentTarget() {
         const currentTarget = this.targetableBodies[this.currentTargetIndex];
-        // Use smooth transition for all bodies including Sun
         SceneManager.setTargetSmooth(currentTarget.body.group);
 
         SceneManager.onBodySelected(currentTarget.body);
-        // Target info now shown in state overlay
     }
 
-    /**
-     * Adjust marker size by the given delta
-     * @param {number} delta - The amount to adjust marker size
-     */
     adjustMarkerSize(delta) {
         const currentSize = SceneManager.getMarkerSizeMultiplier();
         const newSize = delta > 0
@@ -243,182 +177,103 @@ export class InputController {
             : Math.max(currentSize - Math.abs(delta), MARKER.MIN_SIZE_MULTIPLIER);
 
         SceneManager.setMarkerSizeMultiplier(newSize);
-        // Target info now shown in state overlay
     }
 
-    /**
-     * Reset camera to initial position
-     */
     resetCamera() {
-        // Reset camera without calling restoreAllMarkers (use camera controller directly)
         SceneManager.cameraController.resetCameraSmooth();
 
-        this.currentTargetIndex = TARGETING.SUN_INDEX; // Reset to root for consistency
+        this.currentTargetIndex = TARGETING.SUN_INDEX;
 
         const rootBody = this.getRootBody();
         if (rootBody) {
-            // Select root body to ensure proper hierarchical state
             SceneManager.onBodySelected(rootBody);
 
-            // Apply minimum zoom limit for the root body to prevent zooming inside
             setTimeout(() => {
                 const { minDistance } = SceneManager.cameraController.calculateZoomLimits(rootBody.group);
                 SceneManager.controls.minDistance = minDistance;
-            }, 100); // Small delay to let the reset animation start
+            }, 100);
         }
-
-        // Target info now shown in state overlay
     }
 
-    /**
-     * Increase simulation speed
-     */
     increaseSpeed() {
-        // Doubling from the requested speed rather than the one being run, because the physics may
-        // be holding the clock back: doubling from the held speed would silently throw away the
-        // setting every time a close approach shortened the integrator's step
-        const currentSpeed = clockManager.getRequestedSpeedMultiplier() * 100.0; // Convert to display scale
-        const newSpeed = Math.min(currentSpeed * ORBIT.SPEED_FACTOR, ORBIT.MAX_SPEED_MULTIPLIER); // Cap at ORBIT limit
+        const currentSpeed = clockManager.getRequestedSpeedMultiplier() * 100.0;
+        const newSpeed = Math.min(currentSpeed * ORBIT.SPEED_FACTOR, ORBIT.MAX_SPEED_MULTIPLIER);
 
         if (SIMULATION.USE_N_BODY_PHYSICS || this.animationManager) {
             clockManager.setSpeedMultiplier(newSpeed / 100.0);
-            // Speed info now shown in state overlay
         }
     }
 
-    /**
-     * Decrease simulation speed
-     */
     decreaseSpeed() {
-        // Halving from whichever is lower, so that asking to slow down always slows something down.
-        // Going by the request alone would do nothing visible while the physics was already holding
-        // the clock below it.
         const currentSpeed = Math.min(clockManager.getSpeedMultiplier(),
-            clockManager.getRequestedSpeedMultiplier()) * 100.0; // Convert to display scale
-        const newSpeed = Math.max(currentSpeed / ORBIT.SPEED_FACTOR, ORBIT.MIN_SPEED_MULTIPLIER); // Cap at ORBIT minimum
+            clockManager.getRequestedSpeedMultiplier()) * 100.0;
+        const newSpeed = Math.max(currentSpeed / ORBIT.SPEED_FACTOR, ORBIT.MIN_SPEED_MULTIPLIER);
 
         if (SIMULATION.USE_N_BODY_PHYSICS || this.animationManager) {
             clockManager.setSpeedMultiplier(newSpeed / 100.0);
-            // Speed info now shown in state overlay
         }
     }
 
-    /**
-     * Reset simulation speed to normal (100x for both systems)
-     */
     resetSpeed() {
         if (SIMULATION.USE_N_BODY_PHYSICS) {
-            // For n-body mode: reset ClockManager speed to 100x equivalent
-            clockManager.setSpeedMultiplier(1.0); // 100x equivalent
-            // Speed info now shown in state overlay
+            clockManager.setSpeedMultiplier(1.0);
         } else if (this.animationManager) {
-            // For Kepler mode: reset ClockManager speed to 100x equivalent
-            clockManager.setSpeedMultiplier(1.0); // 100x equivalent
-            // Speed info now shown in state overlay
+            clockManager.setSpeedMultiplier(1.0);
         }
     }
 
-    // displaySpeedInfo method removed - speed info now shown in state overlay
-
-    /**
-     * Toggle orbit trails visibility (dynamic accumulated paths)
-     */
     toggleOrbitTrails() {
         const currentTarget = this.targetableBodies[this.currentTargetIndex]?.body;
         SceneManager.toggleOrbitTrails(currentTarget);
     }
 
-    /**
-     * Toggle orbit lines visibility (fixed elliptical paths)
-     */
     toggleOrbitLines() {
         const currentTarget = this.targetableBodies[this.currentTargetIndex]?.body;
         SceneManager.toggleAllOrbits(currentTarget);
     }
 
-
-
-    /**
-     * Toggle marker visibility
-     */
     toggleMarkerVisibility() {
         const currentTarget = this.targetableBodies[this.currentTargetIndex]?.body;
         SceneManager.toggleAllMarkers(currentTarget);
     }
 
-    /**
-     * Toggle physics mode between N-Body and Kepler
-     */
     togglePhysicsMode() {
         SIMULATION.togglePhysicsMode();
 
-        // Dropped masses are held up by the integrator alone. Kepler orbits come from a catalogue
-        // that knows nothing about them, so leaving them behind would strand them in mid-air while
-        // the planets sailed through untouched.
         if (!SIMULATION.USE_N_BODY_PHYSICS) {
             massDropManager.clearAll();
             return;
         }
 
-        // The integrator takes over from a catalogue whose orbits are measured from the Sun rather
-        // than from the centre of mass, so their momenta do not cancel and the system it is handed
-        // is already drifting. Left alone that drift is slow - about the speed the Sun really moves
-        // - but it is a standing start the simulation never has to make.
         const root = SceneManager.orbitManager?.hierarchy?.body;
         if (root) cancelSystemDrift(root);
     }
 
-    /**
-     * Toggle bloom effect
-     */
     toggleBloom() {
         SceneManager.toggleBloom();
-        // Message display removed per user request
     }
 
-
-    /**
-     * Handle planet selection from marker clicks
-     * @param {CustomEvent} event - The planet selection event
-     */
     handlePlanetSelection(event) {
         const bodyName = event.detail.bodyName;
 
-        // Update currentTargetIndex to match the clicked planet
         const targetIndex = this.targetableBodies.findIndex(body =>
             body.name.toLowerCase() === bodyName.toLowerCase()
         );
 
         if (targetIndex !== TARGETING.NOT_FOUND_INDEX) {
             this.currentTargetIndex = targetIndex;
-            // Target info now shown in state overlay
         }
     }
 
-    // displayTargetInfo method removed - info now shown in state overlay
-
-    /**
-     * Get the current target index
-     * @returns {number} Current target index
-     */
     getCurrentTargetIndex() {
         return this.currentTargetIndex;
     }
 
-    /**
-     * Get the current target body
-     * @returns {Object} Current target body object
-     */
     getCurrentTarget() {
         return this.targetableBodies[this.currentTargetIndex];
     }
 
-    /**
-     * Get current global orbit line visibility state
-     * @returns {boolean} True if orbit lines should be globally visible
-     */
     getOrbitLinesVisible() {
-        // Delegate to SceneManager for unified state management
         return SceneManager.areOrbitsVisible();
     }
 }

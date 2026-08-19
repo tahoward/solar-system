@@ -1,23 +1,6 @@
-/**
- * Centre-of-mass arithmetic over a body and everything that orbits it.
- *
- * A body's catalogued orbit belongs to the centre of mass of it and its satellites rather than to
- * the body itself, and the point every body in a system really moves about is the centre of mass
- * of the whole system. Both are the same weighted sum over a subtree of the hierarchy, so it lives
- * here rather than being written out again wherever it is needed.
- */
-
-// Scratch values reused by the weighted sums, so that walking the hierarchy allocates nothing
 const _weightedPosition = { x: 0, y: 0, z: 0 };
 const _weightedVelocity = { x: 0, y: 0, z: 0 };
 
-/**
- * The mass of a body together with everything that orbits it, directly or through others - what
- * the rest of the system feels from that body's direction.
- *
- * @param {Object|null} body - Body at the top of the subtree
- * @returns {number} Total mass in solar masses
- */
 export function systemMass(body) {
     if (!body) return 0;
 
@@ -33,14 +16,6 @@ export function systemMass(body) {
     return total;
 }
 
-/**
- * The mass of everything orbiting a body, leaving the body itself out. What share of it any one
- * satellite accounts for decides whether that satellite alone describes where the system's centre
- * of mass is - see Orbit#updateCompanionLine.
- *
- * @param {Object|null} body - Body whose satellites are wanted
- * @returns {number} Total mass of the satellites in solar masses
- */
 export function satelliteMass(body) {
     const children = body?.children;
     if (!children) return 0;
@@ -53,12 +28,6 @@ export function satelliteMass(body) {
     return total;
 }
 
-/**
- * Add one subtree's contribution to a running mass-weighted sum of positions and velocities
- * @param {Object|null} body - Body at the top of the subtree
- * @returns {number} Mass added
- * @private
- */
 function accumulate(body) {
     if (!body) return 0;
 
@@ -92,19 +61,6 @@ function accumulate(body) {
     return total;
 }
 
-/**
- * Where the centre of mass of a body and its satellites is, and how fast it is going: the point
- * that moves as if the whole subtree were one body sitting at it, which is what makes a system of
- * moons stand in for a single mass when its orbit about something further out is worked out.
- *
- * A massless subtree has no such point, so the body's own position and velocity are handed back
- * and the returned mass of zero tells the caller there was nothing to weight.
- *
- * @param {Object} body - Body at the top of the subtree
- * @param {THREE.Vector3} position - Receives the centre of mass, in world space
- * @param {THREE.Vector3} [velocity] - Receives its velocity
- * @returns {number} Total mass of the subtree in solar masses
- */
 export function systemState(body, position, velocity) {
     _weightedPosition.x = _weightedPosition.y = _weightedPosition.z = 0;
     _weightedVelocity.x = _weightedVelocity.y = _weightedVelocity.z = 0;
@@ -124,19 +80,6 @@ export function systemState(body, position, velocity) {
     return mass;
 }
 
-/**
- * Bring a system's centre of mass to rest.
- *
- * The same velocity comes off every body, which is a change of reference frame: every orbit, every
- * separation and every relative speed is left exactly as it was, and only the system's bulk motion
- * across the sky goes. Nothing physical is being corrected - a system left alone conserves its
- * momentum - but a system handed from one description of gravity to another does not, and neither
- * does one that has had a mass taken out of it. Both leave the whole solar system sailing off in
- * some direction unless the drift is taken back out.
- *
- * @param {Object} body - Body at the top of the subtree
- * @returns {number} The speed that was removed, in simulation units
- */
 export function cancelSystemDrift(body) {
     _weightedPosition.x = _weightedPosition.y = _weightedPosition.z = 0;
     _weightedVelocity.x = _weightedVelocity.y = _weightedVelocity.z = 0;
@@ -155,10 +98,6 @@ export function cancelSystemDrift(body) {
     return speed;
 }
 
-/**
- * Take a velocity off every body in a subtree
- * @private
- */
 function subtractVelocity(body, x, y, z) {
     if (!body) return;
 
