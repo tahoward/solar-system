@@ -340,11 +340,35 @@ function getMemoryInfo() {
 }
 
 /**
+ * Whether an overlay is on screen and so worth gathering data for. All of these overlays start
+ * out hidden, and the gathering is not free - the stats display in particular summarises its
+ * whole history - so the check belongs ahead of the work rather than inside the function that
+ * finally writes the markup.
+ *
+ * @param {string} id - The overlay element's id
+ * @returns {boolean} True if the overlay exists and is displayed
+ */
+function isOverlayVisible(id) {
+    const overlay = document.getElementById(id);
+    return !!overlay && overlay.style.display !== 'none';
+}
+
+/**
+ * Whether the stats overlay is on screen. Exposed so the animation loop can leave the GPU timer
+ * queries that feed it alone while it is hidden.
+ *
+ * @returns {boolean} True if the stats overlay is displayed
+ */
+export function isStatsOverlayVisible() {
+    return isOverlayVisible('stats-overlay');
+}
+
+/**
  * Updates the state display with current system information
- * Call this every frame - it will check if overlay is visible and return early if not needed
+ * Call this every frame - it returns early when the overlay is hidden
  */
 export function updateStateDisplay(animationManager) {
-    // The updateStateOverlay function already checks visibility, so we can call it every frame
+    if (!isOverlayVisible('state-overlay')) return;
 
     // Get current target from InputController (globally accessible)
     let targetName = 'Unknown';
@@ -404,7 +428,8 @@ export function updateStateDisplay(animationManager) {
  * Call this every frame - it will check if overlay is visible and return early if not needed
  */
 export function updateStatsDisplay(performanceStats) {
-    // The updateStatsOverlay function already checks visibility, so we can call it every frame
+    if (!isOverlayVisible('stats-overlay')) return;
+
     const currentStats = performanceStats.getCurrentStats();
     const summary = performanceStats.getStatsSummary();
     const timeSeries = performanceStats.getTimeSeries();

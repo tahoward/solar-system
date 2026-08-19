@@ -1,4 +1,5 @@
 import SceneManager from '../managers/SceneManager.js';
+import BodyRenderer from '../rendering/BodyRenderer.js';
 import logger, { log } from './Logger.js';
 
 /**
@@ -139,6 +140,7 @@ class ResourceManager {
      */
     static disposeClouds(body) {
         if (body.clouds) {
+            BodyRenderer.disposeDetailGeometries(body.clouds);
             if (body.clouds.geometry) {
                 body.clouds.geometry.dispose();
             }
@@ -161,6 +163,7 @@ class ResourceManager {
      */
     static disposeAtmosphere(body) {
         if (body.atmosphere) {
+            BodyRenderer.disposeDetailGeometries(body.atmosphere);
             if (body.atmosphere.geometry) {
                 body.atmosphere.geometry.dispose();
             }
@@ -179,6 +182,10 @@ class ResourceManager {
      * @param {Object} body - The body instance
      */
     static disposeGeometryAndMaterial(body) {
+        // Dispose of every detail tier the mesh has built - only the one in use is reachable
+        // through body.geometry, and the body may well have moved on from the starting tier
+        BodyRenderer.disposeDetailGeometries(body.mesh);
+
         // Dispose of geometry
         if (body.geometry && typeof body.geometry.dispose === 'function') {
             body.geometry.dispose();
@@ -226,8 +233,6 @@ class ResourceManager {
         body.geometry = null;
         body.material = null;
         body.mesh = null;
-        body.lodMesh = null;
-        body.lod = null;
         body.pinpointMesh = null;
         body.group = null;
         body.emittedLight = null;

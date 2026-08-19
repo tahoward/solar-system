@@ -3,7 +3,7 @@ import clockManager from './ClockManager.js';
 import collisionManager from './CollisionManager.js';
 import devUtils from '../utils/DevUtils.js';
 import logger from '../utils/Logger.js';
-import { updateStateDisplay, updateStatsDisplay, updateDebugOverlay } from '../ui/OverlayManager.js';
+import { updateStateDisplay, updateStatsDisplay, updateDebugOverlay, isStatsOverlayVisible } from '../ui/OverlayManager.js';
 import { SIMULATION } from '../constants.js';
 import PerformanceStats from '../utils/PerformanceStats.js';
 
@@ -100,12 +100,12 @@ export class AnimationManager {
         }
 
         try {
-            // Update stats-gl first if available
-            if (this.stats && typeof this.stats.update === 'function') {
+            // Update stats-gl first if available. It is built with GPU tracking on, which issues
+            // timer queries against the driver every frame, so it is only worth driving while
+            // something is actually reading it - its own panel or the stats overlay.
+            if (this.stats && typeof this.stats.update === 'function' && this.#isPerformanceDisplayVisible()) {
                 this.stats.update();
             }
-
-            
 
             // Update performance stats (call at start of frame)
             this.performanceStats.update();
@@ -159,6 +159,16 @@ export class AnimationManager {
             logger.error('AnimationManager', 'Error in animation loop', error);
             // Continue animation even if one frame fails
         }
+    }
+
+    /**
+     * Whether anything on screen is showing the performance figures: stats-gl's own panel, which
+     * is only attached to the page when stats are enabled in config, or the stats overlay.
+     * @returns {boolean} True if the figures are being displayed
+     * @private
+     */
+    #isPerformanceDisplayVisible() {
+        return !!this.stats?.dom?.isConnected || isStatsOverlayVisible();
     }
 
     /**

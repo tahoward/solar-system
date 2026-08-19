@@ -86,7 +86,12 @@ export const MASS_DROP = {
 // Scene Configuration
 export const SCENE = {
   SCALE: 0.1,
-  DEFAULT_RADIUS_FALLBACK: 1
+  DEFAULT_RADIUS_FALLBACK: 1,
+
+  // Multisampling applied to the render targets the scene is drawn into. Every frame goes
+  // through the post-processing composer, so this - not the canvas - is where antialiasing has
+  // to be asked for; see BloomManager.initializePostProcessing. 0 disables it.
+  MSAA_SAMPLES: 4
 };
 
 // Camera Configuration moved to CameraController
@@ -306,8 +311,23 @@ export const UI = {
 
 // Geometry Configuration
 export const GEOMETRY = {
-  SPHERE_WIDTH_SEGMENTS: 128,  // High resolution for smooth large stars
-  SPHERE_HEIGHT_SEGMENTS: 128  // High resolution for smooth large stars
+  // Detail tiers a body's spheres can be drawn at, coarsest first. The finest is the 128
+  // segments every body used to be drawn at unconditionally, so a body filling the screen
+  // looks exactly as it did before these tiers existed - but most of the system is a handful
+  // of pixels across, where the coarse tiers are indistinguishable from it and cost a
+  // fraction of the triangles.
+  SPHERE_DETAIL_TIERS: [8, 16, 32, 64, 128],
+
+  // Segments are chosen so a sphere's facets pull in from a true circle by no more than this
+  // many pixels. Half a pixel is below what the antialiasing can show.
+  SPHERE_DETAIL_MAX_ERROR_PIXELS: 0.5,
+
+  // Detail a body starts out at, before the first frame has established how big it looks.
+  SPHERE_DETAIL_INITIAL_SEGMENTS: 32,
+
+  // A tier already in use is kept until the requirement falls this far below it, so a body
+  // sitting on a tier boundary does not rebuild its geometry every frame as the camera drifts.
+  SPHERE_DETAIL_HYSTERESIS: 0.4
 };
 
 // Targeting Configuration

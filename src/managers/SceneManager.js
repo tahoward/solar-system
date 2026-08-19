@@ -34,8 +34,12 @@ class SceneManager {
       CAMERA_CONFIG.FAR_PLANE_SCALE * this.scale
     );
     // Initial camera position will be set by CameraController.initializeCamera()
+    // Canvas antialiasing covers the bloom-off path, which draws to the canvas directly. With
+    // bloom on, the frame reaches the canvas as a full-screen quad that has nothing left to
+    // smooth, so SCENE.MSAA_SAMPLES puts samples on the composer's targets as well - that is
+    // where the scene itself is drawn. See BloomManager.initializePostProcessing.
     this.renderer = new THREE.WebGLRenderer({
-      antialias: true,  // Enable antialiasing for smoother edges
+      antialias: true,
       powerPreference: "high-performance"
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);

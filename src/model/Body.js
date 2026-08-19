@@ -119,11 +119,13 @@ class Body {
         this.orbit = null;
         this.bodyData = bodyData; // Store original data for reference
 
-        // Create basic materials and geometries
+        // Create basic materials and geometries. The geometry starts at a middling detail tier
+        // and is swapped for one suited to the body's on-screen size by updateLOD each frame.
         this.geometry = BodyRenderer.createGeometry(this.radius);
 
         // Create mesh and group structure
         this.mesh = BodyRenderer.createMesh(this.geometry, this.material);
+        BodyRenderer.registerDetailMesh(this.mesh, this.radius);
 
         // Apply initial rotation offset to the mesh
         if (this.rotationOffset !== 0) {
@@ -148,16 +150,11 @@ class Body {
         // Add mesh to tilt container first
         this.tiltContainer.add(this.mesh);
 
-        // Create LOD system with pinpoint light for distant viewing
-        const lodSystem = BodyRenderer.createLODSystem(this.mesh, this.rotationOffset, this.material, this.name);
-        this.lod = lodSystem.lod;
-        this.lodMesh = lodSystem.lodMesh;
-        this.pinpointMesh = lodSystem.pinpointMesh;
-        this.lodNearDistance = lodSystem.lodNearDistance;
-        this.lodFarDistance = lodSystem.lodFarDistance;
+        // Create the pinpoint that keeps the body visible once it is too distant to cover a pixel
+        this.pinpointMesh = BodyRenderer.createPinpointLight(this.material, this.name);
 
-        // Add LOD system to tilt container so it inherits the fixed tilt
-        this.tiltContainer.add(this.lod);
+        // Add pinpoint to tilt container so it inherits the fixed tilt
+        this.tiltContainer.add(this.pinpointMesh);
 
         // Create main group and add tilt container to it
         this.group = BodyRenderer.createGroup(this);
@@ -332,11 +329,11 @@ class Body {
 
 
     /**
-     * Updates the LOD system based on camera distance
-     * @param {THREE.Camera} camera - The camera to calculate distance from
+     * Updates the geometry detail of the body's spheres from how large they appear on screen
+     * @param {THREE.Camera} camera - The camera the body is being viewed from
      */
     updateLOD(camera) {
-        BodyRenderer.updateLOD(this.lod, camera);
+        BodyRenderer.updateDetail(this, camera);
     }
 
 

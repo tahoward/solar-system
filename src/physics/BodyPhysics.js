@@ -74,11 +74,6 @@ class BodyPhysics {
             if (body.mesh) {
                 body.mesh.rotation.y = body.rotationOffset + absoluteRotation;
             }
-
-            // Also rotate LOD mesh to keep them synchronized
-            if (body.lodMesh) {
-                body.lodMesh.rotation.y = body.rotationOffset + absoluteRotation;
-            }
         }
 
         // Rotate clouds independently at their own speed (always applies)
@@ -154,10 +149,6 @@ class BodyPhysics {
 
         if (body.mesh) {
             body.mesh.rotation.y = finalRotation;
-        }
-
-        if (body.lodMesh) {
-            body.lodMesh.rotation.y = finalRotation;
         }
     }
 

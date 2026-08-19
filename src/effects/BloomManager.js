@@ -3,7 +3,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { BLOOM, STAR_VISIBILITY } from '../constants.js';
+import { BLOOM, SCENE, STAR_VISIBILITY } from '../constants.js';
 import { log } from '../utils/Logger.js';
 
 // Scratch vector reused when computing the bloom resolution on resize
@@ -104,6 +104,15 @@ export class BloomManager {
     initializePostProcessing() {
         // Create simple composer with selective bloom
         this.composer = new EffectComposer(this.renderer);
+
+        // The composer's render targets carry no multisampling of their own, and the OutputPass
+        // that ends the chain draws a full-screen quad - so antialiasing asked of the canvas has
+        // no geometry edges left to work on, and the scene comes out aliased however many samples
+        // the canvas was given. Asking these targets for the samples instead puts the
+        // multisampling where the scene is actually drawn. Has to be set before the first render,
+        // while the framebuffers are still to be built.
+        this.composer.renderTarget1.samples = SCENE.MSAA_SAMPLES;
+        this.composer.renderTarget2.samples = SCENE.MSAA_SAMPLES;
 
         // Add render pass
         const renderPass = new RenderPass(this.scene, this.camera);
@@ -396,7 +405,14 @@ export class BloomManager {
             // Render with bloom effect using composer
             this.composer.render();
         } else {
-            // Render without bloom effect using standard renderer
+            // Render without bloom effect using standard renderer.
+            //
+            // This deliberately bypasses the composer rather than just switching the bloom pass
+            // off. The composer's targets are half-float, so a star's emissive - which runs well
+            // above 1.0 to trip the bloom threshold - and the additive glare layers over it keep
+            // their range all the way to the output. Rendering straight to the canvas clamps them
+            // at each step instead, and that flatter look is half of what turning bloom off means
+            // here: leaving the composer in the way makes the toggle look like it does nothing.
             this.renderer.render(this.scene, this.camera);
         }
     }

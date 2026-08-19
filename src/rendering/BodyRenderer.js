@@ -1,9 +1,76 @@
 import * as THREE from 'three';
 import { GEOMETRY } from '../constants.js';
+import SceneManager from '../managers/SceneManager.js';
 import AtmosphereShaderMaterial from '../shaders/AtmosphereShaderMaterial.js';
 import CloudShaderMaterial from '../shaders/CloudShaderMaterial.js';
 import RingShaderMaterial from '../shaders/RingShaderMaterial.js';
 import logger, { log } from '../utils/Logger.js';
+
+// Scratch vector reused when reading the drawing buffer size while choosing detail tiers
+const _bufferSize = new THREE.Vector2();
+
+/**
+ * Segments needed to keep a sphere's silhouette within SPHERE_DETAIL_MAX_ERROR_PIXELS of a true
+ * circle. A sphere drawn with W segments cuts the corner by radius * (1 - cos(π / W)) at each
+ * edge, which over the range of counts in play is radius * π² / (2W²) - so the count that hides
+ * the facets grows with the square root of the on-screen radius. A planet 350px across needs
+ * only 60 segments by this measure; 128 pays off solely when one fills the viewport.
+ *
+ * @param {number} screenRadius - The body's radius in pixels on screen
+ * @returns {number} Segment count required, before being rounded up to a tier
+ */
+function segmentsForScreenRadius(screenRadius) {
+    return Math.PI * Math.sqrt(screenRadius / (2 * GEOMETRY.SPHERE_DETAIL_MAX_ERROR_PIXELS));
+}
+
+/**
+ * Pick the detail tier to draw at, holding onto the one already in use while it remains a
+ * reasonable fit so that geometry is not rebuilt on every small camera movement.
+ *
+ * @param {number} needed - Segment count the body's on-screen size calls for
+ * @param {number} current - Tier currently in use, or 0 if none has been chosen yet
+ * @returns {number} Segment count to draw at
+ */
+function selectDetailTier(needed, current) {
+    const tiers = GEOMETRY.SPHERE_DETAIL_TIERS;
+
+    if (current && needed <= current && needed > current * GEOMETRY.SPHERE_DETAIL_HYSTERESIS) {
+        return current;
+    }
+
+    for (const tier of tiers) {
+        if (tier >= needed) return tier;
+    }
+
+    return tiers[tiers.length - 1];
+}
+
+/**
+ * Point a sphere mesh at the geometry for a given detail tier, building that tier the first time
+ * it is asked for. Tiers are cached on the mesh rather than shared, because every body has its
+ * own radius - and building them on demand means a body only pays for the resolutions it has
+ * actually been viewed at, instead of holding the finest one in memory from startup.
+ *
+ * @param {THREE.Mesh} mesh - The sphere mesh to adjust, carrying its radius in userData
+ * @param {number} segments - The tier to draw at
+ */
+function applyDetailTier(mesh, segments) {
+    if (!mesh || mesh.userData.detailSegments === segments) return;
+
+    let cache = mesh.userData.detailGeometries;
+    if (!cache) {
+        cache = mesh.userData.detailGeometries = new Map();
+    }
+
+    let geometry = cache.get(segments);
+    if (!geometry) {
+        geometry = new THREE.SphereGeometry(mesh.userData.detailRadius, segments, segments);
+        cache.set(segments, geometry);
+    }
+
+    mesh.geometry = geometry;
+    mesh.userData.detailSegments = segments;
+}
 
 /**
  * BodyRenderer - Handles all rendering concerns for celestial bodies
@@ -11,12 +78,30 @@ import logger, { log } from '../utils/Logger.js';
  */
 class BodyRenderer {
     /**
-     * Create sphere geometry for the celestial body
+     * Create sphere geometry for the celestial body. This starts at a middling detail tier and
+     * is replaced on the first frame by whichever tier suits how large the body actually looks
+     * - see updateDetail.
+     *
      * @param {number} radius - The body radius
-     * @returns {THREE.SphereGeometry} The created sphere geometry with configured segments
+     * @returns {THREE.SphereGeometry} The created sphere geometry
      */
     static createGeometry(radius) {
-        return new THREE.SphereGeometry(radius, GEOMETRY.SPHERE_WIDTH_SEGMENTS, GEOMETRY.SPHERE_HEIGHT_SEGMENTS);
+        const segments = GEOMETRY.SPHERE_DETAIL_INITIAL_SEGMENTS;
+        return new THREE.SphereGeometry(radius, segments, segments);
+    }
+
+    /**
+     * Set a sphere mesh up to have its detail managed, recording the radius its geometry has to be
+     * rebuilt at and seeding the tier cache with the geometry it was built with.
+     *
+     * @param {THREE.Mesh} mesh - The sphere mesh, holding geometry from createGeometry
+     * @param {number} radius - The radius its geometry is built at
+     */
+    static registerDetailMesh(mesh, radius) {
+        const segments = GEOMETRY.SPHERE_DETAIL_INITIAL_SEGMENTS;
+        mesh.userData.detailRadius = radius;
+        mesh.userData.detailSegments = segments;
+        mesh.userData.detailGeometries = new Map([[segments, mesh.geometry]]);
     }
 
     /**
@@ -42,48 +127,15 @@ class BodyRenderer {
     }
 
     /**
-     * Create LOD (Level of Detail) system with pinpoint light for distant viewing
-     * @param {THREE.Mesh} mesh - The main mesh to use for LOD
-     * @param {number} rotationOffset - Initial rotation offset to apply
-     * @param {THREE.Material} material - Material for pinpoint light color extraction
-     * @param {string} name - Name for the pinpoint mesh
-     * @returns {Object} LOD system object with lod, lodMesh, and pinpointMesh
-     */
-    static createLODSystem(mesh, rotationOffset, material, name) {
-        // Create LOD object
-        const lod = new THREE.LOD();
-
-        // Create pinpoint light first (default/far view)
-        const pinpointMesh = BodyRenderer.createPinpointLight(material, name);
-
-        // Create a separate mesh for LOD system (to avoid hierarchy conflicts)
-        const lodMesh = mesh.clone();
-        lodMesh.material = mesh.material; // Share the same material
-        lodMesh.geometry = mesh.geometry; // Share the same geometry
-
-        // Add levels in order: closest distance first, farthest last
-        // High detail: full planet mesh (very close range - within 0.01 units)
-        lod.addLevel(lodMesh, 0);
-
-        // Low detail: pinpoint light (everything beyond 0.01 units)
-        lod.addLevel(pinpointMesh, 0.01);
-
-        // Apply initial rotation offset to LOD mesh to match main mesh
-        if (rotationOffset !== 0) {
-            lodMesh.rotation.y = rotationOffset;
-        }
-
-        return {
-            lod: lod,
-            lodMesh: lodMesh,
-            pinpointMesh: pinpointMesh,
-            lodNearDistance: 0.01,   // Full detail when closer than this
-            lodFarDistance: 0.01     // Pinpoint when farther than this
-        };
-    }
-
-    /**
-     * Create a pinpoint light representation for distant viewing
+     * Create the pinpoint that keeps a body visible once it is too far away to cover a pixel.
+     *
+     * This used to be one level of a THREE.LOD whose other level was a clone of the body mesh at
+     * full detail, with the switch set at 0.01 scene units. Nothing in the system is ever within
+     * 0.01 units of the camera, so the clone was never shown and the LOD never saved anything -
+     * meanwhile the real mesh, sitting outside the LOD, was drawn at full detail at every
+     * distance. Detail is now handled by updateDetail on the mesh itself, and the pinpoint is
+     * simply always drawn, which is what the LOD amounted to in practice.
+     *
      * @param {THREE.Material} material - Material to extract color from
      * @param {string} name - Name for the pinpoint mesh
      * @returns {THREE.Points} Pinpoint mesh for distant viewing
@@ -250,11 +302,7 @@ class BodyRenderer {
 
         // Create cloud geometry - slightly larger sphere than the planet
         const cloudRadius = bodyRadius * radiusScale;
-        const cloudGeometry = new THREE.SphereGeometry(
-            cloudRadius,
-            GEOMETRY.SPHERE_WIDTH_SEGMENTS,
-            GEOMETRY.SPHERE_HEIGHT_SEGMENTS
-        );
+        const cloudGeometry = BodyRenderer.createGeometry(cloudRadius);
 
         // Load cloud texture
         const textureLoader = new THREE.TextureLoader();
@@ -277,6 +325,7 @@ class BodyRenderer {
 
         // Create cloud mesh
         const cloudMesh = new THREE.Mesh(cloudGeometry, cloudMaterial);
+        BodyRenderer.registerDetailMesh(cloudMesh, cloudRadius);
 
         // Store rotation speed for animation and shader material reference
         cloudMesh.userData.rotationSpeed = rotationSpeed || 1.0;
@@ -298,11 +347,7 @@ class BodyRenderer {
 
         // Create atmosphere geometry - larger sphere than the planet
         const atmosphereRadius = bodyRadius * radiusScale;
-        const atmosphereGeometry = new THREE.SphereGeometry(
-            atmosphereRadius,
-            GEOMETRY.SPHERE_WIDTH_SEGMENTS,
-            GEOMETRY.SPHERE_HEIGHT_SEGMENTS
-        );
+        const atmosphereGeometry = BodyRenderer.createGeometry(atmosphereRadius);
 
         // Create atmosphere shader material
         const atmosphereMaterial = new AtmosphereShaderMaterial({
@@ -315,6 +360,7 @@ class BodyRenderer {
 
         // Create atmosphere mesh
         const atmosphereMesh = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+        BodyRenderer.registerDetailMesh(atmosphereMesh, atmosphereRadius);
 
         // Store reference to shader material for updates
         atmosphereMesh.userData.shaderMaterial = atmosphereMaterial;
@@ -323,15 +369,53 @@ class BodyRenderer {
     }
 
     /**
-     * Update LOD system based on camera distance
-     * @param {THREE.LOD} lod - The LOD object to update
-     * @param {THREE.Camera} camera - The camera to calculate distance from
+     * Choose the detail every sphere of a body is drawn at from how large it appears on screen.
+     *
+     * The body, its clouds and its atmosphere all sit at practically the same distance and differ
+     * in radius by a percent or two, so one requirement covers all three - each rebuilt at its own
+     * radius so the shells keep their spacing.
+     *
+     * @param {Object} body - The body instance
+     * @param {THREE.Camera} camera - The camera the body is being viewed from
      */
-    static updateLOD(lod, camera) {
-        if (!lod || !camera) return;
+    static updateDetail(body, camera) {
+        if (!body?.mesh || !camera) return;
 
-        // Update LOD based on camera position
-        lod.update(camera);
+        // Body groups are added straight to the scene, so their position is already world space
+        const distance = body.group.position.distanceTo(camera.position);
+        if (!(distance > 0)) return;
+
+        // Pixels a unit at one unit's distance covers - the vertical field of view mapped onto
+        // the drawing buffer. Read from the renderer so a HiDPI canvas is accounted for.
+        const viewportHeight = SceneManager.renderer.getDrawingBufferSize(_bufferSize).y;
+        const pixelsPerUnit = viewportHeight / (2 * Math.tan(camera.fov * Math.PI / 360));
+
+        const screenRadius = (body.radius / distance) * pixelsPerUnit;
+        const needed = segmentsForScreenRadius(screenRadius);
+
+        applyDetailTier(body.mesh, selectDetailTier(needed, body.mesh.userData.detailSegments));
+        if (body.clouds) {
+            applyDetailTier(body.clouds, selectDetailTier(needed, body.clouds.userData.detailSegments));
+        }
+        if (body.atmosphere) {
+            applyDetailTier(body.atmosphere, selectDetailTier(needed, body.atmosphere.userData.detailSegments));
+        }
+    }
+
+    /**
+     * Release every detail tier a mesh has built. Only the tier currently in use is reachable
+     * through mesh.geometry, so the cache has to be disposed of explicitly.
+     *
+     * @param {THREE.Mesh} mesh - The sphere mesh whose tiers should be released
+     */
+    static disposeDetailGeometries(mesh) {
+        const cache = mesh?.userData?.detailGeometries;
+        if (!cache) return;
+
+        cache.forEach(geometry => geometry.dispose());
+        cache.clear();
+        mesh.userData.detailGeometries = null;
+        mesh.userData.detailSegments = 0;
     }
 }
 

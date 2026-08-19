@@ -61,10 +61,10 @@ export class PerformanceStats {
      */
     updateFromStatsGL(now) {
         try {
-            // Call stats-gl update method to ensure fresh data
-            if (typeof this.statsGL.update === 'function') {
-                this.statsGL.update();
-            }
+            // stats-gl is updated once per frame by the animation loop and counts frames as it
+            // goes, so updating it again here - as this used to - had it counting every frame
+            // twice and reporting roughly double the real frame rate. Its latest values are
+            // simply read.
 
             // Access stats-gl data from the correct properties
             // Based on debug output, the current values are in lastValue object
