@@ -10,8 +10,7 @@ class BaseCelestialShaderMaterial extends THREE.ShaderMaterial {
         // Create common uniforms that are shared across most celestial shaders
         const commonUniforms = {
             lightDirection: { value: new THREE.Vector3(1.0, 0.0, 0.0) },
-            lightColor: { value: new THREE.Color(options.lightColor || 0xffffff) },
-            planetCenter: { value: new THREE.Vector3(0.0, 0.0, 0.0) }
+            lightColor: { value: new THREE.Color(options.lightColor || 0xffffff) }
         };
 
         // Add shadow-related uniforms if this material supports shadows
@@ -23,7 +22,7 @@ class BaseCelestialShaderMaterial extends THREE.ShaderMaterial {
                 lightRadius: { value: options.lightRadius || 0.1 },
                 hasRings: { value: options.hasRings || false },
                 ringAlphaTexture: { value: options.ringAlphaTexture || null },
-                bodyPositions: { value: Array(8).fill(null).map(() => new THREE.Vector3()) },
+                bodyOffsets: { value: Array(8).fill(null).map(() => new THREE.Vector3()) },
                 bodyRadii: { value: new Float32Array(8) },
                 numBodies: { value: 0 }
             });
@@ -43,7 +42,6 @@ class BaseCelestialShaderMaterial extends THREE.ShaderMaterial {
         // Store references for easy access
         this.lightDirection = uniforms.lightDirection.value;
         this.lightColor = uniforms.lightColor.value;
-        this.planetCenter = uniforms.planetCenter.value;
 
         if (options.supportsShadows !== false) {
             this.ringNormal = uniforms.ringNormal.value;
@@ -62,9 +60,6 @@ class BaseCelestialShaderMaterial extends THREE.ShaderMaterial {
         // Calculate light direction from planet to sun
         const direction = new THREE.Vector3().subVectors(lightPosition, planetPosition).normalize();
         this.uniforms.lightDirection.value.copy(direction);
-
-        // Update planet center
-        this.uniforms.planetCenter.value.copy(planetPosition);
 
         // Update ring normal if ring rotation is provided and shadows are supported
         if (ringRotation && this._supportsShadows) {
@@ -120,10 +115,14 @@ class BaseCelestialShaderMaterial extends THREE.ShaderMaterial {
 
     /**
      * Update celestial body positions and radii for shadow calculations (common implementation)
+     * Positions are uploaded relative to the planet center: the subtraction happens
+     * here in double precision, because doing it in the shader's float32 would
+     * cancel away at skybox-scale distances and break the shadows apart.
      * @param {Array<THREE.Vector3>} positions - Array of body world positions
      * @param {Array<number>} radii - Array of body radii in world units
+     * @param {THREE.Vector3} planetPosition - World position of the shaded body's center
      */
-    updateMoons(positions, radii) {
+    updateMoons(positions, radii, planetPosition) {
         if (!this._supportsShadows) {
             log.warn('BaseCelestialShaderMaterial', 'Attempting to update moons on material that does not support shadows');
             return;
@@ -136,13 +135,13 @@ class BaseCelestialShaderMaterial extends THREE.ShaderMaterial {
 
         // Clear all body data first
         for (let i = 0; i < maxBodies; i++) {
-            this.uniforms.bodyPositions.value[i].set(0, 0, 0);
+            this.uniforms.bodyOffsets.value[i].set(0, 0, 0);
             this.uniforms.bodyRadii.value[i] = 0;
         }
 
         // Set actual body data
         for (let i = 0; i < numBodies; i++) {
-            this.uniforms.bodyPositions.value[i].copy(positions[i]);
+            this.uniforms.bodyOffsets.value[i].subVectors(positions[i], planetPosition);
             this.uniforms.bodyRadii.value[i] = radii[i];
         }
     }
@@ -172,18 +171,24 @@ class BaseCelestialShaderMaterial extends THREE.ShaderMaterial {
   #define INV_DIV (1.0/float(DIV))
 #endif
 
-float eclipseByRings(vec3 surfacePosition, vec3 sunRadiusPerp) {
+// Shadow math takes surfaceOffset: the shaded point relative to the planet
+// center, along world axes. It must be planet-relative, never derived from
+// absolute world positions: at skybox-scale distances float32 coordinates
+// quantize far coarser than a body radius, so differencing two absolute
+// positions collapses to a coarse lattice (or to zero) and the shadows break up
+// into blocks. Vertex shaders build it as mat3(modelMatrix) * position, which is
+// exact because every body mesh sits at its group origin.
+float eclipseByRings(vec3 surfaceOffset, vec3 sunRadiusPerp) {
     if (!hasRings) return 0.0;
 
     vec3 sunRay = normalize(lightDirection);
 
     // Find intersection with ring plane
-    float s = -dot(ringNormal, surfacePosition - planetCenter) / dot(ringNormal, sunRay);
+    float s = -dot(ringNormal, surfaceOffset) / dot(ringNormal, sunRay);
 
     if (s > 0.0) {
-        // Calculate intersection point
-        vec3 intersectionPoint = surfacePosition + sunRay * s;
-        vec3 ringVec = intersectionPoint - planetCenter;
+        // Calculate intersection point, relative to the planet center
+        vec3 ringVec = surfaceOffset + sunRay * s;
 
         // Calculate distance from planet center in ring plane
         float ringDistance = length(ringVec - dot(ringVec, ringNormal) * ringNormal);
@@ -218,7 +223,7 @@ float eclipseByRings(vec3 surfacePosition, vec3 sunRadiusPerp) {
     return 0.0;
 }
 
-float eclipseByBodies(vec3 surfacePosition) {
+float eclipseByBodies(vec3 surfaceOffset) {
     if (numBodies == 0) return 0.0;
 
     vec3 sunRay = normalize(lightDirection);
@@ -227,11 +232,12 @@ float eclipseByBodies(vec3 surfacePosition) {
     for (int i = 0; i < 8; i++) {
         if (i >= numBodies) break;
 
-        vec3 bodyCenter = bodyPositions[i];
+        // Also planet-relative, so the whole calculation stays near the origin
+        vec3 bodyCenter = bodyOffsets[i];
         float bodyRadius = bodyRadii[i];
 
         // Calculate vector from surface point to body center
-        vec3 surfaceToBody = bodyCenter - surfacePosition;
+        vec3 surfaceToBody = bodyCenter - surfaceOffset;
 
         // Project body center onto the sun ray from surface point
         float projectionLength = dot(surfaceToBody, sunRay);
@@ -239,7 +245,7 @@ float eclipseByBodies(vec3 surfacePosition) {
         // Only consider bodies that are between the surface and the sun
         if (projectionLength > 0.0) {
             // Find closest point on sun ray to body center
-            vec3 closestPointOnRay = surfacePosition + sunRay * projectionLength;
+            vec3 closestPointOnRay = surfaceOffset + sunRay * projectionLength;
 
             // Calculate distance from body center to sun ray
             float distanceToRay = length(bodyCenter - closestPointOnRay);
@@ -270,10 +276,11 @@ float eclipseByBodies(vec3 surfacePosition) {
      * @returns {string} GLSL uniform declarations
      */
     static getCommonUniforms(includeShadows = true) {
+        // No absolute world-space position is exposed here on purpose - see the
+        // note above eclipseByRings(). Shaders work in planet-relative offsets.
         const baseUniforms = `
 uniform vec3 lightDirection;
 uniform vec3 lightColor;
-uniform vec3 planetCenter;
 `;
 
         const shadowUniforms = `
@@ -283,7 +290,7 @@ uniform float ringInnerRadius;
 uniform float ringOuterRadius;
 uniform float lightRadius;
 uniform bool hasRings;
-uniform vec3 bodyPositions[8];
+uniform vec3 bodyOffsets[8];
 uniform float bodyRadii[8];
 uniform int numBodies;
 `;

@@ -5,7 +5,7 @@ import BaseCelestialShaderMaterial from './BaseCelestialShaderMaterial.js';
 const vertexShader = `
 varying vec2 vUv;
 varying vec3 vNormal;
-varying vec3 vWorldPosition;
+varying vec3 vSurfaceOffset;
 varying vec3 vViewPosition;
 varying vec3 vWorldNormal;
 
@@ -16,9 +16,10 @@ void main() {
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
     vNormal = normalize(normalMatrix * normal);
 
-    // World position for lighting calculations
-    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-    vWorldPosition = worldPosition.xyz;
+    // Position relative to the planet center, along world axes, for shadow
+    // calculations. Kept planet-relative so it stays precise however far the
+    // body drifts from the origin.
+    vSurfaceOffset = mat3(modelMatrix) * position;
 
     // View position
     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
@@ -33,7 +34,7 @@ uniform sampler2D surfaceTexture;
 
 varying vec2 vUv;
 varying vec3 vNormal;
-varying vec3 vWorldPosition;
+varying vec3 vSurfaceOffset;
 varying vec3 vViewPosition;
 varying vec3 vWorldNormal;
 
@@ -57,11 +58,11 @@ void main() {
         vec3 sunRadiusPerp = ringNormal - dot(normalizedLightDir, ringNormal) / dot(normalizedLightDir, normalizedLightDir) * normalizedLightDir;
         sunRadiusPerp = normalize(sunRadiusPerp) * lightRadius;
 
-        ringShadow = eclipseByRings(vWorldPosition, sunRadiusPerp);
+        ringShadow = eclipseByRings(vSurfaceOffset, sunRadiusPerp);
     }
 
     // Calculate body shadows (from moons, planets, etc.)
-    float bodyShadow = eclipseByBodies(vWorldPosition);
+    float bodyShadow = eclipseByBodies(vSurfaceOffset);
 
     // Calculate full lighting first, then apply shadows to entire result
     vec3 ambient = baseColor.rgb * lightColor * 0.005; // Very low ambient for high contrast planet shadows

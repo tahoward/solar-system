@@ -4,16 +4,19 @@ import BaseCelestialShaderMaterial from './BaseCelestialShaderMaterial.js';
 const vertexShader = `
 uniform vec3 lightDirection;
 varying vec3 vNormal;
-varying vec3 vWorldPosition;
+varying vec3 vSurfaceNormal;
 varying vec3 vViewPosition;
 varying vec3 vLightDir;
 
 void main() {
     vNormal = normalize(normalMatrix * normal);
 
-    // World position for lighting calculations
-    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-    vWorldPosition = worldPosition.xyz;
+    // Outward surface normal in world space, for lighting.
+    // Derived from the normal rather than (worldPosition - planetCenter): at
+    // skybox-scale distances float32 world coordinates quantize far coarser
+    // than a body radius, so that subtraction collapses to zero and normalize()
+    // returns a non-finite value that bloom then smears across the screen.
+    vSurfaceNormal = normalize(mat3(modelMatrix) * normal);
 
     // View position for fresnel calculation
     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
@@ -35,7 +38,7 @@ uniform float fadeEnd;
 ${BaseCelestialShaderMaterial.getCommonUniforms(false)}
 
 varying vec3 vNormal;
-varying vec3 vWorldPosition;
+varying vec3 vSurfaceNormal;
 varying vec3 vViewPosition;
 varying vec3 vLightDir;
 
@@ -60,7 +63,7 @@ void main() {
     rim = pow(rim, rimPower);
 
     // Calculate lighting based on sun position
-    vec3 surfaceNormal = normalize(vWorldPosition - planetCenter);
+    vec3 surfaceNormal = normalize(vSurfaceNormal);
     float lightDot = dot(surfaceNormal, vLightDir);
 
     // Create day/night terminator effect

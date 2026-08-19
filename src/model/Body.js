@@ -448,7 +448,7 @@ class Body {
         // Update planet material if it supports celestial body shadows
         if (this.material && typeof this.material.updateMoons === 'function') {
             if (positions.length > 0) {
-                this.material.updateMoons(positions, radii);
+                this.material.updateMoons(positions, radii, this.group.position);
             } else {
                 this.material.clearMoons();
             }
@@ -457,7 +457,7 @@ class Body {
         // Update cloud material if it supports celestial body shadows
         if (this.clouds && this.clouds.userData.shaderMaterial && typeof this.clouds.userData.shaderMaterial.updateMoons === 'function') {
             if (positions.length > 0) {
-                this.clouds.userData.shaderMaterial.updateMoons(positions, radii);
+                this.clouds.userData.shaderMaterial.updateMoons(positions, radii, this.group.position);
             } else {
                 this.clouds.userData.shaderMaterial.clearMoons();
             }

@@ -3,16 +3,17 @@ import BaseCelestialShaderMaterial from './BaseCelestialShaderMaterial.js';
 
 const vertexShader = `
 varying vec2 vUv;
-varying vec3 vWorldPosition;
+varying vec3 vSurfaceOffset;
 varying vec3 vNormal;
 
 void main() {
     vUv = uv;
     vNormal = normalize(normalMatrix * normal);
 
-    // World position for shadow calculations
-    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-    vWorldPosition = worldPosition.xyz;
+    // Position relative to the planet center, along world axes, for shadow
+    // calculations. Kept planet-relative so it stays precise however far the
+    // body drifts from the origin.
+    vSurfaceOffset = mat3(modelMatrix) * position;
 
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
@@ -28,14 +29,16 @@ uniform bool hasPlanetShadow;
 ${BaseCelestialShaderMaterial.getCommonUniforms(false)}
 
 varying vec2 vUv;
-varying vec3 vWorldPosition;
+varying vec3 vSurfaceOffset;
 varying vec3 vNormal;
 
-float calculatePlanetShadow(vec3 ringPosition) {
+// planetToRing is the ring point relative to the planet center. Passed in that
+// form rather than differenced from absolute world positions here: at
+// skybox-scale distances float32 coordinates quantize coarser than the ring
+// radius, which collapses the difference and shadows the whole ring in blocks.
+float calculatePlanetShadow(vec3 planetToRing) {
     if (!hasPlanetShadow) return 1.0;
 
-    // Vector from planet center to ring position
-    vec3 planetToRing = ringPosition - planetCenter;
     vec3 sunDirection = normalize(lightDirection);
 
     // Project ring position onto the sun direction (shadow axis)
@@ -71,7 +74,7 @@ void main() {
     float lightIntensity = 0.8 + 0.2 * max(dot(normal, lightDir), 0.0);
 
     // Calculate planet shadow on ring
-    float shadowFactor = calculatePlanetShadow(vWorldPosition);
+    float shadowFactor = calculatePlanetShadow(vSurfaceOffset);
 
     // Apply lighting and shadows
     vec3 ambient = baseColor.rgb * lightColor * 0.1;
