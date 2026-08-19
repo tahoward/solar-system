@@ -122,6 +122,10 @@ export class AnimationManager {
             // standstill
             collisionManager.resolveCollisions();
 
+            // Bring the camera along to the positions the bodies have just taken, before the bodies
+            // are asked how large they appear from it - see SceneManager.updateCamera
+            SceneManager.updateCamera();
+
             // Update star rotation and effects using unified clock (after orbit positions are updated)
             // Use the same accumulated time as orbital positions for synchronized rotation
             const star = this.getFirstStar()
@@ -130,9 +134,6 @@ export class AnimationManager {
                 star.starPosition,
                 star.starLightColor,
             )
-
-            // Update scene manager animations (TWEEN)
-            this.updateSceneAnimations();
 
             // Render the scene
             this.render();
@@ -224,13 +225,6 @@ export class AnimationManager {
         }
 
         return { starLightColor, starPosition, orbitCount: this.orbits.length };
-    }
-
-    /**
-     * Update scene manager animations (TWEEN library)
-     */
-    updateSceneAnimations() {
-        SceneManager.updateAnimations();
     }
 
     /**

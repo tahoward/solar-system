@@ -134,12 +134,6 @@ class SceneManager {
   }
 
   render() {
-     // Update camera following behavior
-     this.cameraController.updateFollowing();
-
-     // Always update controls
-     this.controls.update();
-
      // Update bloom intensity based on camera distance and render with bloom
      if (this.bloomManager) {
        this.bloomManager.updateBloomIntensity(this.camera.position);
@@ -203,6 +197,23 @@ class SceneManager {
    */
   updateAnimations() {
     this.tweenGroup.update();
+  }
+
+  /**
+   * Bring the camera to where it belongs for this frame: any transition in progress advanced, a
+   * followed body's movement matched, and the controls' own damping applied.
+   *
+   * This has to run after the bodies have been moved and before anything measures its distance to
+   * one. A followed body's motion is matched by shifting the camera the same way, so a camera left
+   * standing where the last frame put it is offset by however far the body travelled - which at low
+   * speeds is nothing, and at high speeds is many times the distance a close camera sits at. Detail
+   * tiers and orbit line resolution are both chosen from that distance, so measuring it first is
+   * what dropped bodies to their coarsest geometry whenever the simulation was run fast.
+   */
+  updateCamera() {
+    this.updateAnimations();
+    this.cameraController.updateFollowing();
+    this.controls.update();
   }
 
   /**
