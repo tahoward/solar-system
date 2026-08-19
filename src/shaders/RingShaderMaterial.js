@@ -20,7 +20,6 @@ const fragmentShader = `
 uniform sampler2D ringTexture;
 uniform float planetRadius;
 uniform float opacity;
-uniform vec3 ringColor;
 uniform bool hasPlanetShadow;
 
 ${BaseCelestialShaderMaterial.getCommonUniforms(false)}
@@ -79,7 +78,6 @@ class RingShaderMaterial extends BaseCelestialShaderMaterial {
             ringTexture: { value: options.ringTexture || null },
             planetRadius: { value: options.planetRadius || 1.0 },
             opacity: { value: options.opacity || 1.0 },
-            ringColor: { value: new THREE.Color(options.ringColor || 0xffffff) },
             hasPlanetShadow: { value: options.hasPlanetShadow !== false }
         };
 
@@ -97,13 +95,6 @@ class RingShaderMaterial extends BaseCelestialShaderMaterial {
         });
     }
 
-    setPlanetRadius(radius) {
-        this.uniforms.planetRadius.value = radius;
-    }
-
-    setPlanetShadowEnabled(enabled) {
-        this.uniforms.hasPlanetShadow.value = enabled;
-    }
 }
 
 export default RingShaderMaterial;

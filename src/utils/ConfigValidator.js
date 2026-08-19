@@ -22,13 +22,6 @@ class ConfigValidator {
             maxLength
         }),
 
-        optionalString: (minLength = 0, maxLength = 100) => ({
-            type: 'string',
-            required: false,
-            minLength,
-            maxLength
-        }),
-
         requiredNumber: (min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY) => ({
             type: 'number',
             required: true,
@@ -36,27 +29,9 @@ class ConfigValidator {
             max
         }),
 
-        optionalNumber: (min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY) => ({
-            type: 'number',
-            required: false,
-            min,
-            max
-        }),
-
-        requiredBoolean: () => ({
-            type: 'boolean',
-            required: true
-        }),
-
         optionalBoolean: () => ({
             type: 'boolean',
             required: false
-        }),
-
-        enum: (allowedValues, required = true) => ({
-            type: typeof allowedValues[0],
-            required,
-            allowedValues
         }),
 
         positiveNumber: (max = Number.POSITIVE_INFINITY, required = true) => ({
@@ -64,13 +39,6 @@ class ConfigValidator {
             required,
             min: 0.000000001,
             max
-        }),
-
-        percentage: (required = true) => ({
-            type: 'number',
-            required,
-            min: 0,
-            max: 100
         }),
 
         angle: (required = false) => ({
@@ -116,10 +84,6 @@ class ConfigValidator {
                 throw new Error(`${fullFieldName}: must be at most ${rule.maxLength} characters long`);
             }
         }
-
-        if (rule.allowedValues && !rule.allowedValues.includes(value)) {
-            throw new Error(`${fullFieldName}: must be one of ${rule.allowedValues.join(', ')}, got ${value}`);
-        }
     }
 
     static validateBodyConfig(bodyConfig) {
@@ -139,40 +103,6 @@ class ConfigValidator {
         });
         this.validate(orbitConfig, schema, 'Orbit configuration');
     }
-
-    static validateCameraConfig(cameraConfig) {
-        const schema = this.createSchema({
-            fov: this.field.requiredNumber(10, 150),
-            near: this.field.positiveNumber(),
-            far: this.field.positiveNumber(),
-            autoRotate: this.field.optionalBoolean(),
-            enableZoom: this.field.optionalBoolean()
-        });
-        this.validate(cameraConfig, schema, 'Camera configuration');
-    }
-
-    static validateLightConfig(lightConfig) {
-        const schema = this.createSchema({
-            intensity: this.field.positiveNumber(),
-            color: this.field.optionalString(),
-            castShadow: this.field.optionalBoolean(),
-            distance: this.field.optionalNumber(0)
-        });
-        this.validate(lightConfig, schema, 'Light configuration');
-    }
-
-    static validateEffectConfig(effectConfig) {
-        const schema = this.createSchema({
-            enabled: this.field.optionalBoolean(),
-            intensity: this.field.optionalNumber(0, 10),
-            opacity: this.field.percentage(false),
-            size: this.field.positiveNumber(100, false),
-            color: this.field.optionalString()
-        });
-        this.validate(effectConfig, schema, 'Effect configuration');
-    }
-
-
 }
 
 export default ConfigValidator;

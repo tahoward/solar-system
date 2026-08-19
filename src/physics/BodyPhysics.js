@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import VectorUtils from '../utils/VectorUtils.js';
 import { getAUScale } from './kepler.js';
 import { MATH, TIDAL_LOCK } from '../constants.js';
-import logger, { log } from '../utils/Logger.js';
+import { log } from '../utils/Logger.js';
 
 const GRAVITATIONAL_CONSTANT = 39.478;
 

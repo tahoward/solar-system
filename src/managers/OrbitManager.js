@@ -57,18 +57,6 @@ export class OrbitManager {
         }
     }
 
-    getOrbitCount() {
-        return this.orbits.size;
-    }
-
-    isOrbitRegistered(orbit) {
-        return this.orbits.has(orbit);
-    }
-
-    getAllOrbits() {
-        return Array.from(this.orbits);
-    }
-
     clearAllOrbits() {
         const count = this.orbits.size;
         this.orbits.clear();
@@ -87,14 +75,6 @@ export class OrbitManager {
             clockManager.setPhysicsSpeedLimit(Infinity);
 
             updateHierarchyPositions(this.hierarchy, timestamp, sceneScale);
-        }
-    }
-
-    updateBodyRotations() {
-        const simulationTime = clockManager.getSimulationTime();
-
-        if (this.hierarchy && this.hierarchy.body) {
-            this.hierarchy.body.updateRotationRecursive(simulationTime);
         }
     }
 

@@ -43,7 +43,7 @@ export function solveKeplerEquation(meanAnomaly, eccentricity) {
     return eccentricAnomaly;
 }
 
-export function calculateKeplerianPosition(t, orbitalElements, target) {
+function calculateKeplerianPosition(t, orbitalElements, target) {
     const {
         semiMajorAxis,
         eccentricity,
@@ -117,11 +117,7 @@ export function getAUScale(sceneScale) {
     return auScale;
 }
 
-export function updateAUScale(sceneScale) {
-    auScale = ORBIT.AU_SCALE_METERS * sceneScale;
-}
-
-export function calculateKeplerianVelocity(t, orbitalElements, mu = 39.478, target) {
+function calculateKeplerianVelocity(t, orbitalElements, mu = 39.478, target) {
     const {
         semiMajorAxis,
         eccentricity,

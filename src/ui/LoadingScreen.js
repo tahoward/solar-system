@@ -150,10 +150,6 @@ export class LoadingScreen {
         this.progressBar.style.background = '#ff6b6b';
     }
 
-    isShown() {
-        return this.isVisible;
-    }
-
     dispose() {
         this.hide(0);
 

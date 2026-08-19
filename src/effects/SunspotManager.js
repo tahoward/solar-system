@@ -10,8 +10,6 @@ const SPOT_LIFETIME_MAX = 160.0;
 class SunspotManager {
     constructor(options = {}) {
         this.maxSpots = options.maxSpots || MAX_SUNSPOTS;
-        this.spotRadius = options.spotRadius || 0.05;
-
         this.spots = [];
         this.positions = new Array(this.maxSpots).fill(null).map(() => new THREE.Vector3());
         this.opacities = new Float32Array(this.maxSpots);
@@ -104,28 +102,6 @@ class SunspotManager {
         }
 
         this._updateArrays();
-    }
-
-    getPositionsArray() {
-        const arr = new Float32Array(this.maxSpots * 3);
-        for (let i = 0; i < this.maxSpots; i++) {
-            arr[i * 3] = this.positions[i].x;
-            arr[i * 3 + 1] = this.positions[i].y;
-            arr[i * 3 + 2] = this.positions[i].z;
-        }
-        return arr;
-    }
-
-    getOpacitiesArray() {
-        return new Float32Array(this.opacities);
-    }
-
-    getSpotRadius() {
-        return this.spotRadius;
-    }
-
-    getActiveCount() {
-        return this.maxSpots;
     }
 }
 

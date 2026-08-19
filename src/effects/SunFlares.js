@@ -6,14 +6,12 @@ import ShaderLoader from '../shaders/ShaderLoader.js';
 const vertexShaderMainCode = `
 attribute vec3 aPos;
 attribute vec3 aPos0;
-attribute vec3 aPos1;
 attribute vec4 aWireRandom;
 
 varying float vUVY;
 varying float vOpacity;
 varying vec3  vColor;
 varying vec3  vNormal;
-varying float vPhase;
 
 uniform float uWidth;
 uniform float uAmp;
@@ -106,7 +104,6 @@ vec3 getPosOBJ(float phase, float animPhase){
 
 void main(void){
   vUVY = aPos.z;
-  vPhase = aPos.x;
 
   float flareIndex = floor(aPos.y * 32.0);
 
@@ -187,7 +184,6 @@ varying float vUVY;
 varying float vOpacity;
 varying vec3  vColor;
 varying vec3  vNormal;
-varying float vPhase;
 
 uniform float uAlphaBlended;
 
@@ -197,11 +193,7 @@ void main(void){
     alpha *= vOpacity;
     alpha *= getAlpha(vNormal);
 
-    float brightnessFactor = 1.0;
-
     vec3 emissiveColor = vColor * uEmissiveIntensity;
-
-    emissiveColor *= brightnessFactor;
 
     gl_FragColor = vec4(emissiveColor * alpha, alpha * uAlphaBlended);
 }`;
@@ -218,10 +210,6 @@ class SunFlares extends SunEffect {
         this.lineLength = options.lineLength || 16;
         this.flareOpacity = options.opacity || 0.8;
         this.emissiveIntensity = options.emissiveIntensity || 2.0;
-
-        this.flareTimings = new Array(this.lineCount).fill().map(() => ({
-            justRelocated: false
-        }));
 
         this.mesh = this.createFlaresMesh();
 
@@ -248,8 +236,6 @@ class SunFlares extends SunEffect {
             uniforms: {
                 ...ShaderUniformConfig.createCompleteFlareUniforms({
                     lowres: this.lowres,
-                    lineLength: this.lineLength,
-                    lineCount: this.lineCount,
                     opacity: this.flareOpacity
                 }),
                 uEmissiveIntensity: { value: this.emissiveIntensity },
@@ -269,64 +255,19 @@ class SunFlares extends SunEffect {
         return mesh;
     }
 
-    relocateSingleFlare(flareIndex) {
-        if (!this.mesh || !this.mesh.geometry) return;
-
-        const geometry = this.mesh.geometry;
-        const aPos0 = geometry.getAttribute('aPos0');
-        const aPos1 = geometry.getAttribute('aPos1');
-        const aWireRandom = geometry.getAttribute('aWireRandom');
-
-        const f = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize();
-        const p = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize();
-
-        const g1 = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize().multiplyScalar(0.2);
-        const g2 = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize().multiplyScalar(0.04);
-        f.add(g1).normalize();
-        p.add(g2).normalize();
-
-        const startDepth = this.sunRadius * 0.98;
-
-        const firstVertexIndex = (flareIndex * this.lineLength) * 2;
-        const newRands = [
-            Math.random(),
-            Math.random(),
-            aWireRandom.getZ(firstVertexIndex),
-            Math.random()
-        ];
-
-        for (let E = 0; E < this.lineLength; E++) {
-            for (let A = 0; A <= 1; A++) {
-                const vertexIndex = (flareIndex * this.lineLength + E) * 2 + A;
-
-                aPos0.setXYZ(vertexIndex, f.x * startDepth, f.y * startDepth, f.z * startDepth);
-                aPos1.setXYZ(vertexIndex, p.x * startDepth, p.y * startDepth, p.z * startDepth);
-
-                aWireRandom.setXYZW(vertexIndex, newRands[0], newRands[1], newRands[2], newRands[3]);
-            }
-        }
-
-        aPos0.needsUpdate = true;
-        aPos1.needsUpdate = true;
-        aWireRandom.needsUpdate = true;
-    }
-
     createFlaresGeometry() {
         const { lineCount, lineLength, sunRadius } = this;
 
         const aPos = new Float32Array(lineCount * lineLength * 2 * 3);
         const aPos0 = new Float32Array(lineCount * lineLength * 2 * 3);
-        const aPos1 = new Float32Array(lineCount * lineLength * 2 * 3);
         const aWireRand = new Float32Array(lineCount * lineLength * 2 * 4);
         const indices = new Uint16Array(lineCount * (lineLength - 1) * 2 * 3);
 
-        const held = new THREE.Vector3();
         const d = new THREE.Vector3();
         const f = new THREE.Vector3();
-        const p = new THREE.Vector3();
         const g = new THREE.Vector3();
 
-        let s = 0, l = 0, c = 0, h = 0, u = 0;
+        let s = 0, l = 0, c = 0, u = 0;
 
         f.set(Math.random(), Math.random(), Math.random()).normalize();
         let m = Math.random(), _p = Math.random();
@@ -334,9 +275,6 @@ class SunFlares extends SunEffect {
         for (let y = 0; y < lineCount; y++) {
             if (Math.random() < 0.025 || y === 0) {
                 d.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize();
-                held.copy(d);
-                g.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize().multiplyScalar(0.2);
-                held.add(g).normalize();
                 m = Math.random();
                 _p = Math.random();
             }
@@ -344,10 +282,6 @@ class SunFlares extends SunEffect {
             f.copy(d);
             g.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize().multiplyScalar(0.02);
             f.add(g).normalize();
-
-            p.copy(held);
-            g.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize().multiplyScalar(0.04);
-            p.add(g).normalize();
 
             const rands = [m, _p, Math.random(), Math.random()];
 
@@ -367,10 +301,6 @@ class SunFlares extends SunEffect {
                     aPos0[c++] = f.x * startDepth;
                     aPos0[c++] = f.y * startDepth;
                     aPos0[c++] = f.z * startDepth;
-
-                    aPos1[h++] = p.x * startDepth;
-                    aPos1[h++] = p.y * startDepth;
-                    aPos1[h++] = p.z * startDepth;
                 }
 
                 if (E < lineLength - 1) {
@@ -387,7 +317,6 @@ class SunFlares extends SunEffect {
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('aPos', new THREE.BufferAttribute(aPos, 3));
         geometry.setAttribute('aPos0', new THREE.BufferAttribute(aPos0, 3));
-        geometry.setAttribute('aPos1', new THREE.BufferAttribute(aPos1, 3));
         geometry.setAttribute('aWireRandom', new THREE.BufferAttribute(aWireRand, 4));
         geometry.setIndex(new THREE.BufferAttribute(indices, 1));
 
@@ -402,25 +331,6 @@ class SunFlares extends SunEffect {
         if (sunMaterialUniforms) {
             this.syncVisibilityUniforms(sunMaterialUniforms);
         }
-    }
-
-    setParameters(params = {}) {
-        if (!this.material) return;
-
-        const uniforms = this.material.uniforms;
-
-        if (params.width !== undefined) uniforms.uWidth.value = params.width;
-        if (params.amplitude !== undefined) uniforms.uAmp.value = params.amplitude;
-        if (params.opacity !== undefined) uniforms.uOpacity.value = params.opacity;
-        if (params.hue !== undefined) uniforms.uHue.value = params.hue;
-        if (params.hueSpread !== undefined) uniforms.uHueSpread.value = params.hueSpread;
-        if (params.noiseFrequency !== undefined) uniforms.uNoiseFrequency.value = params.noiseFrequency;
-        if (params.noiseAmplitude !== undefined) uniforms.uNoiseAmplitude.value = params.noiseAmplitude;
-    }
-
-    setFlareOpacity(opacity) {
-        this.setParameters({ opacity: opacity });
-        this.flareOpacity = opacity;
     }
 
     setEmissiveIntensity(intensity) {

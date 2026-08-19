@@ -90,14 +90,6 @@ export class OrbitTrailManager {
         return null;
     }
 
-    getOrbitTrail(bodyName) {
-        return this.orbitTrails.get(bodyName) || null;
-    }
-
-    getAllOrbitTrails() {
-        return Array.from(this.orbitTrails.values());
-    }
-
     dispose() {
         log.dispose('OrbitTrailManager', 'resources');
         this.orbitTrails.clear();

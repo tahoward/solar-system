@@ -39,7 +39,6 @@ class SunCorona {
             varying vec3 vNormal;
             varying vec3 vViewPosition;
             varying vec3 vNoisePosition;
-            varying vec2 vUv;
 
             void main() {
                 vNormal = normalize(normalMatrix * normal);
@@ -47,7 +46,6 @@ class SunCorona {
                 vViewPosition = -mvPosition.xyz;
 
                 vNoisePosition = position;
-                vUv = uv;
 
                 gl_Position = projectionMatrix * mvPosition;
             }
@@ -60,13 +58,10 @@ class SunCorona {
             uniform float uNoiseScale;
             uniform float uAnimationSpeed;
             uniform float uFresnelPower;
-            uniform vec3 uCameraPosition;
-            uniform float uSunRadius;
 
             varying vec3 vNormal;
             varying vec3 vViewPosition;
             varying vec3 vNoisePosition;
-            varying vec2 vUv;
 
             float random(vec3 st) {
                 return fract(sin(dot(st, vec3(12.9898, 78.233, 23.112))) * 12943.145);
@@ -132,9 +127,7 @@ class SunCorona {
                 uCoronaIntensity: { value: this.coronaIntensity },
                 uNoiseScale: { value: this.noiseScale },
                 uAnimationSpeed: { value: this.animationSpeed },
-                uFresnelPower: { value: this.fresnelPower },
-                uCameraPosition: { value: new THREE.Vector3() },
-                uSunRadius: { value: this.sunRadius }
+                uFresnelPower: { value: this.fresnelPower }
             },
             vertexShader,
             fragmentShader,
@@ -146,69 +139,16 @@ class SunCorona {
         });
     }
 
-    update(deltaTime, camera) {
+    update(deltaTime) {
         this.time += deltaTime;
 
         if (this.mesh.material.uniforms) {
             this.mesh.material.uniforms.uTime.value = this.time;
-
-            if (camera) {
-                this.mesh.material.uniforms.uCameraPosition.value.copy(camera.position);
-            }
         }
     }
 
     setPosition(position) {
         this.mesh.position.copy(position);
-    }
-
-    setCoronaColor(color) {
-        if (typeof color === 'number') {
-            this.coronaColor.setHex(color);
-        } else {
-            this.coronaColor.copy(color);
-        }
-
-        if (this.mesh.material.uniforms) {
-            this.mesh.material.uniforms.uCoronaColor.value.copy(this.coronaColor);
-        }
-    }
-
-    setCoronaIntensity(intensity) {
-        this.coronaIntensity = intensity;
-
-        if (this.mesh.material.uniforms) {
-            this.mesh.material.uniforms.uCoronaIntensity.value = intensity;
-        }
-    }
-
-    setCoronaRadius(radius) {
-        this.coronaRadius = radius;
-
-        const scale = radius / this.sunRadius;
-        this.mesh.scale.setScalar(scale / 2.5);
-
-        if (this.mesh.material.uniforms) {
-            this.mesh.material.uniforms.uSunRadius.value = this.sunRadius;
-        }
-    }
-
-    setNoiseParameters(scale, speed) {
-        this.noiseScale = scale;
-        this.animationSpeed = speed;
-
-        if (this.mesh.material.uniforms) {
-            this.mesh.material.uniforms.uNoiseScale.value = scale;
-            this.mesh.material.uniforms.uAnimationSpeed.value = speed;
-        }
-    }
-
-    setFresnelPower(power) {
-        this.fresnelPower = power;
-
-        if (this.mesh.material.uniforms) {
-            this.mesh.material.uniforms.uFresnelPower.value = power;
-        }
     }
 
     addToScene(parent) {

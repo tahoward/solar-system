@@ -4,7 +4,7 @@ import Orbit from './Orbit.js';
 import BarycentrePath from './BarycentrePath.js';
 import SceneManager from '../managers/SceneManager.js';
 import ConfigValidator from '../utils/ConfigValidator.js';
-import logger, { log } from '../utils/Logger.js';
+import { log } from '../utils/Logger.js';
 import VectorUtils from '../utils/VectorUtils.js';
 import OrbitTrail from './OrbitTrail.js';
 import StarEffects from '../effects/StarEffects.js';
@@ -46,8 +46,6 @@ class Body {
         this.emittedLight = emittedLight;
         this.material = material;
         this.mass = mass;
-        this.isTarget = false;
-        this.thisBody = null;
 
         this.equatorialOrbit = bodyData.equatorialOrbit !== undefined ? bodyData.equatorialOrbit : false;
 
@@ -523,12 +521,6 @@ class Body {
         if (this.orbitTrail) {
             this.orbitTrail.clear();
             log.debug('Body', `Cleared orbit trail for ${this.name}`);
-        }
-    }
-
-    setOrbitTrailVisible(visible) {
-        if (this.orbitTrail) {
-            this.orbitTrail.setVisible(visible);
         }
     }
 

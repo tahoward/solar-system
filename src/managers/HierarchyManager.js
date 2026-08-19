@@ -94,11 +94,6 @@ export class HierarchyManager {
         return this.currentSelectedBody;
     }
 
-    clearSelectedBody() {
-        this.currentSelectedBody = null;
-        log.debug('HierarchyManager', 'Cleared selected body');
-    }
-
     getHierarchyData(bodyName) {
         return this.hierarchyMap.get(bodyName) || null;
     }
@@ -179,11 +174,6 @@ export class HierarchyManager {
         return true;
     }
 
-    isDirectChild(childName, parentName) {
-        const parentData = this.hierarchyMap.get(parentName);
-        return parentData ? parentData.children.includes(childName) : false;
-    }
-
     isDescendantOf(bodyName, ancestorName) {
         let data = this.hierarchyMap.get(bodyName);
 
@@ -195,11 +185,6 @@ export class HierarchyManager {
         return false;
     }
 
-    isRootBody(bodyName) {
-        const hierarchyData = this.hierarchyMap.get(bodyName);
-        return hierarchyData ? hierarchyData.parent === null : false;
-    }
-
     getRootBodyName() {
         for (const [name, data] of this.hierarchyMap) {
             if (data.parent === null) {
@@ -207,10 +192,6 @@ export class HierarchyManager {
             }
         }
         return null;
-    }
-
-    getAllBodyNames() {
-        return Array.from(this.hierarchyMap.keys());
     }
 
     clear() {

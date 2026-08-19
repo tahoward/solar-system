@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import SunEffect from './SunEffect.js';
 import ShaderUniformConfig from './ShaderUniformConfig.js';
 import ShaderLoader from '../shaders/ShaderLoader.js';
-import { log } from '../utils/Logger.js';
 
 const sunRaysVSMain = `
 attribute vec3 aPos;
@@ -10,20 +9,15 @@ attribute vec3 aPos0;
 attribute vec3 aPos1;
 attribute vec4 aWireRandom;
 
-varying float vUVY;
 varying float vOpacity;
 varying vec3 vColor;
 varying vec3 vNormal;
-varying float vPhase;
 
 uniform float uHueSpread;
 uniform float uHue;
 uniform vec3 uBaseColor;
-uniform float uLength;
 uniform float uWidth;
 uniform float uTime;
-uniform float uNoiseFrequency;
-uniform float uNoiseAmplitude;
 uniform float uOpacity;
 uniform float uBendAmount;
 uniform float uWhispyAmount;
@@ -82,9 +76,6 @@ vec3 getRayPosition(float phase, float animPhase) {
 }
 
 void main(void) {
-    vUVY = aPos.z;
-    vPhase = aPos.x;
-
     float rayIndex = floor(aPos.y * 300.0);
 
     float rayOffset = aWireRandom.y * 10.0;
@@ -113,9 +104,7 @@ void main(void) {
 
     vNormal = normalize(offset);
 
-    float edgeFactor = 1.0;
-
-    vOpacity = uOpacity * fadeFactor * edgeFactor * (0.5 + aWireRandom.w);
+    vOpacity = uOpacity * fadeFactor * (0.5 + aWireRandom.w);
 
     vec3 spectrumColor = hue(aWireRandom.w * uHueSpread + uHue);
     vColor = mix(uBaseColor, spectrumColor, 0.1);
@@ -124,21 +113,12 @@ void main(void) {
 }`;
 
 const sunRaysFSMain = `
-uniform float uVisibility;
-uniform float uDirection;
 uniform vec3  uLightView;
 uniform float uEmissiveIntensity;
 
-float getAlpha(vec3 n){
-  float nDotL = dot(n, uLightView) * uDirection;
-  return smoothstep(1.0, 1.5, nDotL + uVisibility * 2.5);
-}
-
-varying float vUVY;
 varying float vOpacity;
 varying vec3  vColor;
 varying vec3  vNormal;
-varying float vPhase;
 
 uniform float uAlphaBlended;
 
@@ -173,15 +153,9 @@ class SunRays extends SunEffect {
         this.rayOpacity = options.rayOpacity || 0.8;
         this.hue = options.hue || 0.1;
         this.hueSpread = options.hueSpread || 0.3;
-        this.noiseFrequency = options.noiseFrequency || 0.8;
-        this.noiseAmplitude = options.noiseAmplitude || 0.05;
         this.emissiveIntensity = options.emissiveIntensity || 1.5;
         this.bendAmount = options.bendAmount !== undefined ? options.bendAmount : 0.0;
         this.whispyAmount = options.whispyAmount !== undefined ? options.whispyAmount : 0.0;
-
-        this.rayTimings = new Array(this.rayCount).fill().map(() => ({
-            justRelocated: false
-        }));
 
         this.mesh = this.createRaysMesh();
 
@@ -205,16 +179,12 @@ class SunRays extends SunEffect {
             uniforms: {
                 ...ShaderUniformConfig.createCompleteRayUniforms({
                     lowres: this.lowres,
-                    rayLength: this.rayLength,
                     rayWidth: this.rayWidth,
                     rayOpacity: this.rayOpacity,
                     hue: this.hue,
                     hueSpread: this.hueSpread,
-                    noiseFrequency: this.noiseFrequency,
-                    noiseAmplitude: this.noiseAmplitude,
                     alphaBlended: 0.3
                 }),
-                uLength: { value: this.rayLength },
                 uEmissiveIntensity: { value: this.emissiveIntensity },
                 uBendAmount: { value: this.bendAmount },
                 uWhispyAmount: { value: this.whispyAmount }
@@ -314,90 +284,6 @@ class SunRays extends SunEffect {
         if (this.material.uniforms.uLightView) {
             this.material.uniforms.uLightView.value.copy(lightView);
         }
-    }
-
-    setRayWidth(width) {
-        if (this.mesh && this.mesh.material && this.mesh.material.uniforms.uWidth) {
-            this.mesh.material.uniforms.uWidth.value = width;
-        }
-        this.rayWidth = width;
-    }
-
-    setRayOpacity(opacity) {
-        if (this.mesh && this.mesh.material && this.mesh.material.uniforms.uOpacity) {
-            this.mesh.material.uniforms.uOpacity.value = opacity;
-        }
-        this.rayOpacity = opacity;
-    }
-
-    setHue(hue) {
-        if (this.mesh && this.mesh.material && this.mesh.material.uniforms.uHue) {
-            this.mesh.material.uniforms.uHue.value = hue;
-        }
-        this.hue = hue;
-    }
-
-    setRayLength(length) {
-        if (this.mesh && this.mesh.material && this.mesh.material.uniforms.uLength) {
-            this.mesh.material.uniforms.uLength.value = length;
-        }
-        this.rayLength = length;
-
-        if (this.mesh) {
-            log.debug('SunRays', `Updating ray length to ${length}`);
-            const newGeometry = this.createRaysGeometry();
-            this.mesh.geometry.dispose();
-            this.mesh.geometry = newGeometry;
-        }
-    }
-
-    getRayLength() {
-        return this.rayLength;
-    }
-
-    setRayCount(count) {
-        const clampedCount = Math.min(Math.max(count, 100), 10000);
-
-        if (this.rayCount !== clampedCount) {
-            log.debug('SunRays', `Updating ray count from ${this.rayCount} to ${clampedCount}`);
-            this.rayCount = clampedCount;
-
-            if (this.mesh) {
-                const newGeometry = this.createRaysGeometry();
-                this.mesh.geometry.dispose();
-                this.mesh.geometry = newGeometry;
-            }
-        }
-    }
-
-    getRayCount() {
-        return this.rayCount;
-    }
-
-    setBendAmount(amount) {
-        log.debug('SunRays', `Setting bend amount to: ${amount}`);
-        if (this.mesh && this.mesh.material && this.mesh.material.uniforms.uBendAmount) {
-            this.mesh.material.uniforms.uBendAmount.value = amount;
-            log.debug('SunRays', `Updated uBendAmount uniform to: ${amount}`);
-        } else {
-            log.debug('SunRays', 'uBendAmount uniform not found or mesh not ready');
-        }
-        this.bendAmount = amount;
-    }
-
-    getBendAmount() {
-        return this.bendAmount;
-    }
-
-    setWhispyAmount(amount) {
-        if (this.mesh && this.mesh.material && this.mesh.material.uniforms.uWhispyAmount) {
-            this.mesh.material.uniforms.uWhispyAmount.value = amount;
-        }
-        this.whispyAmount = amount;
-    }
-
-    getWhispyAmount() {
-        return this.whispyAmount;
     }
 
     setEmissiveIntensity(intensity) {

@@ -4,23 +4,17 @@ import BaseCelestialShaderMaterial from './BaseCelestialShaderMaterial.js';
 
 const vertexShader = `
 varying vec2 vUv;
-varying vec3 vNormal;
 varying vec3 vSurfaceOffset;
-varying vec3 vViewPosition;
 varying vec3 vWorldNormal;
 
 void main() {
     vUv = uv;
 
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
-    vNormal = normalize(normalMatrix * normal);
 
     vSurfaceOffset = mat3(modelMatrix) * position;
 
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    vViewPosition = -mvPosition.xyz;
-
-    gl_Position = projectionMatrix * mvPosition;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
 
@@ -30,9 +24,7 @@ uniform float cloudOpacity;
 uniform float alphaTest;
 
 varying vec2 vUv;
-varying vec3 vNormal;
 varying vec3 vSurfaceOffset;
-varying vec3 vViewPosition;
 varying vec3 vWorldNormal;
 
 ${BaseCelestialShaderMaterial.getCommonUniforms(true)}
@@ -94,18 +86,6 @@ class CloudShaderMaterial extends BaseCelestialShaderMaterial {
                 blending: THREE.NormalBlending
             }
         });
-    }
-
-    setCloudTexture(texture) {
-        this.uniforms.cloudTexture.value = texture;
-    }
-
-    setOpacity(opacity) {
-        this.uniforms.cloudOpacity.value = opacity;
-    }
-
-    setAlphaTest(threshold) {
-        this.uniforms.alphaTest.value = threshold;
     }
 
 }

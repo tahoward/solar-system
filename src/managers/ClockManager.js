@@ -4,7 +4,6 @@ import { ORBIT } from '../constants.js';
 export class ClockManager {
     constructor() {
         this.simulationTime = 0;
-        this.realTime = 0;
         this.lastFrameTime = 0;
         this.deltaTime = 0;
         this.isRunning = false;
@@ -14,12 +13,6 @@ export class ClockManager {
         this.timeScale = 1.0;
         this.maxDeltaTime = 0.1;
         this.physicsSpeedLimit = Infinity;
-
-        this.orbitalTimeScale = 1.0;
-
-        this.startTime = 0;
-        this.pausedTime = 0;
-        this.lastPauseStart = 0;
 
         this.adaptiveTimestep = {
             enabled: true,
@@ -38,12 +31,9 @@ export class ClockManager {
     }
 
     start(initialTimestamp) {
-        this.startTime = initialTimestamp;
         this.lastFrameTime = initialTimestamp;
         this.isRunning = true;
         this.simulationTime = 0;
-        this.realTime = 0;
-        this.pausedTime = 0;
 
         log.debug('ClockManager', 'Clock started');
     }
@@ -59,8 +49,6 @@ export class ClockManager {
 
         this.updateAdaptiveTimestep(this.deltaTime);
 
-        this.realTime = (timestamp - this.startTime - this.pausedTime) / 1000;
-
         const effectiveDeltaTime = this.adaptiveTimestep.enabled ?
             this.adaptiveTimestep.smoothedDeltaTime : this.deltaTime;
 
@@ -71,7 +59,6 @@ export class ClockManager {
     pause() {
         if (this.isRunning) {
             this.isRunning = false;
-            this.lastPauseStart = performance.now();
             log.debug('ClockManager', 'Clock paused');
         }
     }
@@ -79,9 +66,6 @@ export class ClockManager {
     resume() {
         if (!this.isRunning) {
             this.isRunning = true;
-            if (this.lastPauseStart > 0) {
-                this.pausedTime += performance.now() - this.lastPauseStart;
-            }
             log.debug('ClockManager', 'Clock resumed');
         }
     }
@@ -165,43 +149,8 @@ export class ClockManager {
             Math.min(this.requestedSpeedMultiplier, this.physicsSpeedLimit));
     }
 
-    setTimeScale(scale) {
-        this.timeScale = Math.max(0, scale);
-        log.debug('ClockManager', `Time scale set to ${this.timeScale}`);
-    }
-
-    setOrbitalTimeScale(scale) {
-        this.orbitalTimeScale = Math.max(0, scale);
-        log.debug('ClockManager', `Orbital time scale set to ${this.orbitalTimeScale}`);
-    }
-
     getSimulationTime() {
         return this.simulationTime;
-    }
-
-    getSimulationTimeMs() {
-        return this.simulationTime * 1000;
-    }
-
-    getDeltaTime() {
-        return this.adaptiveTimestep.enabled ?
-            this.adaptiveTimestep.smoothedDeltaTime : this.deltaTime;
-    }
-
-    getRawDeltaTime() {
-        return this.deltaTime;
-    }
-
-    getPhysicsDeltaTime() {
-        const effectiveDeltaTime = this.adaptiveTimestep.enabled ?
-            this.adaptiveTimestep.smoothedDeltaTime : this.deltaTime;
-        return effectiveDeltaTime * this.speedMultiplier * this.timeScale;
-    }
-
-    getOrbitalDeltaTime() {
-        const effectiveDeltaTime = this.adaptiveTimestep.enabled ?
-            this.adaptiveTimestep.smoothedDeltaTime : this.deltaTime;
-        return effectiveDeltaTime * this.speedMultiplier * this.orbitalTimeScale;
     }
 
     getKeplerTimeIncrement() {
@@ -216,24 +165,10 @@ export class ClockManager {
         return effectiveDeltaTime * this.speedMultiplier * 0.002;
     }
 
-    getRotationDeltaTime() {
-        const effectiveDeltaTime = this.adaptiveTimestep.enabled ?
-            this.adaptiveTimestep.smoothedDeltaTime : this.deltaTime;
-        return effectiveDeltaTime * this.speedMultiplier * 0.1;
-    }
-
     getEffectsDeltaTime() {
         const effectiveDeltaTime = this.adaptiveTimestep.enabled ?
             this.adaptiveTimestep.smoothedDeltaTime : this.deltaTime;
         return effectiveDeltaTime * this.speedMultiplier;
-    }
-
-    getRealTime() {
-        return this.realTime;
-    }
-
-    isPaused() {
-        return !this.isRunning;
     }
 
     getSpeedMultiplier() {
@@ -246,129 +181,6 @@ export class ClockManager {
 
     isSpeedLimitedByPhysics() {
         return this.speedMultiplier < this.requestedSpeedMultiplier;
-    }
-
-    getTimeScale() {
-        return this.timeScale;
-    }
-
-    setAdaptiveTimestep(enabled) {
-        this.adaptiveTimestep.enabled = enabled;
-        if (enabled) {
-            log.debug('ClockManager', 'Adaptive timestep enabled');
-        } else {
-            log.debug('ClockManager', 'Adaptive timestep disabled');
-        }
-    }
-
-    configureAdaptiveTimestep(config) {
-        if (config.targetFPS !== undefined) {
-            this.adaptiveTimestep.targetFPS = config.targetFPS;
-            this.adaptiveTimestep.performanceThreshold = 1 / config.targetFPS;
-        }
-        if (config.minTimestep !== undefined) {
-            this.adaptiveTimestep.minTimestep = config.minTimestep;
-        }
-        if (config.maxTimestep !== undefined) {
-            this.adaptiveTimestep.maxTimestep = config.maxTimestep;
-        }
-        if (config.smoothingFactor !== undefined) {
-            this.adaptiveTimestep.smoothingFactor = config.smoothingFactor;
-        }
-        if (config.adaptationRate !== undefined) {
-            this.adaptiveTimestep.adaptationRate = config.adaptationRate;
-        }
-
-        log.debug('ClockManager', 'Adaptive timestep configured', config);
-    }
-
-    getAdaptiveTimestepInfo() {
-        return {
-            enabled: this.adaptiveTimestep.enabled,
-            smoothedDeltaTime: this.adaptiveTimestep.smoothedDeltaTime,
-            targetFPS: this.adaptiveTimestep.targetFPS,
-            currentFPS: this.adaptiveTimestep.smoothedDeltaTime > 0 ? 1 / this.adaptiveTimestep.smoothedDeltaTime : 0,
-            avgFrameTime: this.adaptiveTimestep.frameTimeHistory.length > 0 ?
-                this.adaptiveTimestep.frameTimeHistory.reduce((sum, time) => sum + time, 0) /
-                this.adaptiveTimestep.frameTimeHistory.length : 0
-        };
-    }
-
-    getStatus() {
-        return {
-            isRunning: this.isRunning,
-            simulationTime: this.simulationTime,
-            realTime: this.realTime,
-            deltaTime: this.deltaTime,
-            speedMultiplier: this.speedMultiplier,
-            requestedSpeedMultiplier: this.requestedSpeedMultiplier,
-            physicsSpeedLimit: this.physicsSpeedLimit,
-            timeScale: this.timeScale,
-            orbitalTimeScale: this.orbitalTimeScale,
-            fps: this.deltaTime > 0 ? 1 / this.deltaTime : 0,
-            adaptiveTimestep: this.getAdaptiveTimestepInfo()
-        };
-    }
-
-    logStatus() {
-        const status = this.getStatus();
-        log.info('ClockManager', `Status: ${JSON.stringify(status, null, 2)}`);
-    }
-
-    getOrbitalProgress(hierarchy, bodyName) {
-        const body = this.findBodyInHierarchy(hierarchy, bodyName);
-        if (!body || !body.orbit) {
-            return null;
-        }
-
-        const currentTime = this.getSimulationTime();
-        const orbitalTime = currentTime * 0.00002;
-
-        const meanAnomaly = body.orbit.meanAnomalyAtEpochRadians + body.orbit.n * orbitalTime;
-
-        const meanAnomalyDegrees = (meanAnomaly * 180 / Math.PI) % 360;
-        const orbitsCompleted = Math.floor(meanAnomaly / (2 * Math.PI));
-        const orbitalProgress = (meanAnomaly % (2 * Math.PI)) / (2 * Math.PI);
-
-        return {
-            bodyName: body.name,
-            meanAnomalyDegrees: meanAnomalyDegrees < 0 ? meanAnomalyDegrees + 360 : meanAnomalyDegrees,
-            orbitsCompleted,
-            orbitalProgress: orbitalProgress < 0 ? orbitalProgress + 1 : orbitalProgress,
-            totalDegrees: meanAnomaly * 180 / Math.PI,
-            orbitalPeriod: body.orbit.orbitalPeriod,
-            meanMotion: body.orbit.n
-        };
-    }
-
-    findBodyInHierarchy(hierarchy, bodyName) {
-        if (hierarchy.body && hierarchy.body.name === bodyName) {
-            return hierarchy.body;
-        }
-
-        if (hierarchy.children && Array.isArray(hierarchy.children)) {
-            for (const child of hierarchy.children) {
-                const found = this.findBodyInHierarchy(child, bodyName);
-                if (found) {
-                    return found;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    getEarthRotationDegrees(hierarchy) {
-        const earth = this.findBodyInHierarchy(hierarchy, 'Earth');
-        if (!earth || !earth.mesh) {
-            return null;
-        }
-
-        const meshRotationRadians = earth.mesh.rotation.y;
-
-        const meshRotationDegrees = meshRotationRadians * (180 / Math.PI);
-
-        return Math.abs(meshRotationDegrees);
     }
 }
 

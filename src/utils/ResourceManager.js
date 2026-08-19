@@ -1,6 +1,6 @@
 import SceneManager from '../managers/SceneManager.js';
 import BodyRenderer from '../rendering/BodyRenderer.js';
-import logger, { log } from './Logger.js';
+import { log } from './Logger.js';
 
 class ResourceManager {
     static dispose(body) {
@@ -165,7 +165,6 @@ class ResourceManager {
         body.pinpointMesh = null;
         body.group = null;
         body.emittedLight = null;
-        body.thisBody = null;
     }
 }
 

@@ -142,7 +142,6 @@ class Orbit {
 
         this.centralPosition = new THREE.Vector3();
         this.centralVelocity = new THREE.Vector3();
-        this.centralMass = 0;
 
         this.companionLine = null;
         this.companionPositions = null;
@@ -225,8 +224,6 @@ class Orbit {
 
         this.centralPosition.copy(_centralWeightedPosition).divideScalar(mass);
         this.centralVelocity.copy(_centralWeightedVelocity).divideScalar(mass);
-        this.centralMass = mass;
-
         _centralStandIn.mass = mass;
         const relativeGM = calculateGM(_centralStandIn, this.body.mass);
         this.barycentreShare = reference ? calculateGM(_centralStandIn) / relativeGM : 1;

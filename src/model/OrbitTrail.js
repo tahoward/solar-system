@@ -281,15 +281,6 @@ export class OrbitTrail {
         log.debug('OrbitTrail', `Cleared trail for ${this.bodyName}`);
     }
 
-    setColor(newColor) {
-        this.color = newColor.clone();
-        if (this.points.length > 0) {
-            this.updateGeometry();
-        } else {
-            this.resetToMinimalState();
-        }
-    }
-
     dispose() {
         if (this.geometry) {
             this.geometry.dispose();

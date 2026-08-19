@@ -265,16 +265,8 @@ export class InputController {
         }
     }
 
-    getCurrentTargetIndex() {
-        return this.currentTargetIndex;
-    }
-
     getCurrentTarget() {
         return this.targetableBodies[this.currentTargetIndex];
-    }
-
-    getOrbitLinesVisible() {
-        return SceneManager.areOrbitsVisible();
     }
 }
 

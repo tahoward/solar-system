@@ -1,4 +1,4 @@
-export const LogLevel = {
+const LogLevel = {
     DEBUG: 0,
     INFO: 1,
     WARN: 2,
@@ -9,7 +9,6 @@ export const LogLevel = {
 class Logger {
     constructor() {
         this.currentLevel = this._getEnvironmentLogLevel();
-        this.enabledContexts = new Set();
         this.logHistory = [];
         this.maxHistorySize = 100;
     }
@@ -21,32 +20,8 @@ class Logger {
         return LogLevel.DEBUG;
     }
 
-    setLevel(level) {
-        this.currentLevel = level;
-    }
-
-    enableContexts(...contexts) {
-        contexts.forEach(context => this.enabledContexts.add(context));
-    }
-
-    disableContexts(...contexts) {
-        contexts.forEach(context => this.enabledContexts.delete(context));
-    }
-
-    clearContexts() {
-        this.enabledContexts.clear();
-    }
-
-    _shouldLog(level, context) {
-        if (level < this.currentLevel) {
-            return false;
-        }
-
-        if (this.enabledContexts.size > 0 && !this.enabledContexts.has(context)) {
-            return false;
-        }
-
-        return true;
+    _shouldLog(level) {
+        return level >= this.currentLevel;
     }
 
     _addToHistory(level, context, message, data) {
@@ -71,7 +46,7 @@ class Logger {
     }
 
     debug(context, message, data = null) {
-        if (!this._shouldLog(LogLevel.DEBUG, context)) return;
+        if (!this._shouldLog(LogLevel.DEBUG)) return;
 
         const formatted = this._formatMessage(context, message);
         this._addToHistory(LogLevel.DEBUG, context, message, data);
@@ -84,7 +59,7 @@ class Logger {
     }
 
     info(context, message, data = null) {
-        if (!this._shouldLog(LogLevel.INFO, context)) return;
+        if (!this._shouldLog(LogLevel.INFO)) return;
 
         const formatted = this._formatMessage(context, message);
         this._addToHistory(LogLevel.INFO, context, message, data);
@@ -97,7 +72,7 @@ class Logger {
     }
 
     warn(context, message, data = null) {
-        if (!this._shouldLog(LogLevel.WARN, context)) return;
+        if (!this._shouldLog(LogLevel.WARN)) return;
 
         const formatted = this._formatMessage(context, message);
         this._addToHistory(LogLevel.WARN, context, message, data);
@@ -110,7 +85,7 @@ class Logger {
     }
 
     error(context, message, error = null) {
-        if (!this._shouldLog(LogLevel.ERROR, context)) return;
+        if (!this._shouldLog(LogLevel.ERROR)) return;
 
         const formatted = this._formatMessage(context, message);
         this._addToHistory(LogLevel.ERROR, context, message, error);
@@ -129,18 +104,6 @@ class Logger {
         return [...this.logHistory];
     }
 
-    clearHistory() {
-        this.logHistory = [];
-    }
-
-    getConfig() {
-        return {
-            currentLevel: this.currentLevel,
-            enabledContexts: Array.from(this.enabledContexts),
-            historySize: this.logHistory.length,
-            maxHistorySize: this.maxHistorySize
-        };
-    }
 }
 
 const logger = new Logger();

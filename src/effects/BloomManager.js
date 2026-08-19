@@ -167,17 +167,13 @@ export class BloomManager {
 
     updateBloomIntensity(cameraPosition) {
         let closestScaledDistance = Infinity;
-        let closestStarName = 'unknown';
         let bloomStrength = this.bloomConfig.strength;
 
         for (const [starObject, starData] of this.starObjects) {
             const actualDistance = cameraPosition.distanceTo(starObject.position);
 
-            const effectiveDisableDistance = BLOOM.DISABLE_DISTANCE * starData.radiusScale;
-
             if (actualDistance < closestScaledDistance) {
                 closestScaledDistance = actualDistance;
-                closestStarName = starObject.name || 'unnamed star';
                 this.closestStarData = starData;
             }
 
@@ -308,22 +304,6 @@ export class BloomManager {
 
         const resolution = this.#getBloomResolution(_bloomResolution);
         this.bloomPass.setSize(resolution.x, resolution.y);
-    }
-
-    updateBloomConfig(config) {
-        if (config.strength !== undefined) {
-            this.bloomConfig.strength = config.strength;
-            this.bloomPass.strength = config.strength;
-        }
-        if (config.radius !== undefined) {
-            this.bloomConfig.radius = config.radius;
-            this.bloomPass.radius = config.radius;
-        }
-        if (config.threshold !== undefined) {
-            this.bloomConfig.threshold = config.threshold;
-            this.bloomPass.threshold = config.threshold;
-        }
-
     }
 
     toggleBloom() {

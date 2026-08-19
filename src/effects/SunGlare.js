@@ -27,20 +27,12 @@ class SunGlare extends SunEffect {
         this.minScale = options.minScale || 0.1;
         this.maxScale = options.maxScale || 1.0;
 
-        this.fadeStartDistance = options.fadeStartDistance || this.maxScaleDistance;
-        this.fadeEndDistance = options.fadeEndDistance || this.minScaleDistance;
-
         this.scaleCenterWithDistance = options.scaleCenterWithDistance !== undefined ? options.scaleCenterWithDistance : true;
         this.centerBaseSize = options.centerBaseSize || 0.01;
         this.centerFadeSize = options.centerFadeSize || 0.03;
 
-        this.currentFadeFactor = 1.0;
-
-        this.twinkleEnabled = options.twinkle !== undefined ? options.twinkle : true;
         this.twinkleSpeed = options.twinkleSpeed || 1.5;
         this.twinkleIntensity = options.twinkleIntensity || 0.12;
-        this.lastTextureUpdate = 0;
-        this.textureUpdateInterval = options.textureUpdateInterval || 150;
 
         this.mesh = this.createGlareBillboard();
 
@@ -216,10 +208,6 @@ class SunGlare extends SunEffect {
 
         const distance = camera.position.distanceTo(sunPosition);
 
-        this.updateFadeDistance(distance);
-
-        this.updateBillboardOrientation(camera, sunPosition);
-
         let centerScale = 1.0;
 
         if (this.scaleCenterWithDistance && this.scaleWithDistance) {
@@ -245,9 +233,9 @@ class SunGlare extends SunEffect {
         if (this.material.uniforms) {
             this.material.uniforms.uTime.value = this.time;
             this.material.uniforms.uCenterScale.value = centerScale;
-            this.material.uniforms.uOpacity.value = this.glareOpacity * this.currentFadeFactor;
-            this.material.uniforms.uCoreIntensity.value = this.emissiveIntensity * this.currentFadeFactor * emissiveBoost;
-            this.material.uniforms.uGlowIntensity.value = this.glowIntensity * this.currentFadeFactor;
+            this.material.uniforms.uOpacity.value = this.glareOpacity;
+            this.material.uniforms.uCoreIntensity.value = this.emissiveIntensity * emissiveBoost;
+            this.material.uniforms.uGlowIntensity.value = this.glowIntensity;
             this.material.uniforms.uDistanceFactor.value = distanceFactor;
             this.material.uniforms.uTwinkleIntensity.value = this.twinkleIntensity;
             this.material.uniforms.uTwinkleSpeed.value = this.twinkleSpeed;
@@ -268,109 +256,22 @@ class SunGlare extends SunEffect {
         this.mesh.scale.setScalar(scaleFactor);
     }
 
-    updateFadeDistance(_distance) {
-        this.currentFadeFactor = 1.0;
-    }
-
-    updateBillboardOrientation(_camera, _sunPosition) {
-    }
-
-    setGlareSize(size) {
-        this.glareSize = size;
-        if (this.mesh && this.mesh.geometry) {
-            const newSize = this.sunRadius * size;
-            this.mesh.geometry.dispose();
-            this.mesh.geometry = new THREE.PlaneGeometry(newSize, newSize);
-        }
-    }
-
-    setGlareOpacity(opacity) {
-        this.glareOpacity = opacity;
-        if (this.material && this.material.uniforms) {
-            this.material.uniforms.uOpacity.value = opacity * this.currentFadeFactor;
-        }
-    }
-
-    setGlareColor(color) {
-        this.glareColor = color;
-        if (this.material && this.material.uniforms) {
-            this.material.uniforms.uEmissiveColor.value.set(color);
-        }
-    }
-
     setEmissiveIntensity(intensity) {
         this.emissiveIntensity = intensity;
         if (this.material && this.material.uniforms) {
-            this.material.uniforms.uCoreIntensity.value = intensity * this.currentFadeFactor;
+            this.material.uniforms.uCoreIntensity.value = intensity;
         }
     }
 
     setGlowIntensity(intensity) {
         this.glowIntensity = intensity;
         if (this.material && this.material.uniforms) {
-            this.material.uniforms.uGlowIntensity.value = intensity * this.currentFadeFactor;
+            this.material.uniforms.uGlowIntensity.value = intensity;
         }
     }
 
     getEmissiveIntensity() {
         return this.emissiveIntensity;
-    }
-
-    setTwinkleEnabled(enabled) {
-        this.twinkleEnabled = enabled;
-        this.lastTextureUpdate = 0;
-    }
-
-    setTwinkleSpeed(speed) {
-        this.twinkleSpeed = speed;
-        this.lastTextureUpdate = 0;
-    }
-
-    setTwinkleIntensity(intensity) {
-        this.twinkleIntensity = intensity;
-        if (this.material && this.material.uniforms) {
-            this.material.uniforms.uTwinkleIntensity.value = intensity;
-        }
-    }
-
-    setSpikeParameters(params = {}) {
-        if (this.material && this.material.uniforms) {
-            if (params.length !== undefined) {
-                this.material.uniforms.uSpikeLength.value = params.length;
-            }
-            if (params.width !== undefined) {
-                this.material.uniforms.uSpikeWidth.value = params.width;
-            }
-            if (params.centerRadius !== undefined) {
-                this.material.uniforms.uCenterRadius.value = params.centerRadius;
-            }
-        }
-    }
-
-    getSpikeParameters() {
-        if (this.material && this.material.uniforms) {
-            return {
-                length: this.material.uniforms.uSpikeLength.value,
-                width: this.material.uniforms.uSpikeWidth.value,
-                centerRadius: this.material.uniforms.uCenterRadius.value,
-                distanceFactor: this.material.uniforms.uDistanceFactor.value
-            };
-        }
-        return null;
-    }
-
-    getTwinkleSettings() {
-        return {
-            enabled: this.twinkleEnabled,
-            speed: this.twinkleSpeed,
-            intensity: this.twinkleIntensity,
-            updateInterval: this.textureUpdateInterval
-        };
-    }
-
-    setFadeDistances(startDistance, endDistance) {
-        this.fadeStartDistance = startDistance;
-        this.fadeEndDistance = endDistance;
     }
 
     getMesh() {

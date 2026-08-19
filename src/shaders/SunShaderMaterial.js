@@ -2,64 +2,14 @@ import * as THREE from 'three';
 import ShaderLoader from './ShaderLoader.js';
 
 const vertexShader = `
-uniform float uTime;
-uniform float uNoiseScale;
-
-varying vec2 vUv;
-varying vec3 vNormal;
 varying vec3 vNormalModel;
 varying vec3 vNormalView;
-varying vec3 vPosition;
-varying vec3 vModelPosition;
-
-vec3 hash3(vec3 p) {
-    p = vec3(
-        dot(p, vec3(127.1, 311.7, 74.7)),
-        dot(p, vec3(269.5, 183.3, 246.1)),
-        dot(p, vec3(113.5, 271.9, 124.6))
-    );
-    return fract(sin(p) * 43758.5453123);
-}
-
-float voronoiBump(vec3 p, float scale) {
-    p *= scale;
-    vec3 i = floor(p);
-    vec3 f = fract(p);
-
-    float minDist = 1.0;
-    for (int x = -1; x <= 1; x++) {
-        for (int y = -1; y <= 1; y++) {
-            for (int z = -1; z <= 1; z++) {
-                vec3 neighbor = vec3(float(x), float(y), float(z));
-                vec3 point = hash3(i + neighbor);
-                vec3 diff = neighbor + point - f;
-                float dist = length(diff);
-                minDist = min(minDist, dist);
-            }
-        }
-    }
-    return minDist;
-}
 
 void main() {
-    vUv = uv;
     vNormalModel = normal;
-    vModelPosition = position;
-
-    vec3 sphereNormal = normalize(position);
-    float kernelScale = uNoiseScale * 20.0;
-    float bump = voronoiBump(sphereNormal, kernelScale);
-
-    float displacement = 1.0 - smoothstep(0.0, 0.7, bump);
-    displacement = smoothstep(0.0, 1.0, displacement);
-    displacement *= 0.0;
-
-    vec3 displacedPos = position + sphereNormal * displacement;
-
-    vNormal = normalize(mat3(modelMatrix) * normal);
     vNormalView = normalize(normalMatrix * normal);
-    vPosition = normalize(vec3(modelViewMatrix * vec4(displacedPos, 1.0)).xyz);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(displacedPos, 1.0);
+
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
 
@@ -69,19 +19,14 @@ uniform vec3 uGlowColor;
 uniform float uGlowIntensity;
 uniform float uNoiseScale;
 uniform float uBrightness;
-uniform float uSunspotFrequency;
 uniform float uSunspotIntensity;
 uniform float uEmissiveIntensity;
 uniform vec3 uSunspotPositions[8];
 uniform float uSunspotOpacities[8];
 uniform float uSunspotRadii[8];
 
-varying vec2 vUv;
-varying vec3 vNormal;
 varying vec3 vNormalModel;
 varying vec3 vNormalView;
-varying vec3 vPosition;
-varying vec3 vModelPosition;
 
 vec3 hash3f(vec3 p) {
     vec3 q = vec3(
@@ -131,9 +76,6 @@ void main() {
         noise(surfacePos * 3.0 + vec3(4.4, 0.0, 2.2)),
         noise(surfacePos * 3.0 + vec3(8.8, 6.6, 0.0))
     ) * 0.08;
-
-    float cyclicTime1 = sin(uTime * 0.0001) * 5000.0;
-    float cyclicTime2 = cos(uTime * 0.0001 + 1.5708) * 5000.0;
 
     float kernelScale = uNoiseScale * 20.0;
     vec2 voronoi = voronoiCorn(warpedPos, kernelScale, uTime);
@@ -192,7 +134,6 @@ class SunShaderMaterial extends THREE.ShaderMaterial {
             uGlowIntensity: { value: options.glowIntensity || 0.3 },
             uNoiseScale: { value: options.noiseScale || 5.0 },
             uBrightness: { value: options.brightness || 1.6 },
-            uSunspotFrequency: { value: options.sunspotFrequency || 0.15 },
             uSunspotIntensity: { value: options.sunspotIntensity || 0.9 },
             uEmissiveIntensity: { value: options.emissiveIntensity || 1.3 },
             uSunspotPositions: { value: defaultPositions },
@@ -213,10 +154,7 @@ class SunShaderMaterial extends THREE.ShaderMaterial {
         this.uTime = uniforms.uTime;
         this.uGlowColor = uniforms.uGlowColor;
         this.uGlowIntensity = uniforms.uGlowIntensity;
-        this.uNoiseScale = uniforms.uNoiseScale;
         this.uBrightness = uniforms.uBrightness;
-        this.uSunspotFrequency = uniforms.uSunspotFrequency;
-        this.uSunspotIntensity = uniforms.uSunspotIntensity;
         this.uEmissiveIntensity = uniforms.uEmissiveIntensity;
     }
 
@@ -224,32 +162,12 @@ class SunShaderMaterial extends THREE.ShaderMaterial {
         this.uTime.value = time;
     }
 
-    setGlowColor(color) {
-        if (typeof color === 'number') {
-            this.uGlowColor.value.setHex(color);
-        } else {
-            this.uGlowColor.value.copy(color);
-        }
-    }
-
     setGlowIntensity(intensity) {
         this.uGlowIntensity.value = intensity;
     }
 
-    setNoiseScale(scale) {
-        this.uNoiseScale.value = scale;
-    }
-
     setBrightness(brightness) {
         this.uBrightness.value = brightness;
-    }
-
-    setSunspotFrequency(frequency) {
-        this.uSunspotFrequency.value = frequency;
-    }
-
-    setSunspotIntensity(intensity) {
-        this.uSunspotIntensity.value = intensity;
     }
 
     setEmissiveIntensity(intensity) {
@@ -270,10 +188,6 @@ class SunShaderMaterial extends THREE.ShaderMaterial {
         if (radii !== undefined) {
             this.uniforms.uSunspotRadii.value = radii;
         }
-    }
-
-    dispose() {
-        super.dispose();
     }
 }
 

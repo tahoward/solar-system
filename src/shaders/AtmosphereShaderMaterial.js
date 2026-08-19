@@ -193,29 +193,10 @@ class AtmosphereShaderMaterial extends BaseCelestialShaderMaterial {
         });
 
         this.atmosphereColor = this.uniforms.atmosphereColor;
-        this.opticalThickness = this.uniforms.opticalThickness;
-        this.airHeight = airHeight;
     }
 
     static coefficientFor(verticalOpticalDepth, airHeight) {
         return airHeight > 0 ? verticalOpticalDepth / airHeight : 0;
-    }
-
-    setAtmosphereColor(color) {
-        if (typeof color === 'number') {
-            this.atmosphereColor.value.setHex(color);
-        } else {
-            this.atmosphereColor.value.copy(color);
-        }
-    }
-
-    setVerticalOpticalDepth(verticalOpticalDepth) {
-        this.opticalThickness.value =
-            AtmosphereShaderMaterial.coefficientFor(verticalOpticalDepth, this.airHeight);
-    }
-
-    dispose() {
-        super.dispose();
     }
 }
 

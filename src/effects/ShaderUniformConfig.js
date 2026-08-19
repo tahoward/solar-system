@@ -74,23 +74,11 @@ class ShaderUniformConfig {
     }
 
     static createFlareUniforms(options = {}) {
-        const {
-            lowres = false,
-            lineLength = 16,
-            lineCount = 2047
-        } = options;
+        const { lowres = false } = options;
 
         return {
             uWidth: { value: lowres ? 0.003 : 0.0015 },
             uAmp: { value: 1.0 },
-
-            uResolution: { value: new THREE.Vector4(
-                lineLength,
-                lineCount,
-                1 / lineLength,
-                1 / lineCount
-            ) },
-            uLineLength: { value: lineLength },
 
             ...this.createNoiseUniforms({ frequency: 4, amplitude: 0.2 })
         };
@@ -98,22 +86,13 @@ class ShaderUniformConfig {
 
     static createRayUniforms(options = {}) {
         const {
-            rayLength = 20,
             rayWidth = 0.15,
-            rayOpacity = 0.8,
-            noiseFrequency = 0.8,
-            noiseAmplitude = 0.05
+            rayOpacity = 0.8
         } = options;
 
         return {
-            uLength: { value: rayLength },
             uWidth: { value: rayWidth },
-            uOpacity: { value: rayOpacity },
-
-            ...this.createNoiseUniforms({
-                frequency: noiseFrequency,
-                amplitude: noiseAmplitude
-            })
+            uOpacity: { value: rayOpacity }
         };
     }
 

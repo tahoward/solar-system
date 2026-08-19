@@ -96,31 +96,6 @@ class SkyboxManager {
     });
   }
 
-  async updateTexture(imageUrl) {
-    if (!this.hasSkybox()) {
-      log.warn('SkyboxManager', '⚠️ No skybox exists to update');
-      return;
-    }
-
-    try {
-      log.info('SkyboxManager', '🌌 Updating skybox texture to:', imageUrl);
-      const texture = await this.loadTexture(imageUrl);
-
-      this.#disposeCubeTexture();
-      this.texture = this.#equirectToCubeTexture(texture);
-
-      texture.dispose();
-
-      if (this.visible) {
-        this.scene.background = this.texture;
-      }
-
-      log.info('SkyboxManager', '🌌 Skybox texture updated successfully');
-    } catch (error) {
-      log.error('SkyboxManager', '❌ Failed to update skybox texture:', error);
-    }
-  }
-
   removeSkybox(scene = this.scene) {
     if (this.hasSkybox()) {
       log.info('SkyboxManager', '🌌 Removing skybox from scene');
@@ -143,10 +118,6 @@ class SkyboxManager {
     }
   }
 
-  getSkybox() {
-    return this.texture;
-  }
-
   hasSkybox() {
     return this.texture !== null;
   }
@@ -158,18 +129,6 @@ class SkyboxManager {
       this.scene.backgroundIntensity = this.brightness;
       log.info('SkyboxManager', `🌌 Skybox brightness set to: ${this.brightness.toFixed(2)}`);
     }
-  }
-
-  getBrightness() {
-    return this.scene ? this.scene.backgroundIntensity : this.brightness;
-  }
-
-  brighten(amount = 0.1) {
-    this.setBrightness(this.getBrightness() + amount);
-  }
-
-  dim(amount = 0.1) {
-    this.setBrightness(this.getBrightness() - amount);
   }
 }
 

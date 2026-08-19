@@ -61,27 +61,6 @@ class BaseCelestialShaderMaterial extends THREE.ShaderMaterial {
         }
     }
 
-    setRingParameters(innerRadius, outerRadius, alphaTexture) {
-        if (!this._supportsShadows) {
-            log.warn('BaseCelestialShaderMaterial', 'Attempting to set ring parameters on material that does not support shadows');
-            return;
-        }
-
-        this.uniforms.ringInnerRadius.value = innerRadius;
-        this.uniforms.ringOuterRadius.value = outerRadius;
-        this.uniforms.ringAlphaTexture.value = alphaTexture;
-        this.uniforms.hasRings.value = true;
-    }
-
-    setRingShadowsEnabled(enabled) {
-        if (!this._supportsShadows) {
-            log.warn('BaseCelestialShaderMaterial', 'Attempting to set ring shadows on material that does not support shadows');
-            return;
-        }
-
-        this.uniforms.hasRings.value = enabled;
-    }
-
     updateMoons(positions, radii, planetPosition) {
         if (!this._supportsShadows) {
             log.warn('BaseCelestialShaderMaterial', 'Attempting to update moons on material that does not support shadows');

@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import ShaderUniformHelper from '../utils/ShaderUniformHelper.js';
 import { log } from '../utils/Logger.js';
 
@@ -68,34 +67,6 @@ class SunEffect {
         throw new Error('update() must be implemented by subclass');
     }
 
-    createCommonUniforms(customUniforms = {}) {
-        const commonUniforms = {
-            uTime: { value: 0 },
-
-            uVisibility: { value: 1.0 },
-            uDirection: { value: 1.0 },
-            uLightView: { value: new THREE.Vector3(0, 0, 1) },
-
-            uBaseColor: { value: new THREE.Color(0xffaa00) },
-            uHue: { value: 0 },
-            uHueSpread: { value: 0.16 },
-
-            uOpacity: { value: this.lowres ? 3 : 0.2 },
-            uAlphaBlended: { value: 0.65 }
-        };
-
-        return { ...commonUniforms, ...customUniforms };
-    }
-
-    getCommonMaterialSettings() {
-        return {
-            transparent: true,
-            premultipliedAlpha: true,
-            depthWrite: false,
-            depthTest: true,
-            side: THREE.DoubleSide
-        };
-    }
 }
 
 export default SunEffect;

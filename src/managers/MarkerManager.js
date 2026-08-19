@@ -95,43 +95,6 @@ export class MarkerManager {
         }
     }
 
-    restoreAllMarkers() {
-        log.debug('MarkerManager', `Restoring all markers (${this.markers.size} total)`);
-
-        let restoredCount = 0;
-        this.markers.forEach(marker => {
-            if (marker && typeof marker.show === 'function') {
-                if (typeof marker.reenableInteraction === 'function') {
-                    marker.reenableInteraction();
-                }
-                marker.show();
-                restoredCount++;
-            } else {
-                log.warn('MarkerManager', 'Marker missing or does not have show method');
-            }
-        });
-
-        this.currentSelectedMarker = null;
-        this.hierarchyManager.clearSelectedBody();
-        log.debug('MarkerManager', `Restored ${restoredCount} markers`);
-    }
-
-    getCurrentSelectedMarker() {
-        return this.currentSelectedMarker;
-    }
-
-    getMarkerCount() {
-        return this.markers.size;
-    }
-
-    isMarkerRegistered(marker) {
-        return this.markers.has(marker);
-    }
-
-    getAllMarkers() {
-        return Array.from(this.markers);
-    }
-
     clearAllMarkers() {
         const count = this.markers.size;
         this.markers.clear();
@@ -139,36 +102,24 @@ export class MarkerManager {
         log.info('MarkerManager', `Cleared all marker registrations (${count} markers removed)`);
     }
 
-    updateAllMarkerSizes() {
-        log.debug('MarkerManager', `Updating size for all markers to ${this.markerSizeMultiplier.toFixed(1)}x`);
-    }
-
     hideAllMarkers() {
-        let hiddenCount = 0;
         this.markers.forEach(marker => {
             if (marker && marker.group) {
                 marker.group.visible = false;
-                hiddenCount++;
             } else if (marker && !marker.group && marker.isReady === false) {
                 marker._shouldBeHidden = true;
-                hiddenCount++;
             }
         });
-
     }
 
     showAllMarkers() {
-        let shownCount = 0;
         this.markers.forEach(marker => {
             if (marker && marker.group) {
                 marker.group.visible = true;
-                shownCount++;
             } else if (marker && !marker.group && marker.isReady === false) {
                 marker._shouldBeHidden = false;
-                shownCount++;
             }
         });
-
     }
 
     areMarkersVisible() {

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { Group, Tween, Easing } from '@tweenjs/tween.js';
+import { Tween, Easing } from '@tweenjs/tween.js';
 import { ANIMATION, SCENE } from '../constants.js';
 import { log } from '../utils/Logger.js';
 
@@ -76,33 +76,6 @@ export class CameraController {
         this.target.getWorldPosition(worldPos);
         this.controls.target.copy(worldPos);
         this.lastTargetPosition = null;
-    }
-
-    setTargetDirect(group) {
-        if (!group) {
-            log.warn('CameraController', 'setTargetDirect - No group provided');
-            return;
-        }
-
-        this.target = group;
-        this.isAnimating = false;
-
-        const targetPos = new THREE.Vector3();
-        group.getWorldPosition(targetPos);
-        const bodyRadius = this._getBodyRadius(group);
-        const radiusScale = this._getBodyRadiusScale(group);
-        const { targetDistance } = CameraController.calculateCameraLimits(bodyRadius, radiusScale);
-        const distance = targetDistance;
-
-        const cameraPos = targetPos.clone().add(
-            new THREE.Vector3(distance, distance * CAMERA_CONFIG.ANGLE_HEIGHT_FACTOR, distance)
-        );
-
-        this.camera.position.copy(cameraPos);
-        this.controls.target.copy(targetPos);
-
-        this.applyZoomLimits(group);
-        this.controls.update();
     }
 
     setTargetSmooth(group, duration = ANIMATION.DEFAULT_TRANSITION_DURATION) {
@@ -308,10 +281,6 @@ export class CameraController {
         }
     }
 
-    isCurrentlyAnimating() {
-        return this.isAnimating;
-    }
-
     getCurrentTarget() {
         return this.target;
     }
@@ -373,30 +342,6 @@ export class CameraController {
         };
     }
 
-    static calculateEffectDistances(bodyRadius, radiusScale = 1) {
-        const effectiveRadius = bodyRadius * radiusScale;
-
-        return {
-            bloom: {
-                disable: effectiveRadius * DISTANCE_CONFIG.EFFECTS.BLOOM.DISABLE_FACTOR,
-                fadeStart: effectiveRadius * DISTANCE_CONFIG.EFFECTS.BLOOM.FADE_START_FACTOR,
-                fadeEnd: effectiveRadius * DISTANCE_CONFIG.EFFECTS.BLOOM.FADE_END_FACTOR,
-                maxDistance: effectiveRadius * DISTANCE_CONFIG.EFFECTS.BLOOM.MAX_DISTANCE_FACTOR
-            },
-            visibility: {
-                min: effectiveRadius * DISTANCE_CONFIG.EFFECTS.VISIBILITY.MIN_FACTOR,
-                max: effectiveRadius * DISTANCE_CONFIG.EFFECTS.VISIBILITY.MAX_FACTOR,
-                fadeRange: effectiveRadius * DISTANCE_CONFIG.EFFECTS.VISIBILITY.FADE_RANGE_FACTOR
-            },
-            glare: {
-                fadeStart: effectiveRadius * DISTANCE_CONFIG.EFFECTS.GLARE.FADE_START_FACTOR,
-                fadeEnd: effectiveRadius * DISTANCE_CONFIG.EFFECTS.GLARE.FADE_END_FACTOR,
-                minScale: effectiveRadius * DISTANCE_CONFIG.EFFECTS.GLARE.MIN_SCALE_FACTOR,
-                maxScale: effectiveRadius * DISTANCE_CONFIG.EFFECTS.GLARE.MAX_SCALE_FACTOR
-            }
-        };
-    }
-
     static getSystemDefaults() {
         return {
             minDistance: DISTANCE_CONFIG.CAMERA.DEFAULT_MIN_SCALE * DISTANCE_CONFIG.SCENE_SCALE,
@@ -415,31 +360,6 @@ export class CameraController {
         };
     }
 
-    static calculateLOD(distance) {
-        const { CLOSE_THRESHOLD, FAR_THRESHOLD, MIN_SEGMENTS, MAX_SEGMENTS } = DISTANCE_CONFIG.LOD;
-
-        if (distance <= CLOSE_THRESHOLD) {
-            return { segments: MAX_SEGMENTS, detail: 'high' };
-        } else if (distance >= FAR_THRESHOLD) {
-            return { segments: MIN_SEGMENTS, detail: 'low' };
-        } else {
-            const ratio = (distance - CLOSE_THRESHOLD) / (FAR_THRESHOLD - CLOSE_THRESHOLD);
-            const segments = Math.round(MAX_SEGMENTS - (ratio * (MAX_SEGMENTS - MIN_SEGMENTS)));
-            return { segments, detail: 'medium' };
-        }
-    }
-
-    static normalizeDistance(distance, referenceRadius = 1) {
-        return distance / (referenceRadius * DISTANCE_CONFIG.SCENE_SCALE);
-    }
-
-    static getAllDistances(bodyRadius, radiusScale = 1) {
-        return {
-            camera: this.calculateCameraLimits(bodyRadius, radiusScale),
-            effects: this.calculateEffectDistances(bodyRadius, radiusScale),
-            system: this.getSystemDefaults()
-        };
-    }
 }
 
 export default CameraController;

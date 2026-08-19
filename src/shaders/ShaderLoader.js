@@ -37,65 +37,13 @@ float noise(in vec3 _pos) {
     return n;
 }
 
-float perlin(vec3 p) {
-    vec3 i = floor(p);
-    vec3 f = fract(p);
-
-    vec3 u = f * f * (3.0 - 2.0 * f);
-
-    return mix(
-        mix(mix(random(i + vec3(0.0, 0.0, 0.0)),
-                random(i + vec3(1.0, 0.0, 0.0)), u.x),
-            mix(random(i + vec3(0.0, 1.0, 0.0)),
-                random(i + vec3(1.0, 1.0, 0.0)), u.x), u.y),
-        mix(mix(random(i + vec3(0.0, 0.0, 1.0)),
-                random(i + vec3(1.0, 0.0, 1.0)), u.x),
-            mix(random(i + vec3(0.0, 1.0, 1.0)),
-                random(i + vec3(1.0, 1.0, 1.0)), u.x), u.y), u.z);
-}
-
-mat3 rotx = mat3(vec3(1.0, 0.0, 0.0),
-                 vec3(0.0, cos(0.5), -sin(0.5)),
-                 vec3(0.0, sin(0.5), cos(0.5)));
-
-mat3 roty = mat3(vec3(cos(0.5), 0.0, sin(0.5)),
-                 vec3(0.0, 1.0, 0.0),
-                 vec3(-sin(0.5), 0.0, cos(0.5)));
-
-mat3 rotz = mat3(vec3(cos(0.5), -sin(0.5), 0.0),
-                 vec3(sin(0.5), cos(0.5), 0.0),
-                 vec3(0.0, 0.0, 1.0));
-
-#define NUM_OCTAVES 5
-
-float fBm(in vec3 _pos, in float sz) {
-    float v = 0.0;
-    float a = 0.2;
-    _pos *= sz;
-
-    for (int i = 0; i < NUM_OCTAVES; ++i) {
-        v += a * noise(_pos);
-        _pos = rotx * roty * rotz * _pos * 2.0;
-        a *= 0.8;
-    }
-    return v;
-}
-
 #define hue(v) ( .6 + .6 * cos( 6.3*(v) + vec3(0.0,23.0,21.0) ) )
-
-float snoise(vec3 pos) {
-    return noise(pos) * 2.0 - 1.0;
-}
 `;
 
 class ShaderLoader {
     static includeUtils(shaderSource) {
         const precision = '#ifdef GL_ES\nprecision highp float;\n#endif\n\n';
         return precision + shaderUtils + '\n' + shaderSource;
-    }
-
-    static getUtils() {
-        return shaderUtils;
     }
 
     static createVertexShader(mainShaderCode) {

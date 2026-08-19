@@ -72,7 +72,7 @@ export function createStateOverlay(isVisible = true) {
     return stateOverlay;
 }
 
-export function updateStateOverlay(stateData = {}) {
+function updateStateOverlay(stateData = {}) {
     const stateOverlay = document.getElementById('state-overlay');
     if (!stateOverlay || stateOverlay.style.display === 'none') return;
 
@@ -135,7 +135,7 @@ export function createStatsOverlay(isVisible = true) {
     return statsOverlay;
 }
 
-export function updateStatsOverlay(statsData = {}) {
+function updateStatsOverlay(statsData = {}) {
     const statsOverlay = document.getElementById('stats-overlay');
     if (!statsOverlay || statsOverlay.style.display === 'none') return;
 
@@ -199,7 +199,7 @@ export function updateStatsOverlay(statsData = {}) {
     `;
 }
 
-export function createDebugOverlay(isVisible = true) {
+function createDebugOverlay(isVisible = true) {
     let debugOverlay = document.getElementById('debug-overlay');
 
     if (!debugOverlay) {

@@ -1,7 +1,6 @@
 import SceneManager from './SceneManager.js';
 import clockManager from './ClockManager.js';
 import collisionManager from './CollisionManager.js';
-import devUtils from '../utils/DevUtils.js';
 import logger from '../utils/Logger.js';
 import { updateStateDisplay, updateStatsDisplay, updateDebugOverlay, isStatsOverlayVisible } from '../ui/OverlayManager.js';
 import { SIMULATION } from '../constants.js';
@@ -24,7 +23,6 @@ export class AnimationManager {
 
         this.performanceStats = new PerformanceStats(60);
 
-        this.lastTime = 0;
         this.lastFrameTime = 0;
 
         this.keplerAccumulatedTime = 0;
@@ -46,7 +44,6 @@ export class AnimationManager {
         this.isRunning = true;
         clockManager.start(performance.now());
 
-        clockManager.setOrbitalTimeScale(5.0);
         clockManager.setSpeedMultiplier(1.0);
 
         if (this.stats) {
@@ -106,8 +103,6 @@ export class AnimationManager {
 
                 updateDebugOverlay();
             }
-
-            devUtils.recordFrame();
 
         } catch (error) {
             logger.error('AnimationManager', 'Error in animation loop', error);

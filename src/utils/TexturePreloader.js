@@ -122,23 +122,6 @@ export class TexturePreloader {
         });
     }
 
-    getTexture(url) {
-        return this.loadedTextures.get(url) || null;
-    }
-
-    isComplete() {
-        return this.loadedCount === this.totalTextures && this.totalTextures > 0;
-    }
-
-    getProgress() {
-        const percentage = this.totalTextures > 0 ? (this.loadedCount / this.totalTextures) * 100 : 0;
-        return {
-            loaded: this.loadedCount,
-            total: this.totalTextures,
-            percentage: percentage
-        };
-    }
-
     reset() {
         this.loadedTextures.clear();
         this.loadedCount = 0;

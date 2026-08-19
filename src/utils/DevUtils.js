@@ -97,7 +97,6 @@ class DevConsole {
                 help: () => this.run('help'),
                 info: () => this.run('info'),
                 config: (category) => this.run('config', category),
-                resources: () => this.run('resources'),
                 logs: (count) => this.run('logs', count),
                 perf: () => this.run('perf'),
                 scene: () => this.run('scene'),
@@ -224,8 +223,7 @@ class DevConsole {
             examples: [
                 'dev.info() - System information',
                 'dev.config("DEBUG") - Debug configuration',
-                'dev.logs(10) - Last 10 log entries',
-                'dev.resources() - Resource statistics'
+                'dev.logs(10) - Last 10 log entries'
             ]
         };
     }
@@ -265,9 +263,6 @@ class DevUtils {
         configService.set('DEBUG.SHOW_WIREFRAMES', !currentState);
         log.info('DevUtils', `Wireframes ${!currentState ? 'enabled' : 'disabled'}`);
     }
-
-    recordFrame() {
-    }
 }
 
 const devUtils = new DevUtils();
@@ -276,5 +271,4 @@ if (configService.get('DEBUG.AUTO_INIT', true)) {
     devUtils.init();
 }
 
-export { DevConsole };
 export default devUtils;

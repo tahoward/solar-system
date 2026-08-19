@@ -4,7 +4,7 @@ import SunRays from './SunRays.js';
 import SunFlares from './SunFlares.js';
 import SunGlare from './SunGlare.js';
 import { temperatureToColor, temperatureToBlackbodyLight, temperatureToGlareBrightness } from '../constants.js';
-import logger, { log } from '../utils/Logger.js';
+import { log } from '../utils/Logger.js';
 
 class StarEffects {
     static addStarEffects(body, bodyData, radius) {
@@ -80,8 +80,6 @@ class StarEffects {
             rayOpacity: starRays.rayOpacity || 0.4,
             baseColor: temperatureColor,
             hueSpread: starRays.hueSpread || 0.3,
-            noiseFrequency: starRays.noiseFrequency || 15,
-            noiseAmplitude: starRays.noiseAmplitude || 12.0,
             bendAmount: starRays.bendAmount || 0.0,
             whispyAmount: starRays.whispyAmount || 0.0,
             lowres: starRays.lowres || false,
@@ -150,8 +148,6 @@ class StarEffects {
         const adjustedOpacity = Math.min(1.0, baseOpacity * temperatureOpacityMultiplier);
 
         const radiusScale = stellarRadius;
-        const scaledFadeStartDistance = (starGlare.fadeStartDistance || 20.0) * radiusScale;
-        const scaledFadeEndDistance = (starGlare.fadeEndDistance || 10.0) * radiusScale;
         const scaledMinScaleDistance = (starGlare.minScaleDistance || 15.0) * radiusScale;
         const scaledMaxScaleDistance = (starGlare.maxScaleDistance || 700.0) * radiusScale;
 
@@ -165,8 +161,6 @@ class StarEffects {
             haloRadius: starGlare.haloRadius,
             haloFalloff: starGlare.haloFalloff,
             haloStrength: starGlare.haloStrength,
-            fadeStartDistance: scaledFadeStartDistance,
-            fadeEndDistance: scaledFadeEndDistance,
             scaleWithDistance: starGlare.scaleWithDistance !== undefined ? starGlare.scaleWithDistance : true,
             minScaleDistance: scaledMinScaleDistance,
             maxScaleDistance: scaledMaxScaleDistance,

@@ -43,7 +43,6 @@ export class MaterialFactory {
             glowIntensity: starShader.glowIntensity || 0.3,
             noiseScale: scaledNoiseScale,
             brightness: starShader.brightness || 1.6,
-            sunspotFrequency: starShader.sunspotFrequency || 0.04,
             sunspotIntensity: starShader.sunspotIntensity || 2.0,
             emissiveIntensity: adjustedEmissiveIntensity
         });

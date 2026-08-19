@@ -103,7 +103,6 @@ class BarycentrePath {
         this.timeUnitsPerYear = getAUScale(sceneScale) ** 1.5;
 
         this.contributors = [];
-        this.contributorCount = 0;
 
         const maxPoints = BARYCENTRE.MAX_SEGMENTS + 1;
         this.pathPoints = new Float64Array(maxPoints * 3);
@@ -190,7 +189,6 @@ class BarycentrePath {
             count++;
         }
 
-        this.contributorCount = count;
         return count;
     }
 
@@ -341,10 +339,6 @@ class BarycentrePath {
         }
     }
 
-    calculatePosition() {
-        return this.body.group.position.clone();
-    }
-
     show() {
         this.isVisible = true;
         if (this.orbitLine) this.orbitLine.visible = true;
@@ -371,7 +365,6 @@ class BarycentrePath {
         }
 
         this.contributors.length = 0;
-        this.contributorCount = 0;
         this.body = null;
     }
 }

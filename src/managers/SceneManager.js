@@ -24,7 +24,6 @@ class SceneManager {
 
     const aspectRatio = window.innerWidth / window.innerHeight;
 
-    this.object = null;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(
       CAMERA_CONFIG.FOV,
@@ -78,16 +77,6 @@ class SceneManager {
     this.#onWindowResize()
     SceneManager.instance = this;
     return this;
-  }
-
-  updateShadowLight(sunPosition, targetPosition) {
-    if (this.shadowLight) {
-      const direction = new THREE.Vector3().subVectors(sunPosition, targetPosition).normalize();
-
-      this.shadowLight.position.copy(targetPosition).add(direction.multiplyScalar(-100));
-      this.shadowLight.target.position.copy(targetPosition);
-      this.shadowLight.target.updateMatrixWorld();
-    }
   }
 
   #onWindowResize() {
@@ -304,23 +293,6 @@ class SceneManager {
       return this.bloomManager.isBloomEnabled();
     }
     return false;
-  }
-
-  updateBloomConfigFromConstants() {
-    if (this.bloomManager) {
-      import('../constants.js').then(constants => {
-        this.bloomManager.updateBloomConfig({
-          strength: constants.BLOOM.STRENGTH,
-          radius: constants.BLOOM.RADIUS,
-          threshold: constants.BLOOM.THRESHOLD
-        });
-        log.info('SceneManager', '🌟 Updated bloom configuration from constants:', {
-          strength: constants.BLOOM.STRENGTH,
-          radius: constants.BLOOM.RADIUS,
-          threshold: constants.BLOOM.THRESHOLD
-        });
-      });
-    }
   }
 
   async createSkybox(imageUrl) {

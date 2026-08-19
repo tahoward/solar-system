@@ -340,14 +340,6 @@ class MobileUIManager {
         }, 500);
     }
 
-    isOpen() {
-        return this.isMenuOpen;
-    }
-
-    forceClose() {
-        this.closeMenu();
-    }
-
     hideContainer() {
         const container = document.getElementById('mobile-menu-container');
         if (container) {

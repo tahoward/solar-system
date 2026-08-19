@@ -30,10 +30,6 @@ class Environment {
         return false;
     }
 
-    static isProduction() {
-        return !this.isDevelopment();
-    }
-
     static getName() {
         return this.isDevelopment() ? 'development' : 'production';
     }
@@ -42,63 +38,18 @@ class Environment {
 class ConfigService {
     constructor() {
         this.config = new Map();
-        this.environmentOverrides = new Map();
 
         this._initializeDefaults();
 
-        this._applyEnvironmentOverrides();
+        this._applyUrlParameterOverrides();
     }
 
     _initializeDefaults() {
         this.config.set('ENVIRONMENT', Environment.getName());
-        this.config.set('IS_DEVELOPMENT', Environment.isDevelopment());
-        this.config.set('IS_PRODUCTION', Environment.isProduction());
 
-        this.config.set('PERFORMANCE.TRACK_GPU', false);
-        this.config.set('PERFORMANCE.MAX_FPS', 60);
         this.config.set('PERFORMANCE.ENABLE_STATS', false);
-        this.config.set('PERFORMANCE.MEMORY_MONITORING', false);
-
-        this.config.set('LOGGING.LEVEL', 'INFO');
-        this.config.set('LOGGING.ENABLED_CONTEXTS', []);
-        this.config.set('LOGGING.MAX_HISTORY', 100);
 
         this.config.set('DEBUG.SHOW_WIREFRAMES', false);
-        this.config.set('DEBUG.SHOW_ORBIT_PATHS', true);
-        this.config.set('DEBUG.CAMERA_HELPERS', false);
-        this.config.set('DEBUG.PERFORMANCE_OVERLAY', false);
-
-        this.config.set('CAMERA.SMOOTH_TRANSITIONS', true);
-        this.config.set('CAMERA.AUTO_ZOOM_LIMITS', true);
-        this.config.set('CAMERA.DAMPING_FACTOR', 0.1);
-
-        this.config.set('MARKERS.GLOBAL_SIZE_MULTIPLIER', 1.0);
-        this.config.set('MARKERS.FADE_ENABLED', true);
-        this.config.set('MARKERS.AUTO_HIDE_ON_ZOOM', true);
-
-        this.config.set('ANIMATION.ORBIT_SPEED_MULTIPLIER', 1.0);
-        this.config.set('ANIMATION.QUALITY_SCALING', true);
-        this.config.set('ANIMATION.PAUSE_ON_BLUR', true);
-
-        this.config.set('UI.SHOW_CONTROLS_HINT', true);
-        this.config.set('UI.KEYBOARD_SHORTCUTS', true);
-        this.config.set('UI.RESPONSIVE_LAYOUT', true);
-    }
-
-    _applyEnvironmentOverrides() {
-        if (Environment.isDevelopment()) {
-            this.config.set('LOGGING.LEVEL', 'DEBUG');
-            this.config.set('DEBUG.PERFORMANCE_OVERLAY', true);
-            this.config.set('PERFORMANCE.MEMORY_MONITORING', true);
-            this.config.set('PERFORMANCE.TRACK_GPU', true);
-        } else {
-            this.config.set('LOGGING.LEVEL', 'WARN');
-            this.config.set('DEBUG.SHOW_WIREFRAMES', false);
-            this.config.set('DEBUG.CAMERA_HELPERS', false);
-            this.config.set('PERFORMANCE.ENABLE_STATS', false);
-        }
-
-        this._applyUrlParameterOverrides();
     }
 
     _applyUrlParameterOverrides() {
@@ -108,19 +59,6 @@ class ConfigService {
 
         if (params.has('debug')) {
             this.config.set('DEBUG.SHOW_WIREFRAMES', params.get('debug') === 'true');
-            this.config.set('DEBUG.CAMERA_HELPERS', params.get('debug') === 'true');
-            this.config.set('LOGGING.LEVEL', 'DEBUG');
-        }
-
-        if (params.has('perf')) {
-            this.config.set('DEBUG.PERFORMANCE_OVERLAY', params.get('perf') === 'true');
-        }
-
-        if (params.has('speed')) {
-            const speed = parseFloat(params.get('speed'));
-            if (!isNaN(speed) && speed > 0) {
-                this.config.set('ANIMATION.ORBIT_SPEED_MULTIPLIER', speed);
-            }
         }
     }
 
@@ -130,10 +68,6 @@ class ConfigService {
 
     set(key, value) {
         this.config.set(key, value);
-    }
-
-    isEnabled(featureKey) {
-        return Boolean(this.get(featureKey, false));
     }
 
     getCategory(category) {
@@ -157,25 +91,9 @@ class ConfigService {
             totalConfigs: this.config.size,
             categories: {
                 performance: this.getCategory('PERFORMANCE'),
-                debug: this.getCategory('DEBUG'),
-                logging: this.getCategory('LOGGING'),
-                animation: this.getCategory('ANIMATION')
+                debug: this.getCategory('DEBUG')
             }
         };
-    }
-
-    reset() {
-        this.config.clear();
-        this._initializeDefaults();
-        this._applyEnvironmentOverrides();
-    }
-
-    export() {
-        const configObject = {};
-        for (const [key, value] of this.config) {
-            configObject[key] = value;
-        }
-        return JSON.stringify(configObject, null, 2);
     }
 
     createScopedGetter(modulePrefix) {
@@ -191,5 +109,4 @@ const configService = new ConfigService();
 export const debugConfig = configService.createScopedGetter('DEBUG');
 export const performanceConfig = configService.createScopedGetter('PERFORMANCE');
 
-export { Environment };
 export default configService;

@@ -4,7 +4,7 @@ import SceneManager from '../managers/SceneManager.js';
 import AtmosphereShaderMaterial from '../shaders/AtmosphereShaderMaterial.js';
 import CloudShaderMaterial from '../shaders/CloudShaderMaterial.js';
 import RingShaderMaterial from '../shaders/RingShaderMaterial.js';
-import logger, { log } from '../utils/Logger.js';
+import { log } from '../utils/Logger.js';
 
 const _bufferSize = new THREE.Vector2();
 
@@ -119,7 +119,6 @@ class BodyRenderer {
         const ringMaterial = new RingShaderMaterial({
             ringTexture: ringTexture,
             opacity: opacity,
-            ringColor: ringConfig.color || 0xffffff,
             planetRadius: bodyRadius,
             hasPlanetShadow: true
         });

@@ -78,16 +78,6 @@ class SVGTemplateManager {
         }
     }
 
-    getTemplateSync() {
-        if (this.isLoaded && this.svgTemplate) {
-            return this.svgTemplate.clone();
-        }
-        return null;
-    }
-
-    isTemplateLoaded() {
-        return this.isLoaded;
-    }
 }
 
 const svgTemplateManager = new SVGTemplateManager();
@@ -318,11 +308,6 @@ class Marker {
         this.orientationGroup = null;
         this.positionGroup = null;
         this.body = null;
-    }
-
-    applyMarkerColor(shapeMesh) {
-        const markerColor = this.body.markerColor || 0xffffff;
-        shapeMesh.material.color.setHex(markerColor);
     }
 }
 

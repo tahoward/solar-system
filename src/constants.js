@@ -102,7 +102,6 @@ export const MARKER = {
   MIN_SIZE_MULTIPLIER: 0.1,
   MAX_SIZE_MULTIPLIER: 3.0,
   SIZE_INCREMENT: 0.1,
-  FADE_DURATION: 500,
   FULL_OPACITY: 1.0,
   ZERO_OPACITY: 0.0,
   CENTERING_DIVISOR: 2,
@@ -111,8 +110,7 @@ export const MARKER = {
 };
 
 export const ANIMATION = {
-  DEFAULT_TRANSITION_DURATION: 2000,
-  DEBUG_LOG_PROBABILITY: 0.1
+  DEFAULT_TRANSITION_DURATION: 2000
 };
 
 export const BLOOM = {
@@ -134,11 +132,10 @@ export const STAR_VISIBILITY = {
   FADE_TRANSITION_RANGE: 2.0,
 
   HIDE_MESH_BY_DEFAULT: false,
-  KEEP_GLARE_VISIBLE: true,
-  PRESERVE_LIGHTS: true
+  KEEP_GLARE_VISIBLE: true
 };
 
-export const STAR_EMISSIVE = {
+const STAR_EMISSIVE = {
   BASE_MULTIPLIER: 1.0,
 
   SOLAR_TEMPERATURE: 5778,
@@ -153,18 +150,6 @@ export const STAR_EMISSIVE = {
 };
 
 export const UI = {
-  INFO_DISPLAY_STYLE: {
-    position: 'fixed',
-    top: '20px',
-    left: '20px',
-    color: 'white',
-    fontFamily: 'monospace',
-    fontSize: '16px',
-    background: 'rgba(0, 0, 0, 0.7)',
-    padding: '10px',
-    borderRadius: '5px',
-    zIndex: 100
-  },
   CONTROLS_OVERLAY_STYLE: {
     position: 'fixed',
     bottom: '10px',
@@ -224,7 +209,6 @@ export const SKYBOX = {
 export const MATH = {
   PI_OVER_180: Math.PI / 180,
   TWO_PI: 2 * Math.PI,
-  HALF: 0.5,
   TWO: 2
 };
 
@@ -241,7 +225,6 @@ export const CELESTIAL_DATA = [{
       glowIntensity: 1,
       noiseScale: 10.0,
       brightness: 1,
-      sunspotFrequency: 0.04,
       sunspotIntensity: 2.0
     },
     corona: {
@@ -256,10 +239,7 @@ export const CELESTIAL_DATA = [{
       rayLength: .005,
       rayWidth: 0.0002,
       rayOpacity: 0.8,
-      hue: 0.15,
       hueSpread: .001,
-      noiseFrequency: 15,
-      noiseAmplitude: 5.0,
       lowres: false,
       whispyAmount: .1,
       bendAmount: 0.2
@@ -279,8 +259,6 @@ export const CELESTIAL_DATA = [{
       haloRadius: 0.5,
       haloFalloff: 3.0,
       haloStrength: 0.55,
-      fadeStartDistance: 20,
-      fadeEndDistance: 10,
       scaleWithDistance: true,
       minScaleDistance: 5.0,
       maxScaleDistance: 2000.0,
@@ -511,7 +489,6 @@ export const CELESTIAL_DATA = [{
         innerRadius: 1.11,
         outerRadius: 2.35,
         opacity: 0.8,
-        color: 0xD4AF37,
         texture: TEXTURES.saturnRing
       },
       children: [
@@ -721,30 +698,6 @@ export const CELESTIAL_DATA = [{
     }
   ]
 }];
-
-export function findCelestialBody(name, nodes = CELESTIAL_DATA) {
-  if (Array.isArray(nodes)) {
-    for (const rootNode of nodes) {
-      const found = findCelestialBody(name, rootNode);
-      if (found) return found;
-    }
-    return null;
-  }
-
-  const node = nodes;
-  if (node.name === name) {
-    return node;
-  }
-
-  if (node.children && Array.isArray(node.children)) {
-    for (const child of node.children) {
-      const found = findCelestialBody(name, child);
-      if (found) return found;
-    }
-  }
-
-  return null;
-}
 
 export function temperatureToBlackbodyLight(temperature) {
   const temp = MathUtils.clamp(temperature, 1000, 50000);

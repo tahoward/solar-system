@@ -24,8 +24,6 @@ import charonTexture from '../../assets/charon.jpg'
 
 import nightSkyTexture from '../../assets/night_sky.jpg'
 
-import markerSVG from '../../assets/marker.svg'
-
 export const TEXTURES = {
   mercury: mercuryTexture,
   venus: venusTexture,
@@ -50,34 +48,5 @@ export const TEXTURES = {
   neptune: neptuneTexture,
   pluto: plutoTexture,
   charon: charonTexture,
-  nightSky: nightSkyTexture,
-  marker: markerSVG
-}
-
-export {
-  mercuryTexture,
-  venusTexture,
-  earthTexture,
-  earthClouds,
-  moonTexture,
-  marsTexture,
-  jupiterTexture,
-  ioTexture,
-  europaTexture,
-  ganymedeTexture,
-  callistoTexture,
-  saturnTexture,
-  saturnRingTexture,
-  mimasTexture,
-  enceladusTexture,
-  tethysTexture,
-  dioneTexture,
-  titanTexture,
-  iapetusTexture,
-  uranusTexture,
-  neptuneTexture,
-  plutoTexture,
-  charonTexture,
-  nightSkyTexture,
-  markerSVG
+  nightSky: nightSkyTexture
 }
