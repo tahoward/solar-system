@@ -491,12 +491,12 @@ class SceneManager {
 
   /**
    * Create and add a skybox to the scene
-   * @param {string} imageUrl - URL of the skybox image
-   * @returns {Promise<THREE.Mesh>} Promise that resolves to the skybox mesh
+   * @param {string} imageUrl - URL of the equirectangular skybox image
+   * @returns {Promise<THREE.CubeTexture>} Promise that resolves to the skybox cube texture
    */
   async createSkybox(imageUrl) {
     try {
-      return await this.skyboxManager.createSkybox(this.scene, imageUrl);
+      return await this.skyboxManager.createSkybox(this.scene, this.renderer, imageUrl);
     } catch (error) {
       log.error('SceneManager', '❌ Failed to create skybox:', error);
       throw error;

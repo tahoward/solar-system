@@ -5,10 +5,33 @@ import { log } from '../utils/Logger.js';
 
 /**
  * SkyboxManager - Manages skybox textures and rendering for the solar system
+ *
+ * The night sky is a scene background rather than a giant sphere. Three.js draws a scene
+ * background with a dedicated box mesh whose vertex shader forces `gl_Position.z =
+ * gl_Position.w` and whose material has depthTest and depthWrite off, so the sky sits exactly
+ * on the far plane, ignores camera translation entirely, and is drawn before everything else.
+ * That makes its distance infinite by construction: there is no parallax to accumulate and
+ * nothing for the frustum to clip.
+ *
+ * The old radius-1,000,000 sphere only survived because of a float32 accident. With
+ * camera.far = 1200 the sphere sat ~998,800 units past the far plane and should have been
+ * clipped away, but at that magnitude float32 spacing is ~0.0625 while z_clip exceeded w_clip
+ * by only ~0.017, so the two quantized to the same value and the sphere landed exactly on the
+ * far plane instead of past it. Any change to the scene scale or far plane could have silently
+ * deleted the sky.
+ *
+ * Three.js only takes that spherical background path for a cube texture, so the
+ * equirectangular source is converted to a cube map once at load time. A plain equirect
+ * texture assigned to scene.background would instead be stretched flat across the screen.
  */
 class SkyboxManager {
   constructor() {
-    this.skybox = null;
+    this.scene = null;
+    this.renderer = null;
+    this.cubeRenderTarget = null; // Owns the cube texture used as scene.background
+    this.texture = null;          // The cube texture itself (null when no skybox exists)
+    this.brightness = SKYBOX.DEFAULT_BRIGHTNESS;
+    this.visible = true;
     this.textureLoader = new THREE.TextureLoader();
     this.preloadedTextures = null;
   }
@@ -22,12 +45,13 @@ class SkyboxManager {
   }
 
   /**
-   * Create and add a skybox to the scene using a cube texture
-   * @param {THREE.Scene} scene - The Three.js scene to add the skybox to
-   * @param {string} imageUrl - URL of the skybox image
-   * @returns {Promise<THREE.Mesh>} Promise that resolves to the skybox mesh
+   * Create and apply a skybox to the scene as an infinitely distant background
+   * @param {THREE.Scene} scene - The Three.js scene to apply the skybox to
+   * @param {THREE.WebGLRenderer} renderer - Renderer used to convert the source to a cube map
+   * @param {string} imageUrl - URL of the equirectangular skybox image
+   * @returns {Promise<THREE.CubeTexture>} Promise that resolves to the skybox cube texture
    */
-  async createSkybox(scene, imageUrl) {
+  async createSkybox(scene, renderer, imageUrl) {
     try {
       log.info('SkyboxManager', '🌌 Loading skybox texture from:', imageUrl);
 
@@ -42,52 +66,66 @@ class SkyboxManager {
         texture = await this.loadTexture(imageUrl);
       }
 
-      // Create a large sphere geometry for the skybox
-      const geometry = new THREE.SphereGeometry(SKYBOX.RADIUS, SKYBOX.SEGMENTS, SKYBOX.SEGMENTS / 2);
+      this.scene = scene;
+      this.renderer = renderer;
 
-      // Create material with the texture - dimmed for better contrast.
-      //
+      // Discard any previous background before replacing it
+      this.#disposeCubeTexture();
+      this.texture = this.#equirectToCubeTexture(texture);
+
       // The dimming is a colour multiply, NOT a low opacity. Alpha blending happens in
       // whatever encoding the current render target uses: with bloom on the scene is drawn
       // into the composer's linear float buffer, with bloom off it goes straight to the
       // sRGB canvas. A 0.1 alpha blend therefore produced srgb(0.1 * c) in one path and
       // 0.1 * srgb(c) in the other, leaving the night sky roughly three times darker
-      // whenever bloom was switched off. Scaling material.color is a linear-space multiply
-      // either way, so both paths now match.
-      const material = new THREE.MeshBasicMaterial({
-        map: texture,
-        color: new THREE.Color().setScalar(SKYBOX.DEFAULT_BRIGHTNESS),
-        side: THREE.BackSide, // Render inside faces so we see it from within
-        fog: false, // Don't let fog affect the skybox
-        toneMapped: false, // Exclude from tone mapping to avoid bloom interference
-        depthWrite: false, // Don't write to depth buffer to avoid conflicts with markers
-        depthTest: true // But still test depth to ensure proper ordering
-      });
+      // whenever bloom was switched off. backgroundIntensity is a linear-space multiply
+      // applied to the sampled texel, so both paths match.
+      scene.backgroundIntensity = this.brightness;
+      if (this.visible) {
+        scene.background = this.texture;
+      }
 
-      // Create the skybox mesh
-      this.skybox = new THREE.Mesh(geometry, material);
-      this.skybox.name = 'Skybox';
-
-      // Set specific properties to ensure exclusion from bloom processing
-      this.skybox.layers.set(0); // Ensure it's on the default layer
-      this.skybox.renderOrder = -1000; // Render skybox very early (behind everything)
-      this.skybox.frustumCulled = false; // Don't cull the skybox
-      this.skybox.matrixAutoUpdate = false; // Skybox doesn't need matrix updates (static)
-
-      // Mark material properties to exclude from bloom
-      material.userData = material.userData || {};
-      material.userData.excludeFromBloom = true;
-
-      // Add to scene
-      scene.add(this.skybox);
-
-      log.info('SkyboxManager', '🌌 Skybox created and added to scene');
-      return this.skybox;
+      log.info('SkyboxManager', '🌌 Skybox created and applied as scene background');
+      return this.texture;
 
     } catch (error) {
       log.error('SkyboxManager', '❌ Failed to create skybox:', error);
       throw error;
     }
+  }
+
+  /**
+   * Convert an equirectangular texture into a cube texture suitable for scene.background
+   * @param {THREE.Texture} equirectTexture - Equirectangular source texture
+   * @returns {THREE.CubeTexture} The rendered cube texture
+   */
+  #equirectToCubeTexture(equirectTexture) {
+    // Oversized cube maps are silently unusable on some GPUs, so respect the driver limit
+    const faceSize = Math.min(SKYBOX.CUBE_FACE_SIZE, this.renderer.capabilities.maxCubemapSize);
+    if (faceSize < SKYBOX.CUBE_FACE_SIZE) {
+      log.warn('SkyboxManager', `🌌 Clamping cube face size to GPU limit: ${faceSize}px`);
+    }
+
+    // fromEquirectangularTexture copies type, colorSpace, mipmapping and filters from the
+    // source, so the cube map is sampled exactly as the sphere's map was.
+    this.cubeRenderTarget = new THREE.WebGLCubeRenderTarget(faceSize, {
+      anisotropy: equirectTexture.anisotropy
+    });
+    this.cubeRenderTarget.fromEquirectangularTexture(this.renderer, equirectTexture);
+
+    log.info('SkyboxManager', `🌌 Converted equirect source to ${faceSize}px cube faces`);
+    return this.cubeRenderTarget.texture;
+  }
+
+  /**
+   * Dispose of the cube render target backing the current background
+   */
+  #disposeCubeTexture() {
+    if (this.cubeRenderTarget) {
+      this.cubeRenderTarget.dispose();
+      this.cubeRenderTarget = null;
+    }
+    this.texture = null;
   }
 
   /**
@@ -101,10 +139,11 @@ class SkyboxManager {
         url,
         // onLoad
         (texture) => {
-          // Configure texture settings for skybox
+          // Configure texture settings for skybox. flipY is left at its default: the
+          // equirect-to-cube conversion assumes three's standard equirect orientation,
+          // which is also what the preloaded textures use.
           texture.wrapS = THREE.RepeatWrapping;
           texture.wrapT = THREE.RepeatWrapping;
-          texture.flipY = false; // Often needed for skybox textures
           resolve(texture);
         },
         // onProgress
@@ -123,10 +162,10 @@ class SkyboxManager {
 
   /**
    * Update skybox texture
-   * @param {string} imageUrl - New texture URL
+   * @param {string} imageUrl - New equirectangular texture URL
    */
   async updateTexture(imageUrl) {
-    if (!this.skybox) {
+    if (!this.hasSkybox()) {
       log.warn('SkyboxManager', '⚠️ No skybox exists to update');
       return;
     }
@@ -135,16 +174,16 @@ class SkyboxManager {
       log.info('SkyboxManager', '🌌 Updating skybox texture to:', imageUrl);
       const texture = await this.loadTexture(imageUrl);
 
-      // Dispose of old texture to free memory
-      if (this.skybox.material.map) {
-        this.skybox.material.map.dispose();
-      }
+      // Free the previous cube map before rendering the replacement
+      this.#disposeCubeTexture();
+      this.texture = this.#equirectToCubeTexture(texture);
 
-      // Apply new texture and maintain depth properties
-      this.skybox.material.map = texture;
-      this.skybox.material.depthWrite = false; // Ensure depth properties are maintained
-      this.skybox.material.depthTest = true;
-      this.skybox.material.needsUpdate = true;
+      // The equirect source was loaded solely to build the cube map
+      texture.dispose();
+
+      if (this.visible) {
+        this.scene.background = this.texture;
+      }
 
       log.info('SkyboxManager', '🌌 Skybox texture updated successfully');
     } catch (error) {
@@ -153,23 +192,17 @@ class SkyboxManager {
   }
 
   /**
-   * Remove skybox from scene
-   * @param {THREE.Scene} scene - The scene to remove from
+   * Remove skybox from the scene
+   * @param {THREE.Scene} [scene] - Unused; retained for call-site compatibility
    */
-  removeSkybox(scene) {
-    if (this.skybox) {
+  removeSkybox(scene = this.scene) {
+    if (this.hasSkybox()) {
       log.info('SkyboxManager', '🌌 Removing skybox from scene');
 
-      // Dispose of geometry and material to free memory
-      this.skybox.geometry.dispose();
-      if (this.skybox.material.map) {
-        this.skybox.material.map.dispose();
+      if (scene) {
+        scene.background = null;
       }
-      this.skybox.material.dispose();
-
-      // Remove from scene
-      scene.remove(this.skybox);
-      this.skybox = null;
+      this.#disposeCubeTexture();
 
       log.info('SkyboxManager', '🌌 Skybox removed and cleaned up');
     }
@@ -180,18 +213,20 @@ class SkyboxManager {
    * @param {boolean} visible - Whether the skybox should be visible
    */
   setVisible(visible) {
-    if (this.skybox) {
-      this.skybox.visible = visible;
+    this.visible = visible;
+
+    if (this.hasSkybox()) {
+      this.scene.background = visible ? this.texture : null;
       log.info('SkyboxManager', `🌌 Skybox visibility set to: ${visible}`);
     }
   }
 
   /**
-   * Get current skybox mesh
-   * @returns {THREE.Mesh|null} Current skybox mesh or null if none exists
+   * Get the current skybox cube texture
+   * @returns {THREE.CubeTexture|null} Current skybox texture or null if none exists
    */
   getSkybox() {
-    return this.skybox;
+    return this.texture;
   }
 
   /**
@@ -199,18 +234,19 @@ class SkyboxManager {
    * @returns {boolean} True if skybox exists
    */
   hasSkybox() {
-    return this.skybox !== null;
+    return this.texture !== null;
   }
 
   /**
-   * Set skybox brightness by scaling the material colour
+   * Set skybox brightness by scaling the background intensity
    * @param {number} brightness - Brightness value (0.0 to 1.0)
    */
   setBrightness(brightness) {
-    if (this.skybox && this.skybox.material) {
-      const clamped = MathUtils.clamp(brightness, SKYBOX.MIN_BRIGHTNESS, SKYBOX.MAX_BRIGHTNESS);
-      this.skybox.material.color.setScalar(clamped);
-      log.info('SkyboxManager', `🌌 Skybox brightness set to: ${clamped.toFixed(2)}`);
+    this.brightness = MathUtils.clamp(brightness, SKYBOX.MIN_BRIGHTNESS, SKYBOX.MAX_BRIGHTNESS);
+
+    if (this.scene) {
+      this.scene.backgroundIntensity = this.brightness;
+      log.info('SkyboxManager', `🌌 Skybox brightness set to: ${this.brightness.toFixed(2)}`);
     }
   }
 
@@ -219,10 +255,7 @@ class SkyboxManager {
    * @returns {number} Current brightness value
    */
   getBrightness() {
-    if (this.skybox && this.skybox.material) {
-      return this.skybox.material.color.r;
-    }
-    return 0;
+    return this.scene ? this.scene.backgroundIntensity : this.brightness;
   }
 
   /**
@@ -230,9 +263,7 @@ class SkyboxManager {
    * @param {number} amount - Amount to increase brightness (default: 0.1)
    */
   brighten(amount = 0.1) {
-    if (this.skybox) {
-      this.setBrightness(this.getBrightness() + amount);
-    }
+    this.setBrightness(this.getBrightness() + amount);
   }
 
   /**
@@ -240,9 +271,7 @@ class SkyboxManager {
    * @param {number} amount - Amount to decrease brightness (default: 0.1)
    */
   dim(amount = 0.1) {
-    if (this.skybox) {
-      this.setBrightness(this.getBrightness() - amount);
-    }
+    this.setBrightness(this.getBrightness() - amount);
   }
 }
 

@@ -319,14 +319,16 @@ export const TARGETING = {
 
 // Skybox Configuration
 export const SKYBOX = {
-  // The night sky is dimmed by scaling the material colour rather than by lowering opacity,
+  // The night sky is dimmed via scene.backgroundIntensity rather than by lowering opacity,
   // because a colour multiply happens in linear space and so looks identical on every render
   // target. See SkyboxManager.createSkybox for why alpha was the wrong knob.
   DEFAULT_BRIGHTNESS: 0.16, // Default night sky brightness (0.0 = black, 1.0 = full texture)
   MIN_BRIGHTNESS: 0.0,      // Minimum allowed brightness
   MAX_BRIGHTNESS: 1.0,      // Maximum allowed brightness
-  RADIUS: 1000000,             // Skybox sphere radius
-  SEGMENTS: 64              // Sphere geometry segments for quality
+  // Per-face resolution of the cube map converted from the equirectangular source. A cube face
+  // spans 90deg where the equirect source spans 360deg across its full width, so face size =
+  // sourceWidth / 4 preserves the source's angular detail (night_sky.jpg is 6000px wide).
+  CUBE_FACE_SIZE: 1536
 };
 
 // Mathematical Constants

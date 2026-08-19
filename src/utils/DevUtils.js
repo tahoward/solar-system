@@ -68,6 +68,9 @@ class DevConsole {
                 sceneChildrenAfter = window.SceneManager.scene.children.length;
                 log.info('DevUtils', `🧹 Scene children after cleanup: ${sceneChildrenAfter}`);
 
+                // The skybox is a scene background, not a child, so clearing children misses it
+                window.SceneManager.skyboxManager?.removeSkybox(window.SceneManager.scene);
+
                 // Force a render to update the display
                 if (window.SceneManager.renderer && window.SceneManager.camera) {
                     log.info('DevUtils', '🧹 Forcing render update...');
