@@ -29,6 +29,10 @@ import { BARYCENTRE } from '../constants.js';
  * @property {THREE.PointLight|null} emittedLight - Optional emitted light
  * @property {Marker|null} marker - Optional marker for navigation
  * @property {number} rotationOffset - Fixed rotation offset in radians applied to all rotation
+ * @property {number} spinAngle - Tidally locked body's spin about its own pole, in radians
+ * @property {number|null} spinRate - That spin's rate, in radians per unit of orbital time
+ * @property {number|null} spinTime - Orbital time the spin was last advanced to
+ * @property {number} spinEquilibrium - Where the spin was last being drawn to, in radians
  */
 
 class Body {
@@ -113,6 +117,16 @@ class Body {
         this.tidalLockTarget = bodyData.tidalLockTarget || null;
         this.parentBody = parentBody;
         this.rotationSpeed = BodyPhysics.calculateRotationSpeed(rotationPeriod);
+
+        // Spin a tidally locked body carries of its own, which is what settles it into its lock
+        // rather than the lock being written onto it - see BodyPhysics.updateTidalLockRotation. A
+        // rate of null means the body has yet to be handed the one it opens with, which is whatever
+        // rate its primary is first seen going round it at. rotationPeriod plays no part: a locked
+        // body's period is its orbital period by definition, and the orbit is where it is taken from.
+        this.spinAngle = this.rotationOffset;
+        this.spinRate = null;
+        this.spinTime = null;
+        this.spinEquilibrium = 0;
 
         // Hierarchy properties for recursive creation
         this.children = [];

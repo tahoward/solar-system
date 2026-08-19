@@ -343,19 +343,33 @@ class BodyRenderer {
      * @returns {THREE.Mesh} The atmosphere mesh
      */
     static createAtmosphere(atmosphereConfig, bodyRadius) {
-        const { color, radiusScale, transparency, emissiveIntensity, fadeStart, fadeEnd } = atmosphereConfig;
+        const {
+            color, radiusScale,
+            verticalOpticalDepth, scaleHeight, scatteringPower, mieStrength, mieDirection
+        } = atmosphereConfig;
 
         // Create atmosphere geometry - larger sphere than the planet
         const atmosphereRadius = bodyRadius * radiusScale;
         const atmosphereGeometry = BodyRenderer.createGeometry(atmosphereRadius);
 
-        // Create atmosphere shader material
+        // Create atmosphere shader material. The shell scatters sunlight rather than being shaded
+        // from its own surface, so the terms describing it are the air's: how much of it there is,
+        // how quickly it thins out and how it redirects light. A body's config need only give the
+        // colour, its size and how much air it holds; the rest have defaults that suit a thin,
+        // clear atmosphere.
         const atmosphereMaterial = new AtmosphereShaderMaterial({
             atmosphereColor: color || 0x87CEEB,
-            atmosphereTransparency: transparency || 0.8,
-            emissiveIntensity: emissiveIntensity || 1.5,  // For bloom effect
-            fadeStart: fadeStart,  // Pass fade parameters if provided
-            fadeEnd: fadeEnd
+
+            // Where the air stops, so the shell can cut its own rays at the body instead of
+            // relying on the body's polygonal silhouette to hide them - see the shader for why
+            // leaning on that silhouette leaks all the way around the limb
+            planetRadiusRatio: 1 / radiusScale,
+
+            verticalOpticalDepth,
+            scaleHeight,
+            scatteringPower,
+            mieStrength,
+            mieDirection
         });
 
         // Create atmosphere mesh

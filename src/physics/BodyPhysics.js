@@ -1,6 +1,14 @@
 import * as THREE from 'three';
 import VectorUtils from '../utils/VectorUtils.js';
+import { getAUScale } from './kepler.js';
+import { MATH, TIDAL_LOCK } from '../constants.js';
 import logger, { log } from '../utils/Logger.js';
+
+// 4π², which is what G comes to with distances in AU, masses in solar masses and time in years -
+// the units the tidal lock works in, orbital time being a year to the unit. The n-body integrator
+// carries the same number against positions in scene units, which is why its own time unit comes
+// out a hundredth of a year; nothing here relies on that, since separations are converted to AU.
+const GRAVITATIONAL_CONSTANT = 39.478;
 
 // Turns a body's rotation speed - which calculateRotationSpeed gives in radians per second of a
 // scaled clock where Earth comes round in 15 seconds - into radians per unit of orbital time,
@@ -12,6 +20,26 @@ const ROTATION_TIME_SCALE = 8766 * 15 / 23.93;
 // Scratch values for the tidal lock, which runs for every locked body every frame
 const _lockDirection = new THREE.Vector3();
 const _lockQuaternion = new THREE.Quaternion();
+
+/**
+ * The shortest way round from one angle to another, in radians between -π and π. Two angles read
+ * off atan2 either side of a frame have to be compared this way: a primary that has crossed the
+ * seam at ±π has moved a fraction of a degree, not most of a turn.
+ * @param {number} from - Angle to measure from, in radians
+ * @param {number} to - Angle to measure to, in radians
+ * @returns {number} Signed difference in radians, between -π and π
+ */
+function shortestAngleTo(from, to) {
+    const difference = (to - from) % MATH.TWO_PI;
+
+    if (difference > Math.PI) {
+        return difference - MATH.TWO_PI;
+    }
+    if (difference < -Math.PI) {
+        return difference + MATH.TWO_PI;
+    }
+    return difference;
+}
 
 /**
  * BodyPhysics - Handles all physics-related calculations and operations for celestial bodies
@@ -55,8 +83,8 @@ class BodyPhysics {
      */
     static updateRotation(body, orbitalTime = 0) {
         if (body.tidallyLocked && BodyPhysics.getTidalLockTarget(body)) {
-            // TIDAL LOCKING: Always face the body it is locked to
-            BodyPhysics.updateTidalLockRotation(body);
+            // TIDAL LOCKING: spin under the torques that hold a real moon facing its primary
+            BodyPhysics.updateTidalLockRotation(body, orbitalTime);
         } else {
             // NORMAL ROTATION: Calculate absolute rotation from orbital time
             // This keeps rotation synchronized with orbital motion
@@ -117,10 +145,30 @@ class BodyPhysics {
     }
 
     /**
-     * Update rotation for tidally locked bodies to always face the body they are locked to
+     * Turn a tidally locked body by the spin it carries, under the torques that hold a real moon's
+     * face towards its primary.
+     *
+     * The body is not pointed at anything. It has a spin rate of its own, and two couples act on
+     * it. Being slightly out of round, its long axis is pulled towards the primary by a couple
+     * proportional to sin(2γ) in the angle γ by which the axis misses - the two ends of the axis
+     * serve equally, which is why sin doubles the angle - and tides drag its spin towards the rate
+     * at which the primary is going round it. Together those make a damped pendulum whose rest
+     * point is the lock, so the lock is arrived at and held rather than imposed. What that buys
+     * over pointing the body at its primary every frame is the libration: an eccentric orbit swings
+     * the primary ahead of and behind the body's long axis, and the axis follows late and short,
+     * which is the ±6.7° monthly rocking the near side of the Moon really does.
+     *
+     * Nothing here holds the body to its primary, which is what makes it survive the primary being
+     * taken away. Both couples fall off as the cube of the separation, so a moon flung clear of its
+     * planet is left with the spin it had and nothing to correct it, and goes on turning once per
+     * what used to be its month about an axis fixed in space - which is what an ejected moon really
+     * does. A moon whose planet is swallowed by another is in the same position, and one that merely
+     * wanders far out has its lock loosened by however far it went.
+     *
      * @param {Object} body - The body instance
+     * @param {number} orbitalTime - Absolute orbital time, the same time the positions were reached at
      */
-    static updateTidalLockRotation(body) {
+    static updateTidalLockRotation(body, orbitalTime) {
         const target = BodyPhysics.getTidalLockTarget(body);
         if (!target || !body.group || !target.group) {
             return;
@@ -140,15 +188,84 @@ class BodyPhysics {
 
         _lockDirection.normalize();
 
-        // Calculate the angle needed to face the target
-        // We want the body to face it with its "front" (negative Z axis by default)
-        const targetRotation = Math.atan2(_lockDirection.x, _lockDirection.z);
+        // Where the long axis is being drawn towards: the direction of the primary, taken about the
+        // body's own pole, plus whichever face the body is configured to turn that way
+        const equilibrium = Math.atan2(_lockDirection.x, _lockDirection.z) + body.rotationOffset;
 
-        // Apply the rotation to make the body face its parent, plus any rotation offset
-        const finalRotation = targetRotation + body.rotationOffset;
+        // How far round the primary has gone since the last frame, and so the rate it is going
+        // round at, which is the rate the tidal drag pulls the spin towards. Measured rather than
+        // worked out from the orbit, so it stays honest when the n-body integrator's step budget
+        // leaves the bodies short of the time the clock asked for: the spin then falls behind by
+        // exactly as much as the orbit did, instead of running on ahead of it.
+        const started = body.spinTime !== null;
+        const step = started ? orbitalTime - body.spinTime : 0;
+        const swept = started ? shortestAngleTo(body.spinEquilibrium, equilibrium) : 0;
+        const orbitalRate = step > 0 ? swept / step : 0;
+
+        // How firm the lock is, expressed as the rate a circular orbit at this separation would go
+        // round at. Both couples are quoted against it, and it is taken from the primary's gravity
+        // rather than from the rate measured above because that is what carries the distance: a
+        // separation cubed in the denominator is the difference between a moon held by its planet
+        // and one that has been thrown clear of it and keeps whatever spin it left with.
+        const separation = body.group.position.distanceTo(target.group.position) / getAUScale();
+        const lockRate = separation > 0 && target.mass > 0
+            ? Math.sqrt(GRAVITATIONAL_CONSTANT * target.mass / (separation * separation * separation))
+            : 0;
+
+        // Substeps enough to feel both the way the orbital rate varies around an eccentric orbit,
+        // that variation being what drives the libration, and the libration's own swing
+        const libration = lockRate * Math.sqrt(3 * TIDAL_LOCK.FIGURE_ASYMMETRY) * step;
+        const substeps = Math.ceil(
+            Math.max(Math.abs(swept), libration) / TIDAL_LOCK.MAX_SUBSTEP_RADIANS);
+
+        if (step <= 0) {
+            // The first frame, or one that has had the clock put back under it. Nothing to
+            // integrate over, so the body is placed in its lock - where a body four billion years
+            // into one already is.
+            body.spinAngle = equilibrium;
+        } else if (body.spinRate === null) {
+            // A body already locked is turning at the rate its primary goes round it, so that is
+            // the rate it opens with, facing whichever way it is configured to face. Despinning
+            // from anything else is not modelled - see TIDAL_LOCK.DISSIPATION.
+            body.spinRate = orbitalRate;
+            body.spinAngle = equilibrium;
+        } else if (substeps <= TIDAL_LOCK.MAX_SUBSTEPS) {
+            const substep = step / substeps;
+            const stiffness = 1.5 * TIDAL_LOCK.FIGURE_ASYMMETRY * lockRate * lockRate;
+            const drag = TIDAL_LOCK.DISSIPATION * lockRate;
+
+            for (let i = 0; i < substeps; i++) {
+                const misalignment = shortestAngleTo(equilibrium, body.spinAngle);
+                const angularAcceleration = -stiffness * Math.sin(2 * misalignment)
+                    - drag * (body.spinRate - orbitalRate);
+
+                // Taking the rate first and turning by the rate it has just become, rather than
+                // the one it had, is what keeps a damped oscillator from gaining amplitude every
+                // cycle at these step sizes
+                body.spinRate += angularAcceleration * substep;
+                body.spinAngle += body.spinRate * substep;
+            }
+        } else if (lockRate * step > 1) {
+            // Too long a frame to resolve the swing, but firm enough a lock to have pulled the body
+            // round more than a radian's worth within it, so the body is where the lock puts it
+            body.spinAngle = equilibrium;
+            body.spinRate = orbitalRate;
+        } else {
+            // Too long a frame to resolve, and nothing much holding the body either, so it coasts
+            // on the spin it has. This is the ejected moon at high time compression.
+            body.spinAngle += body.spinRate * step;
+        }
+
+        // Only the miss matters, so the angle is kept expressed as one. Left to accumulate it would
+        // run off to the millions of radians a long session's worth of turning comes to, and lose
+        // the fractions of a degree the libration is measured in.
+        body.spinAngle = equilibrium + shortestAngleTo(equilibrium, body.spinAngle);
+
+        body.spinTime = orbitalTime;
+        body.spinEquilibrium = equilibrium;
 
         if (body.mesh) {
-            body.mesh.rotation.y = finalRotation;
+            body.mesh.rotation.y = body.spinAngle;
         }
     }
 
@@ -208,6 +325,11 @@ class BodyPhysics {
         VectorUtils.zero(body.force);
         VectorUtils.zero(body.acceleration);
         BodyPhysics.updatePosition(body, body.position);
+
+        // A locked body's spin is forgotten along with everything else, so it opens its next lock
+        // synchronous rather than carrying over a rate belonging to an orbit it is no longer on
+        body.spinRate = null;
+        body.spinTime = null;
 
         log.debug('BodyPhysics', `Reset ${body.name} to initial physics conditions`);
     }

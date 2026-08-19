@@ -61,6 +61,43 @@ export const NBODY = {
   MIN_SOFTENING: 1e-9
 };
 
+// Tidal Lock Configuration
+//
+// A locked body is not held facing its primary; it is given a spin of its own and left to find the
+// lock, which is where the two torques below put it. See BodyPhysics.updateTidalLockRotation.
+export const TIDAL_LOCK = {
+  // (B−A)/C: how far from round the locked body's permanent figure is, measured as a difference of
+  // equatorial moments of inertia against the polar one. This is the lock itself - the primary
+  // pulls harder on the near end of the long axis than on the far one, and the couple that leaves
+  // is what keeps the same face turned inwards. Free libration comes round once every 1/√(3K)
+  // orbits, so 38 of them at the Moon's true 2.28e-4: slow enough that the eye reads it as the
+  // face wandering off rather than as a body sitting in a lock. Stiffened to four orbits, which
+  // still leaves the swing itself where it belongs, since a lock this loose only widens the
+  // eccentricity-driven libration by 2e/(1−3K) over 2e - for the Moon, 6.7° against 6.3°.
+  FIGURE_ASYMMETRY: 0.0208,
+
+  // How quickly tides bleed the libration away, as a fraction of the orbital rate. Against the
+  // asymmetry above this is a damping ratio of D/(2√(3K)) = 0.1, so a disturbance dies away over
+  // some six orbits: enough that a body knocked out of its lock visibly settles back into it,
+  // rather than either snapping back or ringing forever. Real dissipation is some ten orders of
+  // magnitude weaker, which is why despinning a body from an arbitrary spin takes 10⁶ years and
+  // upwards and is not attempted here - every locked body starts out already synchronous, as one
+  // that has been locked for four billion years is.
+  DISSIPATION: 0.05,
+
+  // Most of its orbit, in radians, that a body may cross in one integration substep. Frames are
+  // long in orbital time once the clock is compressed - an inner moon of Saturn can cover several
+  // of its own orbits in one - and the libration has to be stepped finely enough to feel the way
+  // the orbital rate varies around an eccentric orbit, which is what drives it.
+  MAX_SUBSTEP_RADIANS: 0.2,
+
+  // Substeps one frame may spend on one body. Past this the frame covers so much of the orbit that
+  // the spin dynamics cannot be resolved at all, and the body is placed at the equilibrium instead;
+  // 12 puts that threshold at 2.4 radians, comfortably inside the half-turn beyond which the
+  // direction to the primary could no longer be told from having gone the other way round.
+  MAX_SUBSTEPS: 12
+};
+
 // Shift-click Mass Drop Configuration
 // Only meaningful under n-body physics: Kepler orbits are solved from a catalogue and cannot
 // respond to anything that was not in it, so dropped masses are removed when the mode switches.
@@ -477,9 +514,9 @@ export const CELESTIAL_DATA = [{
       // Venus's thick atmosphere
       atmosphere: {
         color: 0xFFE4B5,  // Pale yellow (sulfuric acid clouds)
-        radiusScale: 1.05,  // Much larger for visibility
-        transparency: 1.2,  // Maximum visibility
-        emissiveIntensity: 1000  // Bloom effect for thick atmosphere
+        radiusScale: 1.042,  // Twice Earth's air by height, being hotter and less strongly held
+        verticalOpticalDepth: 0.5  // The haze above the deck drawn as its surface, the ninety
+                                   // atmospheres below it being already opaque
       },
       parent: 'Sun',
       a: 0.723332, e: 0.006772, i: 3.395, omega: 76.680, w: 54.884, M0: 50.115,
@@ -506,11 +543,16 @@ export const CELESTIAL_DATA = [{
       // Earth's atmosphere effect
       atmosphere: {
         color: 0x87CEEB,  // Sky blue atmosphere
-        radiusScale: 1.03,  // 30% larger than Earth for visibility
-        transparency: 1.2,  // Maximum visibility
-        emissiveIntensity: 1,  // Bloom effect for Earth's atmosphere
-        fadeStart: .7,  // Start fading at 80% of atmosphere radius (closer to edge)
-        fadeEnd: 1     // Complete fade at atmosphere edge
+        // Shell heights across the system are ordered by each body's scale height as a fraction of
+        // its radius - how tall its air stands relative to its own size - but with that ordering
+        // compressed by a square root and anchored here, at Earth. Taken literally the spread runs
+        // a hundred to one, from Jupiter's four hundredths of a percent to Pluto's four percent,
+        // and the low end of that is a shell a single pixel thick with a planet filling the screen.
+        // A rim that bright and that thin is what lands in one texel of a coarse bloom mip and comes
+        // back as a flickering white blob, so the small end is lifted until it is a few pixels and
+        // the rest follows from it.
+        radiusScale: 1.03,  // One scale height in 750 of its radius, and the anchor for the rest
+        verticalOpticalDepth: 0.3  // Rayleigh accounts for 0.22 of that at 450nm, haze the rest
       },
       parent: 'Sun',
       a: 1.000001, e: 0.016709, i: 0.000, omega: 0.000, w: 114.208, M0: 357.529,
@@ -553,11 +595,9 @@ export const CELESTIAL_DATA = [{
       // Mars's thin atmosphere
       atmosphere: {
         color: 0xD2691E,  // Rusty orange (dust in atmosphere)
-        radiusScale: 1.03,  // Larger for visibility
-        transparency: 2,  // More visible
-        emissiveIntensity: 1,  // Subtle bloom for thin atmosphere
-        fadeStart: .8,
-        fadeEnd: 1
+        radiusScale: 1.047,  // Cold, thin and lightly held - the tallest air of the rocky planets
+        verticalOpticalDepth: 0.45,  // Almost none of it gas - nearly all suspended dust
+        mieStrength: 0.25  // Which scatters far more than the gas does
       },
       parent: 'Sun',
       a: 1.523679, e: 0.093401, i: 1.850, omega: 49.558, w: 286.502, M0: 19.373,
@@ -579,9 +619,8 @@ export const CELESTIAL_DATA = [{
       // Jupiter's thick hydrogen/helium atmosphere
       atmosphere: {
         color: 0xDAA520,  // Goldenrod (hydrogen clouds with ammonia)
-        radiusScale: 1.02,  // Subtle atmosphere layer
-        transparency: 1.0,  // Moderate visibility
-        emissiveIntensity: 1.3  // Bloom effect for gas giant atmosphere
+        radiusScale: 1.016,  // The flattest air in the system - vast, cold and held hard down
+        verticalOpticalDepth: 0.4  // Clear air and haze above the ammonia cloud tops
       },
       parent: 'Sun',
       a: 5.204267, e: 0.048498, i: 1.303, omega: 100.464, w: 273.867, M0: 20.020,
@@ -682,9 +721,8 @@ export const CELESTIAL_DATA = [{
       // Saturn's thick hydrogen/helium atmosphere
       atmosphere: {
         color: 0xF0E68C,  // Khaki (pale gold hydrogen atmosphere)
-        radiusScale: 1.02,  // Subtle atmosphere layer
-        transparency: 0.5,  // Moderate visibility
-        emissiveIntensity: 1.25  // Bloom effect for gas giant atmosphere
+        radiusScale: 1.026,  // Weaker gravity than Jupiter's holds its air more than twice as tall
+        verticalOpticalDepth: 0.5  // Hazier than Jupiter, over a deeper clear column
       },
       parent: 'Sun',
       a: 9.582017, e: 0.055723, i: 2.485, omega: 113.665, w: 339.392, M0: 317.020,
@@ -793,11 +831,10 @@ export const CELESTIAL_DATA = [{
           // Titan's thick methane atmosphere
           atmosphere: {
             color: 0xDEB887,  // Burlywood (orange haze)
-            radiusScale: 1.06,  // Thick atmosphere - 6% larger
-            transparency: 0.5,  // Moderately opaque
-            stretchAmount: 0.4,  // Limited sunset effects due to thick haze
-            visibilityDistance: 1200.0,  // Visible from moderate distance
-            emissiveIntensity: 1.6  // Strong bloom for thick methane atmosphere
+            radiusScale: 1.104,  // Haze standing hundreds of km over a body of only 2575 km
+            verticalOpticalDepth: 4,  // Which is why its surface cannot be seen in visible light
+            scaleHeight: 0.35,  // Which reaches hundreds of kilometres up rather than hugging it
+            mieStrength: 0.3  // Organic aerosol throughout, so very little of this is clear gas
           },
           parent: 'Saturn',
           a: 0.008168, // Semi-major axis in AU (1,221,830 km)
@@ -841,9 +878,8 @@ export const CELESTIAL_DATA = [{
       // Uranus's hydrogen/helium/methane atmosphere
       atmosphere: {
         color: 0x40E0D0,  // Turquoise (methane gives blue-green color)
-        radiusScale: 1.03,  // Slightly larger for visibility
-        transparency: 0.7,  // Good visibility
-        emissiveIntensity: 1.35  // Bloom effect for ice giant atmosphere
+        radiusScale: 1.027,  // Much like Saturn's, being of much the same size and pull
+        verticalOpticalDepth: 2  // Deep clear hydrogen - what makes it blue at all
       },
       parent: 'Sun',
       a: 19.18917, e: 0.047168, i: 0.773, omega: 74.006, w: 96.998, M0: 142.238,
@@ -865,9 +901,8 @@ export const CELESTIAL_DATA = [{
       // Neptune's hydrogen/helium/methane atmosphere
       atmosphere: {
         color: 0x4169E1,  // Royal blue (strong methane absorption)
-        radiusScale: 1.03,  // Slightly larger for visibility
-        transparency: 0.8,  // High visibility
-        emissiveIntensity: 1.4  // Bloom effect for ice giant atmosphere
+        radiusScale: 1.023,  // Coldest of the four, so its air stands the lowest of them
+        verticalOpticalDepth: 2  // As Uranus, with more methane and so a deeper blue
       },
       parent: 'Sun',
       a: 30.06896, e: 0.008606, i: 1.770, omega: 131.784, w: 276.336, M0: 256.228,
@@ -896,9 +931,9 @@ export const CELESTIAL_DATA = [{
       // Pluto's very thin nitrogen atmosphere
       atmosphere: {
         color: 0xE6E6FA,  // Lavender (very pale nitrogen atmosphere)
-        radiusScale: 1.1,  // Very thin atmosphere
-        transparency: 0.3,  // Low visibility due to thinness
-        emissiveIntensity: 1.1  // Subtle bloom for very thin atmosphere
+        radiusScale: 1.169,  // The most extended air in the system relative to its body, and escaping
+        verticalOpticalDepth: 0.05,  // As New Horizons measured it - genuinely faint
+        scaleHeight: 0.4  // But so weakly held that it reaches a good fraction of the radius out
       },
       parent: 'Sun',
       a: 39.48211, e: 0.248808, i: 17.140, omega: 110.299, w: 113.834, M0: 0.0,
