@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import SceneManager from './SceneManager.js';
+import collisionManager from './CollisionManager.js';
 import Body from '../model/Body.js';
+import { collectBodiesFromHierarchy } from '../physics/NBodySystem.js';
 import { cancelSystemDrift } from '../physics/barycentre.js';
 import { MASS_DROP, SIMULATION } from '../constants.js';
 import { log } from '../utils/Logger.js';
@@ -11,16 +13,22 @@ const _raycaster = new THREE.Raycaster();
 const _plane = new THREE.Plane();
 const _viewDirection = new THREE.Vector3();
 const _atRest = new THREE.Vector3();
+// Bodies to look through when the drops are cleared, gathered fresh each time
+const _bodies = [];
 
 /**
  * Drops stellar masses into the running simulation and takes them back out again.
  *
  * These bodies exist only for the n-body integrator: they have no catalogue orbit, so Kepler mode
  * has nothing to solve for them and they are cleared when the simulation switches back to it.
+ *
+ * What becomes of a mass once it is in flight is nothing to do with this: colliding with something
+ * is handled where every other collision is - see CollisionManager - and the dropped mass is found
+ * again by the mark it leaves on the bodies themselves rather than by a list kept here, which a
+ * merge would leave describing bodies that no longer exist.
  */
 class MassDropManager {
     constructor() {
-        this.dropped = [];
         this.totalDropped = 0;  // Never reset, so cleared names are never reused
 
         log.init('MassDropManager', 'MassDropManager');
@@ -63,6 +71,12 @@ class MassDropManager {
 
         const body = new Body(bodyData, root.body);
 
+        // What marks this body out as something the catalogue knows nothing about, and how much mass
+        // came with it. Both outlive the body itself: a merge adds the mass it brought to whatever
+        // swallowed it, so the system can be handed back to Kepler orbits whatever became of it.
+        body.isDroppedMass = true;
+        body.droppedMass = MASS_DROP.MASS;
+
         // Released from rest in the scene's frame - it is a drop, not a launch
         _atRest.set(0, 0, 0);
         body.setInitialPhysicsConditions(position, _atRest);
@@ -72,7 +86,6 @@ class MassDropManager {
         // orbit is left null so that Kepler position updates and orbit extraction pass it over.
         root.children.push({ body, orbit: null, children: [], data: bodyData });
         SceneManager.hierarchyManager.addBody(body, root.body.name);
-        this.dropped.push(body);
 
         log.info('MassDropManager', `Dropped ${name} (${MASS_DROP.MASS} solar masses) at ` +
             `${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)}`);
@@ -81,35 +94,41 @@ class MassDropManager {
     }
 
     /**
-     * Remove every dropped mass and free its resources
+     * Remove every dropped mass and hand back what the bodies that swallowed one took on.
+     *
+     * Both halves are read off the bodies in the scene: a mass still in flight is one marked as
+     * dropped, and a mass that has already merged is the extra mass its survivor is carrying. Kepler
+     * mode has nothing but the catalogue to go on, and the catalogue describes a Sun of one solar
+     * mass; a Sun left holding the star it swallowed would have every orbit solved around a body the
+     * catalogue does not describe.
+     *
+     * A dropped mass that swallowed a planet is removed whole, planet and all. There is no putting
+     * that planet back - it left the scene when it was swallowed - and Kepler mode simply solves what
+     * is left.
+     *
      * @returns {number} How many masses were removed
      */
     clearAll() {
-        if (this.dropped.length === 0) return 0;
-
         const root = SceneManager.orbitManager?.hierarchy;
-        const removed = this.dropped.length;
+        if (!root?.body) return 0;
 
-        // Nothing may be left following a body that is about to be disposed
-        const selected = SceneManager.hierarchyManager.getSelectedBody();
-        if (selected && this.dropped.includes(selected) && root?.body) {
-            SceneManager.onBodySelected(root.body);
-        }
+        _bodies.length = 0;
+        collectBodiesFromHierarchy(root, _bodies);
 
-        this.dropped.forEach(body => {
-            if (root?.children) {
-                const index = root.children.findIndex(node => node.body === body);
-                if (index !== -1) root.children.splice(index, 1);
+        let removed = 0;
+        let handedBack = 0;
+        for (const body of _bodies) {
+            if (body.isDroppedMass) {
+                if (collisionManager.removeBody(body, root.body)) removed++;
+            } else if (body.droppedMass > 0) {
+                body.mass -= body.droppedMass;
+                body.droppedMass = 0;
+                handedBack++;
             }
-            SceneManager.hierarchyManager.removeBody(body.name);
+        }
+        _bodies.length = 0;
 
-            // Disposal takes the marker out of the scene's registries but not the orbit trail,
-            // which was registered against the body rather than the trail itself
-            SceneManager.unregisterOrbitTrail(body);
-            body.dispose();
-        });
-
-        this.dropped.length = 0;
+        if (removed === 0 && handedBack === 0) return 0;
 
         // A mass falling towards the Sun pulls the Sun the other way, and momentum being conserved,
         // whatever the mass gained the rest of the system lost. Delete the mass and that lost
@@ -117,15 +136,14 @@ class MassDropManager {
         // back. Positions need no such treatment - this only runs on the way into Kepler mode, which
         // puts the root back at the origin and every other body where its catalogue orbit says it
         // should be.
-        if (root?.body) {
-            const drift = cancelSystemDrift(root.body);
-            if (drift > 0) {
-                log.info('MassDropManager', `Took ${drift.toPrecision(3)} of drift back out of the ` +
-                    `system after removing the dropped masses`);
-            }
+        const drift = cancelSystemDrift(root.body);
+        if (drift > 0) {
+            log.info('MassDropManager', `Took ${drift.toPrecision(3)} of drift back out of the ` +
+                `system after removing the dropped masses`);
         }
 
-        log.info('MassDropManager', `Removed ${removed} dropped ${removed === 1 ? 'mass' : 'masses'}`);
+        log.info('MassDropManager', `Removed ${removed} dropped ${removed === 1 ? 'mass' : 'masses'} ` +
+            `and handed back what ${handedBack} ${handedBack === 1 ? 'body had' : 'bodies had'} swallowed`);
         return removed;
     }
 

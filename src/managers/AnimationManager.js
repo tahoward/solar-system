@@ -1,5 +1,6 @@
 import SceneManager from './SceneManager.js';
 import clockManager from './ClockManager.js';
+import collisionManager from './CollisionManager.js';
 import devUtils from '../utils/DevUtils.js';
 import logger from '../utils/Logger.js';
 import { updateStateDisplay, updateStatsDisplay, updateDebugOverlay } from '../ui/OverlayManager.js';
@@ -114,6 +115,12 @@ export class AnimationManager {
 
             // Update all planetary orbits using unified clock first
             this.updateOrbits();
+
+            // Two bodies that have arrived at one another are merged, which has to be settled as soon
+            // as they have moved: the step the integrator is prepared to take shortens without limit
+            // as two bodies overlap, so a pass left unresolved holds the whole simulation at a
+            // standstill
+            collisionManager.resolveCollisions();
 
             // Update star rotation and effects using unified clock (after orbit positions are updated)
             // Use the same accumulated time as orbital positions for synchronized rotation

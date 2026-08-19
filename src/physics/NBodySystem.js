@@ -12,6 +12,7 @@ import { log } from '../utils/Logger.js';
 // Bodies to integrate, gathered once per frame into an array that is reused
 const _bodies = [];
 const _separation = new THREE.Vector3();
+const _relativeVelocity = new THREE.Vector3();
 
 /**
  * Update all body positions using n-body physics for a given hierarchy
@@ -46,25 +47,30 @@ export function updateHierarchyNBodyPhysics(hierarchy, options = {}) {
         return;
     }
 
-    // Accelerations where the bodies are now, along with how long the closest-orbiting pair in
-    // the system takes to come round, which is what limits the step
-    const shortestOrbitTime = calculateNBodyAccelerations(bodies, G);
-    const maxStep = shortestOrbitTime / NBODY.MIN_STEPS_PER_ORBIT;
+    // Accelerations where the bodies are now, along with the longest step the closest pair in the
+    // system will stand. Both are worked out again after every step rather than once for the whole
+    // frame: what the pairs are doing at the start of a frame is no guide to what they are doing at
+    // the end of it, and a mass falling in covers the distance from harmless to overlapping well
+    // inside the time one frame asks for.
+    let maxStep = calculateNBodyAccelerations(bodies, G);
 
-    // Time the step budget can cover, and the speed that corresponds to - the requested step is
-    // proportional to the speed multiplier, so the two scale together
-    const affordableStep = maxStep * NBODY.MAX_STEPS_PER_FRAME;
+    let covered = 0;
+    let steps = 0;
+    while (covered < requestedStep && steps < NBODY.MAX_STEPS_PER_FRAME && maxStep > 0) {
+        const step = Math.min(requestedStep - covered, maxStep);
+        maxStep = integrateStep(bodies, step, dampingFactor, G);
+        covered += step;
+        steps++;
+    }
+
+    // Time the step budget can cover at the size of step the last frame's worth of work needed, and
+    // the speed that corresponds to - the requested step is proportional to the speed multiplier, so
+    // the two scale together. Reported as a capacity rather than as what was managed, so a frame
+    // that covered everything asked of it does not read as a reason to speed up.
+    const affordableStep = (steps > 0 ? covered / steps : maxStep) * NBODY.MAX_STEPS_PER_FRAME;
     clockManager.setPhysicsSpeedLimit(requestedStep > 0
         ? clockManager.speedMultiplier * affordableStep / requestedStep
         : Infinity);
-
-    const steps = Math.max(1, Math.min(NBODY.MAX_STEPS_PER_FRAME,
-        Math.ceil(requestedStep / maxStep)));
-    const step = Math.min(requestedStep / steps, maxStep);
-
-    for (let i = 0; i < steps; i++) {
-        integrateStep(bodies, step, dampingFactor, G);
-    }
 
     applyPositions(bodies);
 }
@@ -96,12 +102,18 @@ function isIntegrable(body) {
 }
 
 /**
- * Calculate the gravitational acceleration of every body at its current position, and report
- * how quickly the system is moving.
+ * Calculate the gravitational acceleration of every body at its current position, and report the
+ * longest step the closest pair in the system will stand.
+ *
+ * Two things can make a step too long. A pair going round quickly needs enough steps to describe
+ * the circle, or leapfrog feeds it energy until it comes apart; and a pair closing on one another
+ * needs the step short enough that neither passes the other before the force between them has been
+ * looked at again. The first is a matter of how far apart they are and the second of how fast they
+ * are approaching, so both are measured here, where the pair is already in hand.
  *
  * @param {Array} bodies - Array of Body objects
  * @param {number} G - Gravitational constant
- * @returns {number} Time the closest-orbiting pair takes to go round, in simulation time units
+ * @returns {number} Longest safe step in simulation time units, or Infinity if nothing constrains it
  */
 function calculateNBodyAccelerations(bodies, G) {
     for (let i = 0; i < bodies.length; i++) {
@@ -109,7 +121,7 @@ function calculateNBodyAccelerations(bodies, G) {
         if (bodies[i].force) bodies[i].force.set(0, 0, 0);
     }
 
-    let shortestOrbitTime = Infinity;
+    let maxStep = Infinity;
 
     for (let i = 0; i < bodies.length; i++) {
         const body1 = bodies[i];
@@ -141,7 +153,20 @@ function calculateNBodyAccelerations(bodies, G) {
             const totalMass = body1.mass + body2.mass;
             if (totalMass > 0) {
                 const orbitTime = MATH.TWO_PI * Math.sqrt(softDistanceSquared * softDistance / (G * totalMass));
-                if (orbitTime < shortestOrbitTime) shortestOrbitTime = orbitTime;
+                const orbitStep = orbitTime / NBODY.MIN_STEPS_PER_ORBIT;
+                if (orbitStep < maxStep) maxStep = orbitStep;
+            }
+
+            // How fast the gap between them is closing, and so how long the gap would last at that
+            // rate. Only the part of the relative velocity along the line between them counts: a
+            // body in a circular orbit is travelling quickly and closing on nothing. The softened
+            // separation is used again, so two bodies on top of one another ask for a step short
+            // enough to cross the softening rather than one of zero length.
+            _relativeVelocity.subVectors(body2.velocity, body1.velocity);
+            const closingRate = -_relativeVelocity.dot(_separation) / softDistance;
+            if (closingRate > 0) {
+                const approachStep = NBODY.MAX_APPROACH_FRACTION * softDistance / closingRate;
+                if (approachStep < maxStep) maxStep = approachStep;
             }
         }
 
@@ -149,7 +174,7 @@ function calculateNBodyAccelerations(bodies, G) {
         if (body1.force) body1.force.copy(body1.acceleration).multiplyScalar(body1.mass);
     }
 
-    return shortestOrbitTime;
+    return maxStep;
 }
 
 /**
@@ -165,6 +190,7 @@ function calculateNBodyAccelerations(bodies, G) {
  * @param {number} dt - Time step
  * @param {number} dampingFactor - Damping factor for numerical stability
  * @param {number} G - Gravitational constant
+ * @returns {number} Longest step the system will stand where it has ended up
  */
 function integrateStep(bodies, dt, dampingFactor, G) {
     const halfStep = dt * 0.5;
@@ -183,7 +209,7 @@ function integrateStep(bodies, dt, dampingFactor, G) {
         body.position.addScaledVector(body.velocity, dt);
     }
 
-    calculateNBodyAccelerations(bodies, G);
+    const maxStep = calculateNBodyAccelerations(bodies, G);
 
     for (let i = 0; i < bodies.length; i++) {
         const body = bodies[i];
@@ -191,6 +217,8 @@ function integrateStep(bodies, dt, dampingFactor, G) {
 
         body.velocity.addScaledVector(body.acceleration, halfStep);
     }
+
+    return maxStep;
 }
 
 /**

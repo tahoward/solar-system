@@ -44,6 +44,42 @@ const _inverseParentRotation = new THREE.Quaternion();
 // frames is not kept alive by a stale entry.
 const _candidates = [];
 
+// The same, for the bodies that might count towards the centre the orbit is drawn about - see
+// #updateCentralBody. Kept apart from _candidates so that neither can be walked into the other.
+const _interior = [];
+
+// Scratch for gathering that centre: the mass-weighted sums it is averaged from, the scene origin
+// for the root body's orbit, which is drawn about nothing, and something for calculateGM to read a
+// mass off that is not one of the bodies - the centre is several of them at once.
+const _centralWeightedPosition = new THREE.Vector3();
+const _centralWeightedVelocity = new THREE.Vector3();
+const _centralLocalPosition = new THREE.Vector3();
+const _sceneOrigin = new THREE.Vector3();
+const _centralStandIn = { mass: 0 };
+
+/**
+ * How much of a body deep inside an orbit counts as part of what that orbit goes round.
+ *
+ * All of it at the centre, none of it out at the body's own distance, and a smooth run between the
+ * two. The grading is what a two-body drawing can honestly say about a third mass: close to the
+ * centre its pull is very nearly the centre's own, out at the body's distance it is a companion
+ * being passed and not something to go round at all, and in between it is partly each. Grading it
+ * rather than counting mass inside some boundary is what keeps the drawn conic from jumping as a
+ * falling mass crosses that boundary.
+ *
+ * @param {number} distanceRatio - The body's distance from the centre over the orbit's own radius
+ * @returns {number} Fraction of that body's mass to count, from 0 to 1
+ */
+function interiorShare(distanceRatio) {
+    const depth = 1 - distanceRatio;
+    if (!(depth > 0)) return 0;
+    if (depth >= 1) return 1;
+
+    // Smoothstep, which leaves the count flat at both ends so that neither a mass arriving at the
+    // centre nor one drawing level with the body makes the drawn conic change abruptly
+    return depth * depth * (3 - 2 * depth);
+}
+
 // Written alongside _eccentricityVector and _orbitNormal by #readOsculatingConic, since a
 // number cannot be handed back through a scratch vector
 let _osculatingInverseSemiMajorAxis = 0;
@@ -141,6 +177,12 @@ class Orbit {
         const maxPoints = ORBIT.LOD.MAX_SEGMENTS + 2; // One extra point closes the loop
         this.pathPoints = new Float64Array(maxPoints * 3);
         this.pathPointCount = 0;
+
+        // What the selection asks for, and whether there is a closed orbit to show at all: the
+        // line is drawn only when both say so - see #applyVisibility. Both are settled before the
+        // path is first solved, since solving it decides the second.
+        this.isVisible = true;
+        this.pathIsClosed = true;
         this.segmentPositions = new Float32Array((maxPoints - 1) * 6); // xyz, xyz per segment
         this.pathOrigin = new THREE.Vector3();
 
@@ -154,11 +196,17 @@ class Orbit {
         this.orbitLine.renderOrder = -100; // Large negative value ensures orbit lines render before markers
         this.orbitLine.material.userData = { renderBehindMarkers: true }; // Mark for special handling
 
-        // Where the centre of mass of the body and the one it orbits sits, measured from that
-        // body and in the line's own space, along with the share of the separation the drawn
-        // orbit spans - see #bodyPositionInLineSpace.
+        // Where the centre of mass of the body and what it goes round sits, measured from the body
+        // the line hangs off and in the line's own space, along with the share of the separation
+        // the drawn orbit spans - see #bodyPositionInLineSpace.
         this.barycentreOffset = new THREE.Vector3();
         this.barycentreShare = 1;
+
+        // What the orbit is drawn about, in world space: the reference body together with whatever
+        // else is inside the orbit, as one mass at their common centre - see #updateCentralBody
+        this.centralPosition = new THREE.Vector3();
+        this.centralVelocity = new THREE.Vector3();
+        this.centralMass = 0;
 
         // The body being orbited has a loop of its own about that same centre of mass, drawn
         // when the pair is even enough in mass for it to clear that body's surface - see
@@ -193,9 +241,6 @@ class Orbit {
 
         // Auto-register this orbit with the OrbitManager through SceneManager
         SceneManager.registerOrbit(this);
-
-        // Initial visibility state
-        this.isVisible = true;
     }
 
     /**
@@ -213,15 +258,7 @@ class Orbit {
      */
     #setReferenceBody(referenceBody) {
         this.referenceBody = referenceBody;
-
-        // Two bodies both go round the centre of mass between them, and it is that orbit which
-        // gets drawn - see #bodyPositionInLineSpace. The body covers the share of the separation
-        // the other body's mass accounts for, so its own orbit is that fraction of the relative
-        // one, and the fraction follows straight from the two gravitational parameters. Kepler's
-        // third law applied to an orbit shrunk by a factor f wants a parameter smaller by f cubed.
-        const relativeGM = calculateGM(referenceBody, this.body.mass);
-        this.barycentreShare = referenceBody ? calculateGM(referenceBody) / relativeGM : 1;
-        this.gravitationalParameter = relativeGM * this.barycentreShare ** 3;
+        this.#updateCentralBody();
 
         let container = SceneManager.scene;
         if (referenceBody === this.parentBody && referenceBody?.tiltContainer && this.body.equatorialOrbit) {
@@ -245,6 +282,79 @@ class Orbit {
         }
 
         this.#updateCompanionLine(container);
+    }
+
+    /**
+     * Work out what the orbit is drawn about - where that centre is, how fast it is moving and how
+     * much mass it stands for - and from its mass the gravitational parameter the drawn conic is
+     * solved with and the share of the separation that conic spans.
+     *
+     * A drawn orbit is a two-body conic, and the two bodies are this one and everything it is
+     * really going round. Usually that is just the reference body, but anything deep inside the
+     * orbit pulls on the body almost exactly as more mass at the centre would, so it is counted as
+     * part of that centre. It matters when a mass of its own falls through the system: a solar mass
+     * a single AU out is inside Jupiter's orbit, and left out of the parameter it made Jupiter's
+     * line a hyperbola reaching a hundred AU while Jupiter carried on going round - the body was
+     * moving faster than escape speed from the Sun alone, which was all the conic knew about. It
+     * also keeps the picture continuous: the mass counts for the same thing the instant before it
+     * merges into the Sun as the instant after, when it has become part of the Sun in earnest.
+     *
+     * How much of a body counts is graded by how far inside the orbit it is - see interiorShare -
+     * because a mass out at the body's own distance is a companion being passed rather than
+     * anything to go round, and a threshold would jump the drawn conic as it was crossed.
+     *
+     * Masses and positions both change while the simulation runs, so this is read again every frame
+     * rather than only when the body being orbited changes.
+     *
+     * @private
+     */
+    #updateCentralBody() {
+        const reference = this.referenceBody;
+        const centre = reference ? reference.group.position : _sceneOrigin;
+
+        // The reference body is the whole of the centre until something is found inside the orbit
+        let mass = reference?.mass > 0 ? reference.mass : 1;
+        _centralWeightedPosition.copy(centre).multiplyScalar(mass);
+        _centralWeightedVelocity.copy(reference?.velocity || _sceneOrigin).multiplyScalar(mass);
+
+        // How far out the orbit reaches, which is what being inside it is measured against
+        const orbitRadius = this.body.group.position.distanceTo(centre);
+
+        const hierarchy = orbitRadius > 0 ? SceneManager.orbitManager?.hierarchy : null;
+        if (hierarchy) {
+            collectBodiesFromHierarchy(hierarchy, _interior);
+
+            for (let i = 0; i < _interior.length; i++) {
+                const candidate = _interior[i];
+                if (candidate === this.body || candidate === reference || !(candidate.mass > 0)) continue;
+
+                const distance = candidate.group.position.distanceTo(centre);
+                const counted = candidate.mass * interiorShare(distance / orbitRadius);
+                if (counted <= 0) continue;
+
+                _centralWeightedPosition.addScaledVector(candidate.group.position, counted);
+                if (candidate.velocity) {
+                    _centralWeightedVelocity.addScaledVector(candidate.velocity, counted);
+                }
+                mass += counted;
+            }
+
+            _interior.length = 0;
+        }
+
+        this.centralPosition.copy(_centralWeightedPosition).divideScalar(mass);
+        this.centralVelocity.copy(_centralWeightedVelocity).divideScalar(mass);
+        this.centralMass = mass;
+
+        // Two bodies both go round the centre of mass between them, and it is that orbit which
+        // gets drawn - see #bodyPositionInLineSpace. The body covers the share of the separation
+        // the other body's mass accounts for, so its own orbit is that fraction of the relative
+        // one, and the fraction follows straight from the two gravitational parameters. Kepler's
+        // third law applied to an orbit shrunk by a factor f wants a parameter smaller by f cubed.
+        _centralStandIn.mass = mass;
+        const relativeGM = calculateGM(_centralStandIn, this.body.mass);
+        this.barycentreShare = reference ? calculateGM(_centralStandIn) / relativeGM : 1;
+        this.gravitationalParameter = relativeGM * this.barycentreShare ** 3;
     }
 
     /**
@@ -365,8 +475,9 @@ class Orbit {
      * More than one candidate holds the body at once - a moon of Saturn is inside the Sun's
      * reach as well as Saturn's - and the innermost of them is the one whose orbit is worth
      * drawing, so the tightest sphere wins. The root body is the fallback, because it holds
-     * everything and answers to nothing: a body on an escape path out of the system still has
-     * its trajectory drawn about the Sun.
+     * everything and answers to nothing: a body on an escape path out of the system is still
+     * measured against the Sun, though while the path stays open nothing of it is drawn - see
+     * #applyVisibility.
      *
      * Changing hands is deliberately harder than keeping them: a body whose apoapsis sits on a
      * boundary, or one poised between two spheres of much the same size, would otherwise swap
@@ -654,10 +765,13 @@ class Orbit {
             points[last + 2] = points[2];
         } else {
             // Escape trajectory: r = a(e*cosh H - 1), an open curve with no far end, so it is
-            // drawn out to a fixed multiple of the body's own distance. Anything else would need
+            // solved out to a fixed multiple of the body's own distance. Anything else would need
             // an arbitrary limit in scene units, which would vanish for a moon and swamp the
             // view for a planet. The same expression gives the anomaly as for a closed orbit,
             // with the hyperbolic functions standing in for the circular ones.
+            //
+            // The curve is solved but not shown - see #applyVisibility - so what is kept here is
+            // a path ready to appear the moment the body is caught by something again.
             const anchorAnomaly = Math.asinh(
                 Math.sqrt(eccentricity * eccentricity - 1) * sinTrueAnomaly
                 / (1 + eccentricity * cosTrueAnomaly));
@@ -685,6 +799,10 @@ class Orbit {
         this.pathPointCount = steps + 1;
         this.drawnEccentricity = eccentricity;
         this.drawnSemiMajorAxis = semiMajorAxis;
+
+        // An open path is no longer an orbit, and is not shown as one
+        this.pathIsClosed = eccentricity < 1;
+        this.#applyVisibility();
 
         // The same description of the conic that #readOsculatingConic produces, so that what is
         // on screen can be held against what the body is doing without re-deriving it
@@ -932,7 +1050,12 @@ class Orbit {
      * not. The other moons move that centre by a ten-thousandth of the nearest such correction,
      * so there is nothing to be had by chasing them.
      *
-     * The offset from the parent out to that centre is recorded on the way past, since the line
+     * The pair is this body and what it goes round, which is the reference body plus anything deep
+     * inside the orbit rolled in with it - see #updateCentralBody. So the separation is measured
+     * from that centre rather than from the reference body, and the two coincide in the ordinary
+     * case where nothing else is in there.
+     *
+     * The offset from the parent out to the focus is recorded on the way past, since the line
      * hangs off the parent in the scene graph and has to be carried out to the focus - see
      * #placeLine.
      *
@@ -942,15 +1065,22 @@ class Orbit {
      */
     #bodyPositionInLineSpace(target) {
         target.copy(this.body.group.position);
+        _centralLocalPosition.copy(this.centralPosition);
 
         const parent = this.orbitLine.parent;
         if (parent) {
             parent.worldToLocal(target);
+            parent.worldToLocal(_centralLocalPosition);
         }
 
+        // Measured from the centre the orbit is drawn about, which is the body the line hangs off
+        // until something inside the orbit counts towards it as well - see #updateCentralBody
+        target.sub(_centralLocalPosition);
+
         // The two shares of the separation add back up to it, so the offset out to the centre of
-        // mass is whatever the body's own orbit does not span
-        this.barycentreOffset.copy(target).multiplyScalar(1 - this.barycentreShare);
+        // mass is whatever the body's own orbit does not span, taken from that same centre
+        this.barycentreOffset.copy(target).multiplyScalar(1 - this.barycentreShare)
+            .add(_centralLocalPosition);
 
         return target.multiplyScalar(this.barycentreShare);
     }
@@ -960,6 +1090,9 @@ class Orbit {
      * orbit line's own coordinate space. Unlike a position this only needs the parent's rotation
      * taken off, since a velocity carries no origin - and the same share of the relative motion
      * as of the separation, the two bodies keeping either side of a fixed point between them.
+     *
+     * The velocity taken off is that of the centre the orbit is drawn about, which is travelling in
+     * its own right where a mass falling through the system counts towards it.
      * @param {THREE.Vector3} target - Vector to write the velocity into
      * @returns {THREE.Vector3} The velocity about the centre of mass, in the line's local space
      * @private
@@ -967,8 +1100,8 @@ class Orbit {
     #bodyVelocityInLineSpace(target) {
         target.copy(this.body.velocity);
 
-        if (this.referenceBody && this.referenceBody.velocity) {
-            target.sub(this.referenceBody.velocity);
+        if (this.referenceBody) {
+            target.sub(this.centralVelocity);
         }
 
         const parent = this.orbitLine.parent;
@@ -1004,29 +1137,37 @@ class Orbit {
      * Show the orbit line
      */
     show() {
-        if (this.orbitLine && !this.isVisible) {
-            this.orbitLine.visible = true;
-            this.isVisible = true;
-        }
-
-        // Shown and hidden with the orbit it belongs to: the pair's two loops are one picture
-        if (this.companionLine) {
-            this.companionLine.visible = this.isVisible;
-        }
+        this.isVisible = true;
+        this.#applyVisibility();
     }
 
     /**
      * Hide the orbit line
      */
     hide() {
-        if (this.orbitLine && this.isVisible) {
-            this.orbitLine.visible = false;
-            this.isVisible = false;
-        }
+        this.isVisible = false;
+        this.#applyVisibility();
+    }
 
-        if (this.companionLine) {
-            this.companionLine.visible = false;
-        }
+    /**
+     * Put the line's visibility where the two things that decide it say it should be: what the
+     * current selection asks to see, and whether there is a closed orbit left to see.
+     *
+     * A body thrown clear of everything has no orbit, only a trajectory, and a hyperbola sweeping
+     * off to the edge of the scene says nothing about where the body will be that the line it
+     * leaves behind does not say better. So the line goes as the path opens up, and comes back if
+     * the body is caught by something again - which does happen, a mass dropped into the system
+     * flinging bodies onto escape paths and then catching them as it passes.
+     *
+     * @private
+     */
+    #applyVisibility() {
+        const visible = this.isVisible && this.pathIsClosed;
+
+        if (this.orbitLine) this.orbitLine.visible = visible;
+
+        // Shown and hidden with the orbit it belongs to: the pair's two loops are one picture
+        if (this.companionLine) this.companionLine.visible = visible;
     }
 
     /**
@@ -1098,6 +1239,12 @@ class Orbit {
                 needsRebuild = true;
             }
         }
+
+        // Then what it is going round, which everything solved below is measured against. Nothing
+        // has to be rebuilt on the strength of that having moved: a centre or a parameter that has
+        // changed means the conic read from the body's state has changed with it, which the shape
+        // drift check further down sees for itself.
+        this.#updateCentralBody();
 
         const bodyPosition = this.#bodyPositionInLineSpace(_bodyLocalPosition);
 

@@ -1,6 +1,7 @@
 import SceneManager from '../managers/SceneManager.js';
 import clockManager from '../managers/ClockManager.js';
 import massDropManager from '../managers/MassDropManager.js';
+import collisionManager from '../managers/CollisionManager.js';
 import { cancelSystemDrift } from '../physics/barycentre.js';
 import { TARGETING, MARKER, ORBIT, SIMULATION, MASS_DROP } from '../constants.js';
 import { toggleControlsOverlay, toggleStateOverlay, toggleStatsOverlay, toggleDebugOverlay } from '../ui/OverlayManager.js';
@@ -19,7 +20,34 @@ export class InputController {
         // Orbit visibility is now managed by SceneManager/VisibilityManager
 
         this.setupEventListeners();
+
+        // The list of things worth pointing the camera at is taken once at startup, and a body that
+        // has been swallowed is no longer one of them: left in, cycling through targets would arrive
+        // at a body with nothing left to look at
+        collisionManager.onBodyRemoved((survivor, removed) => this.forgetTarget(survivor, removed));
         // Target info now shown in state overlay
+    }
+
+    /**
+     * Drop a body that has left the scene from the target list, following whatever swallowed it if
+     * it was the one being watched
+     * @param {Object|null} survivor - What to follow instead
+     * @param {Object} removed - The body that has gone
+     */
+    forgetTarget(survivor, removed) {
+        const index = this.targetableBodies.findIndex(entry => entry.body === removed);
+        if (index === -1) return;
+
+        this.targetableBodies.splice(index, 1);
+
+        // Everything past the removed body has shifted down one, so the index has to follow it to
+        // stay on the body it was on
+        if (index < this.currentTargetIndex) {
+            this.currentTargetIndex--;
+        } else if (index === this.currentTargetIndex) {
+            const survivorIndex = this.targetableBodies.findIndex(entry => entry.body === survivor);
+            this.currentTargetIndex = survivorIndex !== -1 ? survivorIndex : TARGETING.SUN_INDEX;
+        }
     }
 
     /**

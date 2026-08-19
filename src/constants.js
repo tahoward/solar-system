@@ -30,6 +30,15 @@ export const NBODY = {
   // sets the pace for everything else.
   MIN_STEPS_PER_ORBIT: 60,
 
+  // The most of the distance between two bodies that one step may close. How fast a pair goes round
+  // says nothing about a body falling straight in: a mass released a couple of AU out arrives at
+  // several hundred kilometres a second, and a step chosen while it was still far away carries it
+  // clean through whatever it was falling towards and out the other side, collecting an impulse
+  // from a passage that never happened and leaving with energy enough to throw both bodies clear.
+  // A limit written in terms of the separation itself tightens as the approach does, so the step is
+  // already short by the time the two are close, rather than shortening once it is too late.
+  MAX_APPROACH_FRACTION: 0.02,
+
   // Ceiling on the work one frame may do. The simulation is stepped as many times per frame as
   // it takes to cover the time the clock asks for, so time compression costs steps rather than
   // accuracy; past this many the clock is asked to slow down instead - see ClockManager's
@@ -121,9 +130,10 @@ export const ORBIT = {
     RECAPTURE_RATIO: 0.8
   },
   // An orbit line follows the body's own current orbit rather than the catalogue ellipse, so
-  // that its periapsis and apoapsis are the ones the body will really reach. A body thrown
-  // clear of its parent has no apoapsis at all, so its escape path is drawn out to this
-  // multiple of its current distance and no further.
+  // that its periapsis and apoapsis are the ones the body will really reach. A body thrown clear
+  // of everything has no apoapsis at all, and while its path is open no line is shown for it -
+  // see Orbit#applyVisibility - but the path is still solved, out to this multiple of the body's
+  // current distance and no further, so that it is ready if something catches the body again.
   OPEN_PATH_RADIUS_RATIO: 6,
 
   // The body being orbited gets a loop of its own drawn about the centre of mass it shares with
@@ -142,6 +152,13 @@ export const ORBIT = {
 // Jupiter alone accounting for just under half of that. So the path is sampled forward and back
 // along the orbits its contributors are on rather than solved as a shape.
 export const BARYCENTRE = {
+  // Whether that path is drawn at all. It is off because it is the one line in the scene that shows
+  // nothing you can point at: every other line is a path a body follows round something visible,
+  // while this is the root's own wander about a point in empty space, and at the scale the system is
+  // usually watched from it sits under the star it belongs to. Turning this on builds the path
+  // instead of the do-nothing stand-in the root would otherwise carry - see Body#createOrbit.
+  SHOW: false,
+
   // How much of the path to draw, in years, centred on the present. Sixty covers five turns of
   // Jupiter and three cycles of its conjunctions with Saturn, which is what it takes for the
   // widening and narrowing of the loops to read as a pattern rather than as noise.

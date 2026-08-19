@@ -13,6 +13,7 @@ import BodyPhysics from '../physics/BodyPhysics.js';
 import ResourceManager from '../utils/ResourceManager.js';
 import MaterialFactory from '../factories/MaterialFactory.js';
 import SunspotManager from '../effects/SunspotManager.js';
+import { BARYCENTRE } from '../constants.js';
 
 
 /**
@@ -228,16 +229,17 @@ class Body {
         // Only draw an orbit if this body has a parent and orbital parameters
         if (!this.parentBody || !this.bodyData.a) {
             // The root body orbits nothing, but it does not sit still either: it runs round the
-            // centre of mass of the system it holds, and that path is drawn in place of an orbit -
-            // see BarycentrePath. Anything else without a catalogue orbit is something dropped
-            // into the system with no path to trace, and gets a stand-in that draws nothing,
-            // because the per-frame update reaches for an orbit either way. Only the root's is
-            // registered with the scene: a dropped body has no orbit line to show or hide.
-            this.orbit = this.parentBody
-                ? this.createVirtualOrbit()
-                : new BarycentrePath(this, SceneManager.scale);
+            // centre of mass of the system it holds, and that path can be drawn in place of an
+            // orbit - see BarycentrePath, and BARYCENTRE.SHOW, which is normally off. Anything
+            // without a path to draw still gets a stand-in that draws nothing, because the
+            // per-frame update reaches for an orbit either way. Only a real line is registered with
+            // the scene: a stand-in has nothing to show or hide.
+            const drawsBarycentrePath = !this.parentBody && BARYCENTRE.SHOW;
+            this.orbit = drawsBarycentrePath
+                ? new BarycentrePath(this, SceneManager.scale)
+                : this.createVirtualOrbit();
 
-            if (!this.parentBody) {
+            if (drawsBarycentrePath) {
                 SceneManager.registerOrbit(this.orbit);
             }
             return;
@@ -724,15 +726,11 @@ class Body {
      * Initialize orbital trail rendering
      */
     initializeOrbitTrail() {
-        if (this.name === 'Sun') {
-            // Don't create orbit trail for the sun
-            return;
-        }
-
         // Only create OrbitTrail if it doesn't already exist
         if (!this.orbitTrail) {
-            // Create OrbitTrail instance with body's color
-            const trailColor = new THREE.Color(this.material.color);
+            // Create OrbitTrail instance with body's color. A star's surface is drawn by a shader
+            // with no one colour to take, so its marker's colour stands for it.
+            const trailColor = new THREE.Color(this.material?.color || this.markerColor || 0xffffff);
             this.orbitTrail = new OrbitTrail(this.name, trailColor);
 
             // Register with SceneManager for visibility management
