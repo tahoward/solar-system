@@ -539,7 +539,7 @@ export const CELESTIAL_DATA = [{
   name: 'Sun',
   markerColor: 0xFFD700,
   //radiusScale: 1,
-  mass: 7.5,
+  mass: 10,
   rotationPeriod: 609.12,
   axialTilt: 7.25,
   star: {
@@ -569,11 +569,16 @@ export const CELESTIAL_DATA = [{
       bendAmount: 0.2
     },
     flares: {
-      lineCount: 128,
+      lineCount: 256,
       lineLength: 64,
       lowres: false,
       animationSpeed: 0.1,
       opacity: 0.4,
+      flowSpeed: 3.0,
+      flowTravel: 1.5,
+      noiseFrequency: 3.0,
+      noiseAmplitude: 0.3,
+      swayAmplitude: 0.25
     },
     glare: {
       screenFraction: 0.05,

@@ -153,19 +153,45 @@ class ShaderUniformConfig {
      * intermittently and breaks up into dashes, so at reduced resolution it has to be
      * widened to stay continuous.
      *
+     * The flow values are deliberately not tied to the flare clock the lifecycles are on.
+     * That clock is slowed hard so flares live tens of seconds, and a writhe evolving at the
+     * same rate barely moves within a flare's life; `flowSpeed` multiplies it back up so the
+     * plasma churns on a human timescale while the population still turns over slowly.
+     *
      * @param {Object} [options={}] - Option bag.
      * @param {boolean} [options.lowres=false] - Whether this effect runs at reduced
      *   resolution.
-     * @returns {Object} Uniform set holding `uWidth`, `uAmp` and the noise uniforms.
+     * @param {number} [options.flowSpeed=3.0] - How fast the noise displacing a flare
+     *   evolves, relative to the flare clock.
+     * @param {number} [options.flowTravel=1.5] - How far the noise is shifted per unit of arc
+     *   length, which sets how fast the displacement travels from foot to crown.
+     * @param {number} [options.noiseFrequency=3.0] - Frequency of the detail writhe; lower is
+     *   smoother and broader.
+     * @param {number} [options.noiseAmplitude=0.3] - How far the detail writhe displaces the
+     *   arc, as a fraction of its height.
+     * @param {number} [options.swayAmplitude=0.25] - How far the low-frequency sway leans the
+     *   whole arc, as a fraction of its height.
+     * @returns {Object} Uniform set holding `uWidth`, `uAmp`, the flow uniforms and the noise
+     *   uniforms.
      */
     static createFlareUniforms(options = {}) {
-        const { lowres = false } = options;
+        const {
+            lowres = false,
+            flowSpeed = 3.0,
+            flowTravel = 1.5,
+            noiseFrequency = 3.0,
+            noiseAmplitude = 0.3,
+            swayAmplitude = 0.25
+        } = options;
 
         return {
             uWidth: { value: lowres ? 0.003 : 0.0015 },
             uAmp: { value: 1.0 },
+            uFlowSpeed: { value: flowSpeed },
+            uFlowTravel: { value: flowTravel },
+            uSwayAmplitude: { value: swayAmplitude },
 
-            ...this.createNoiseUniforms({ frequency: 4, amplitude: 0.2 })
+            ...this.createNoiseUniforms({ frequency: noiseFrequency, amplitude: noiseAmplitude })
         };
     }
 

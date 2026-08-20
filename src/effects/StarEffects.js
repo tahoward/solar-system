@@ -186,6 +186,11 @@ class StarEffects {
             lineLength: starFlares.lineLength || 16,
             lowres: starFlares.lowres || false,
             opacity: starFlares.opacity || 0.8,
+            flowSpeed: starFlares.flowSpeed,
+            flowTravel: starFlares.flowTravel,
+            noiseFrequency: starFlares.noiseFrequency,
+            noiseAmplitude: starFlares.noiseAmplitude,
+            swayAmplitude: starFlares.swayAmplitude,
             baseColor: temperatureColor,
             emissiveIntensity: emissiveIntensity
         });

@@ -32,14 +32,35 @@ import ShaderLoader from '../shaders/ShaderLoader.js';
  * they cross rather than by the star's radius, which keeps a long bridge from towering over
  * everything.
  *
- * Finally the arc is displaced by 4D twisted sine noise — the fourth component being time, so
- * it writhes — scaled by the local arc height, so the noise is strongest at the top and dies
- * at both feet.
+ * Finally the arc is displaced by two samples of 4D twisted sine noise — the fourth component
+ * being time, so it writhes — both scaled by the local arc height, so the displacement is
+ * strongest at the top and dies at both feet.
+ *
+ * The two samples do different jobs. The first is the detail writhe. The second is a quarter
+ * the frequency, evolves at under half the rate and has most of its energy in its lowest
+ * octave, so it leans and rolls the loop as a whole; without it the arc's overall shape is
+ * fixed and only its surface ripples, which reads as a stiff wire rather than plasma.
+ *
+ * Both are sampled against a clock offset by the position along the arc, which makes the
+ * noise pattern travel along the loop instead of undulating in place — the same displacement
+ * arriving later the further along it you look. That travel is what reads as flow rather than
+ * a vibrating rope. `uFlowSpeed` scales the rate and `uFlowTravel` how far the offset shifts
+ * per unit of arc, so the two are separable: how fast it churns and how fast the churn moves.
+ *
+ * None of it is shared between flares. Each one gets its own origin in the noise domain, its
+ * own rate, its own phase and its own travel direction, all hashed from its index, its
+ * lifecycle count and its per-flare randoms — so a new incarnation flows differently from the
+ * one it replaced. Sampling one field at a common clock would be much the same arithmetic,
+ * but neighbouring flares would then sample neighbouring points of it and the whole
+ * population would visibly sweep in unison, which is the one thing that gives the trick away.
+ * The seeds are constant along a flare, which they have to be: varying them per vertex would
+ * tear the arc apart instead of bending it.
  *
  * `main` handles the fade in and out at each end of a flare's life, kills flares whose spot
  * has not yet appeared, and then does the same camera-facing ribbon expansion as the rays,
  * with an extra sideways spread per vertex that splays the flare into strands rather than
- * leaving it a clean ribbon.
+ * leaving it a clean ribbon. The spread breathes on its own slow cycle, phased per flare, so
+ * the strands drift together and apart instead of holding one frozen splay.
  *
  * @type {string}
  */
@@ -58,6 +79,9 @@ uniform float uAmp;
 uniform float uTime;
 uniform float uNoiseFrequency;
 uniform float uNoiseAmplitude;
+uniform float uFlowSpeed;
+uniform float uFlowTravel;
+uniform float uSwayAmplitude;
 uniform float uOpacity;
 uniform float uHueSpread;
 uniform float uHue;
@@ -136,8 +160,24 @@ vec3 getPosOBJ(float phase, float animPhase){
 
   p += n * amp;
 
-  p += twistedSineNoise(vec4(p * uNoiseFrequency, uTime), 0.707).xyz
-       * (amp * uNoiseAmplitude);
+  float flowSeed1 = fract(sin(flareIndex * 51.317 + lifecycleCount * 4.271 + aWireRandom.z * 27.813) * 43758.5453);
+  float flowSeed2 = fract(sin(flareIndex * 27.913 + lifecycleCount * 9.713 + aWireRandom.w * 19.407) * 43758.5453);
+  float flowSeed3 = fract(sin(flareIndex * 11.729 + lifecycleCount * 2.137 + aWireRandom.z * 13.591) * 43758.5453);
+
+  vec3 flowOrigin = vec3(flowSeed1, flowSeed2, flowSeed3) * 97.0;
+  float flowRate = 0.55 + flowSeed1 * 0.9;
+  float flowDirection = flowSeed2 < 0.5 ? -1.0 : 1.0;
+  float flowPhase = flowSeed3 * 6.28318;
+
+  float flowTime = uTime * uFlowSpeed * flowRate + flowPhase
+                   - phase * uFlowTravel * flowDirection;
+
+  vec3 noisePos = p * uNoiseFrequency + flowOrigin;
+
+  vec3 writhe = twistedSineNoise(vec4(noisePos, flowTime), 0.707).xyz;
+  vec3 sway = twistedSineNoise(vec4(noisePos * 0.25 + 17.0, flowTime * 0.4), 0.45).xyz;
+
+  p += (writhe * uNoiseAmplitude + sway * uSwayAmplitude) * amp;
 
   return p;
 }
@@ -184,7 +224,9 @@ void main(void){
 
   vec3 upView = normalize(cross(sideView, dirView));
 
-  float spreadAmount = 0.04 * sin(aPos.x * 3.14159);
+  float strandRate = 0.4 + aWireRandom.z * 0.5;
+  float strandDrift = 0.7 + 0.3 * sin(uTime * uFlowSpeed * strandRate + aWireRandom.w * 6.28318 + flareIndex);
+  float spreadAmount = 0.04 * sin(aPos.x * 3.14159) * strandDrift;
   vec3 strandOffset = (
     sideView * (aWireRandom.z - 0.5) * spreadAmount * R +
     upView * (aWireRandom.w - 0.5) * spreadAmount * R
@@ -275,6 +317,12 @@ class SunFlares extends SunEffect {
      * @param {number} [options.opacity=0.8] - Overall opacity.
      * @param {number} [options.emissiveIntensity=2.0] - Brightness multiplier, which is what
      *   drives bloom.
+     * @param {number} [options.flowSpeed] - How fast the arcs churn, relative to the flare
+     *   clock.
+     * @param {number} [options.flowTravel] - How fast the churn travels up an arc.
+     * @param {number} [options.noiseFrequency] - Frequency of the detail writhe.
+     * @param {number} [options.noiseAmplitude] - How far the detail writhe displaces an arc.
+     * @param {number} [options.swayAmplitude] - How far the slow sway leans a whole arc.
      * @param {number|THREE.Color} [options.baseColor] - The star's colour.
      * @param {boolean} [options.lowres=false] - Use the reduced-resolution uniform defaults.
      */
@@ -289,6 +337,13 @@ class SunFlares extends SunEffect {
         this.lineLength = options.lineLength || 16;
         this.flareOpacity = options.opacity || 0.8;
         this.emissiveIntensity = options.emissiveIntensity || 2.0;
+        this.flowOptions = {
+            flowSpeed: options.flowSpeed,
+            flowTravel: options.flowTravel,
+            noiseFrequency: options.noiseFrequency,
+            noiseAmplitude: options.noiseAmplitude,
+            swayAmplitude: options.swayAmplitude
+        };
 
         this.mesh = this.createFlaresMesh();
 
@@ -331,7 +386,8 @@ class SunFlares extends SunEffect {
             uniforms: {
                 ...ShaderUniformConfig.createCompleteFlareUniforms({
                     lowres: this.lowres,
-                    opacity: this.flareOpacity
+                    opacity: this.flareOpacity,
+                    ...this.flowOptions
                 }),
                 uEmissiveIntensity: { value: this.emissiveIntensity },
                 uSunspotPositions: { value: defaultPositions },
