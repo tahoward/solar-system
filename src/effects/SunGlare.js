@@ -1,51 +1,123 @@
 import * as THREE from 'three';
 import SunEffect from './SunEffect.js';
 import MathUtils from '../utils/MathUtils.js';
+import { getAUScale } from '../physics/kepler.js';
+
+/**
+ * The core brightness of a star of one solar luminosity seen from one AU.
+ *
+ * The anchor for the whole brightness response: the Sun from Earth comes out at exactly this,
+ * and every other star and distance is placed relative to it.
+ *
+ * @type {number}
+ */
+const SOLAR_CORE_INTENSITY = 50.0;
+
+/**
+ * How much core brightness one magnitude of apparent flux is worth.
+ *
+ * Flux spans an absurd range — a hot giant seen close up against a red dwarf across the
+ * system is a factor of billions — so brightness is driven by the logarithm of it rather than
+ * the flux itself. That is what a magnitude is, and it is also roughly how the eye responds,
+ * which is why a compressed scale still reads as "much brighter" rather than as clipping.
+ *
+ * @type {number}
+ */
+const INTENSITY_PER_MAGNITUDE = 4.0;
+
+/**
+ * Bounds on the core brightness, whatever the flux works out to.
+ *
+ * The floor keeps a very distant star as a faint point rather than nothing at all; the ceiling
+ * stops a near or enormous star from filling the frame with white through the bloom pass.
+ *
+ * @type {number}
+ */
+const MIN_CORE_INTENSITY = 8.0;
+const MAX_CORE_INTENSITY = 150.0;
+
+/**
+ * The star's disc, in multiples of the glare's core radius, over which the glare fades out.
+ *
+ * The glare is a point-spread function: it is what a source too small to resolve looks like
+ * after the eye or the lens has smeared it out. Over a disc that is plainly a disc it is
+ * nonsense, and worse than nonsense — an additive blob sitting in the middle of the star,
+ * which is exactly what it looked like.
+ *
+ * The core is what has to go, so the core is what the handover is measured against. While the
+ * disc is smaller than the core the core swamps it and the star simply reads as blown out,
+ * which is right and is how the Sun looks from Earth. Once the disc is several times the core
+ * the core is a hard dot sitting on a surface, which is the artefact. So the fade runs between
+ * those two, and it runs in multiples of the core's own radius rather than of the quad, so
+ * changing the core's size moves the handover with it.
+ *
+ * A ratio rather than a distance, so it happens at the same apparent size for a red dwarf and
+ * for a supergiant. The depth buffer cannot be left to hide the glare behind the disc instead:
+ * the near plane is a hundred-thousandth of a scene unit against a far plane of 1200, so the
+ * buffer's resolution at a distance z is around z² ⁄ 170 scene units — coarser than a star's
+ * whole radius at any distance a star is actually looked at from.
+ *
+ * @type {number}
+ */
+const DISC_FADE_START_CORE_RADII = 1.5;
+const DISC_FADE_END_CORE_RADII = 3.6;
+
+/**
+ * The power the disc fade is raised to before it reaches the core's brightness.
+ *
+ * A core at fifty times white does not perceptibly dim on a linear ramp: at half opacity it is
+ * still twenty-five times over the bloom threshold, so it is still a saturated white blob with
+ * a halo of bloom around it, and it only actually disappears in the last few per cent of the
+ * ramp. Brightness has to come down with it, steeply, for the fade to mean anything on screen —
+ * which is the same reason the flux response works in magnitudes.
+ *
+ * @type {number}
+ */
+const CORE_FADE_EXPONENT = 3.0;
 
 /**
  * The camera-facing flare that stands in for a star at a distance.
  *
  * Once a star is far enough away its disc is smaller than a pixel, and a rendered sphere
- * either disappears or flickers. What the eye actually sees looking at a bright point
- * source is not a disc at all but a halo with spikes through it — the diffraction pattern
- * of the eye or the lens — and that is what this draws: a flat quad turned to face the
- * camera, with a soft halo, a bright core and four tapering spikes, all in the fragment
- * shader rather than from a texture, so it stays sharp at any size.
+ * either disappears or flickers. What the eye actually sees looking at a bright point source
+ * is not a disc at all but a halo with spikes through it — the diffraction pattern of the eye
+ * or the lens — and that is what this draws: a flat quad turned to face the camera, with a
+ * soft halo, a bright core and four tapering spikes, all in the fragment shader rather than
+ * from a texture, so it stays sharp at any size.
  *
- * Everything scales with distance. Further away the spikes lengthen and sharpen, the core
- * brightens, and the whole quad grows, which is what keeps a distant star readable instead
- * of letting it shrink into nothing.
+ * The quad holds a constant size on screen, which is the point of it. A point spread is a
+ * property of the instrument looking at the star, not of the star, so it does not grow or
+ * shrink as the camera moves: what changes with distance is how bright it is, from the
+ * apparent flux, and whether it is drawn at all, from how large the star's disc has become.
  *
- * Positioning and orientation are not done here: {@link Body#update} parents the quad to
- * the scene root, moves it to the star and turns it to face the camera.
+ * Orientation and placement are not done here: {@link Body#update} parents the quad to the
+ * scene root, moves it to the star, turns it to face the camera and works out whether
+ * anything is in front of it.
  */
 class SunGlare extends SunEffect {
     /**
      * Builds the glare and its billboard.
      *
      * @param {Object} [options={}] - Glare options.
-     * @param {number} [options.sunRadius=1.0] - The star's radius in scene units; the quad
-     *   is sized relative to it.
-     * @param {number} [options.size=5.0] - Quad size as a multiple of the star's radius.
+     * @param {number} [options.sunRadius=1.0] - The star's radius in scene units, which the
+     *   disc fade is measured against.
+     * @param {number} [options.screenFraction=0.05] - The glare's size on screen, as a
+     *   fraction of the viewport's height.
+     * @param {number} [options.luminosity=1.0] - The star's luminosity in solar units, which
+     *   sets how bright the glare is for a given distance.
      * @param {number} [options.opacity=1.0] - Overall opacity.
      * @param {number|THREE.Color} [options.color=0xffaa00] - The star's colour.
-     * @param {number} [options.emissiveIntensity=25.0] - Core brightness. High, because the
-     *   core has to bloom.
+     * @param {number} [options.emissiveIntensity] - Core brightness, pinning it and bypassing
+     *   the flux response entirely.
      * @param {number} [options.glowIntensity=1.35] - Halo brightness.
      * @param {number} [options.haloRadius=0.5] - Halo extent, as a fraction of the quad.
      * @param {number} [options.haloFalloff=3.0] - How sharply the halo fades outwards.
      * @param {number} [options.haloStrength=0.55] - Halo opacity.
-     * @param {number} [options.coreWhiteness=0.8] - How far the core is pushed towards
-     *   white; a bright enough source saturates to white whatever its actual colour.
-     * @param {boolean} [options.scaleWithDistance=true] - Grow the quad with distance.
-     * @param {number} [options.minScaleDistance=0.5] - Distance at which scaling starts.
-     * @param {number} [options.maxScaleDistance=10.0] - Distance at which scaling tops out.
-     * @param {number} [options.minScale=0.1] - Scale at the near end.
-     * @param {number} [options.maxScale=1.0] - Scale at the far end.
-     * @param {boolean} [options.scaleCenterWithDistance=true] - Also grow the core, not just
-     *   the quad.
-     * @param {number} [options.centerBaseSize=0.01] - Core size.
-     * @param {number} [options.centerFadeSize=0.03] - Core fade extent.
+     * @param {number} [options.coreWhiteness=0.8] - How far the core is pushed towards white;
+     *   a bright enough source saturates to white whatever its actual colour.
+     * @param {number} [options.coreRadius=0.05] - Core size, as a fraction of the quad.
+     * @param {number} [options.spikeLength=0.65] - Spike length, as a fraction of the quad.
+     * @param {number} [options.spikeWidth=0.02] - Spike width at its base, likewise.
      * @param {number} [options.twinkleSpeed=1.5] - How fast the spikes flicker.
      * @param {number} [options.twinkleIntensity=0.12] - How pronounced the flicker is.
      */
@@ -56,118 +128,85 @@ class SunGlare extends SunEffect {
             effectName: '✨ SunGlare'
         });
 
-        this.glareSize = options.size || 5.0;
+        this.screenFraction = options.screenFraction || 0.05;
+        this.luminosity = options.luminosity || 1.0;
         this.glareOpacity = options.opacity || 1.0;
         this.glareColor = options.color || 0xffaa00;
 
-        this.emissiveIntensity = options.emissiveIntensity || 25.0;
+        this.emissiveIntensity = options.emissiveIntensity;
         this.glowIntensity = options.glowIntensity || 1.35;
         this.haloRadius = options.haloRadius || 0.5;
         this.haloFalloff = options.haloFalloff || 3.0;
         this.haloStrength = options.haloStrength || 0.55;
         this.coreWhiteness = options.coreWhiteness !== undefined ? options.coreWhiteness : 0.8;
 
-        this.scaleWithDistance = options.scaleWithDistance !== undefined ? options.scaleWithDistance : true;
-        this.minScaleDistance = options.minScaleDistance || 0.5;
-        this.maxScaleDistance = options.maxScaleDistance || 10.0;
-        this.minScale = options.minScale || 0.1;
-        this.maxScale = options.maxScale || 1.0;
-
-        this.scaleCenterWithDistance = options.scaleCenterWithDistance !== undefined ? options.scaleCenterWithDistance : true;
-        this.centerBaseSize = options.centerBaseSize || 0.01;
-        this.centerFadeSize = options.centerFadeSize || 0.03;
+        this.coreRadius = options.coreRadius || 0.05;
+        this.spikeLength = options.spikeLength || 0.65;
+        this.spikeWidth = options.spikeWidth || 0.02;
 
         this.twinkleSpeed = options.twinkleSpeed || 1.5;
         this.twinkleIntensity = options.twinkleIntensity || 0.12;
 
         this.mesh = this.createGlareBillboard();
-
-
-    }
-
-    /**
-     * Works out the spike geometry for a given distance.
-     *
-     * Further away the spikes get longer and thinner and the core smaller, which is how a
-     * point source actually behaves: the dimmer it is, the more it reads as a cross of light
-     * with nothing in the middle rather than as a blob.
-     *
-     * @param {number} distance - Camera's distance to the star, in scene units.
-     * @returns {{spikeLength: number, spikeWidth: number, centerRadius: number}} Spike
-     *   length and width, and core radius, all as fractions of the quad.
-     */
-    createSpikeParameters(distance) {
-        let spikeLength = 0.65;
-        let spikeWidth = 0.02;
-        let centerRadius = 0.05;
-
-        if (distance > this.maxScaleDistance) {
-            spikeLength = 0.75;
-            spikeWidth = 0.025;
-            centerRadius = 0.04;
-        } else if (distance > this.minScaleDistance) {
-            const { ratio } = MathUtils.clampAndRatio(distance, this.minScaleDistance, this.maxScaleDistance);
-            spikeLength = MathUtils.lerp(0.55, 0.7, ratio);
-            spikeWidth = MathUtils.lerp(0.015, 0.025, ratio);
-            centerRadius = MathUtils.lerp(0.06, 0.04, ratio);
-        }
-
-        return { spikeLength, spikeWidth, centerRadius };
     }
 
     /**
      * Builds the quad and its shader.
      *
-     * The shader works in the quad's own UVs, offset so the centre is the origin. Three
-     * things are composited by taking the maximum of their alphas — a radial halo, a small
-     * bright core, and two crossed spikes — rather than by adding them, so the overlap in
-     * the middle does not blow out.
+     * The geometry is a unit quad, scaled every frame to whatever world size holds the
+     * configured fraction of the screen. The shader therefore works in nothing but the quad's
+     * own UVs, offset so the centre is the origin, and every size in it is a fraction of the
+     * quad — which means a fraction of the screen too, so the pattern is identical at every
+     * distance.
+     *
+     * Three things are composited by taking the maximum of their alphas — a radial halo, a
+     * small bright core, and two crossed spikes — rather than by adding them, so the overlap
+     * in the middle does not blow out.
      *
      * The spikes are tapering triangles rather than lines, with the fade along their length
      * raised to a power so they come to a point. Their brightness is modulated by two sine
-     * waves at unrelated frequencies, which gives an irregular twinkle instead of an
-     * obvious pulse, and the horizontal and vertical spikes are offset in phase so they do
-     * not flicker together.
+     * waves at unrelated frequencies, which gives an irregular twinkle instead of an obvious
+     * pulse, and the horizontal and vertical spikes are offset in phase so they do not flicker
+     * together.
      *
-     * The colour is the halo plus a core term squared, which concentrates the white
-     * saturation tightly in the middle.
+     * The colour is the halo plus a core term squared, which concentrates the white saturation
+     * tightly in the middle.
      *
      * Three material choices matter. Additive blending, so the glare adds light rather than
      * masking what is behind it. Frustum culling off, because the mesh is repositioned every
-     * frame from outside and Three.js would otherwise cull it against a stale bounding
-     * sphere. And a very high render order with `depthWrite` off, so the glare draws last
-     * over everything — but with depth testing still on, so a planet passing in front of the
-     * star does occlude it.
+     * frame from outside and Three.js would otherwise cull it against a stale bounding sphere.
+     * And a very high render order with both depth writing and depth testing off, so the glare
+     * draws last over everything: at the star's centre the quad is coplanar with the star's own
+     * silhouette, so a depth test there is a tie that floating-point noise settles differently
+     * from frame to frame, which is a flicker rather than an occlusion. Whether something is in
+     * front of the star is decided on the CPU instead, by {@link Body#update}.
      *
      * @returns {THREE.Mesh} The billboard mesh.
      */
     createGlareBillboard() {
-        const size = this.sunRadius * this.glareSize;
-        const geometry = new THREE.PlaneGeometry(size, size);
+        const geometry = new THREE.PlaneGeometry(1, 1);
 
         const material = new THREE.ShaderMaterial({
             transparent: true,
             depthWrite: false,
-            depthTest: true,
+            depthTest: false,
             blending: THREE.AdditiveBlending,
             side: THREE.DoubleSide,
             uniforms: {
                 uTime: { value: 0.0 },
                 uEmissiveColor: { value: new THREE.Color(this.glareColor) },
                 uOpacity: { value: this.glareOpacity },
-                uCoreIntensity: { value: this.emissiveIntensity },
+                uCoreIntensity: { value: this.emissiveIntensity ?? SOLAR_CORE_INTENSITY },
                 uCoreWhiteness: { value: this.coreWhiteness },
                 uGlowIntensity: { value: this.glowIntensity },
                 uHaloRadius: { value: this.haloRadius },
                 uHaloFalloff: { value: this.haloFalloff },
                 uHaloStrength: { value: this.haloStrength },
-                uSpikeLength: { value: 0.65 },
-                uSpikeWidth: { value: 0.02 },
-                uCenterRadius: { value: 0.05 },
-                uCenterScale: { value: 1.0 },
+                uSpikeLength: { value: this.spikeLength },
+                uSpikeWidth: { value: this.spikeWidth },
+                uCenterRadius: { value: this.coreRadius },
                 uTwinkleIntensity: { value: this.twinkleIntensity },
-                uTwinkleSpeed: { value: this.twinkleSpeed },
-                uDistanceFactor: { value: 1.0 }
+                uTwinkleSpeed: { value: this.twinkleSpeed }
             },
             vertexShader: `
                 varying vec2 vUv;
@@ -190,10 +229,8 @@ class SunGlare extends SunEffect {
                 uniform float uSpikeLength;
                 uniform float uSpikeWidth;
                 uniform float uCenterRadius;
-                uniform float uCenterScale;
                 uniform float uTwinkleIntensity;
                 uniform float uTwinkleSpeed;
-                uniform float uDistanceFactor;
 
                 varying vec2 vUv;
 
@@ -204,8 +241,7 @@ class SunGlare extends SunEffect {
                     float haloFade = max(0.0, 1.0 - dist / uHaloRadius);
                     float halo = pow(haloFade, uHaloFalloff) * uHaloStrength;
 
-                    float coreRadius = uCenterRadius * uCenterScale;
-                    float core = smoothstep(coreRadius * 1.2, 0.0, dist);
+                    float core = smoothstep(uCenterRadius * 1.2, 0.0, dist);
 
                     float alpha = max(halo, core);
 
@@ -219,47 +255,30 @@ class SunGlare extends SunEffect {
                     float verticalTwinkle = 1.0 + sin(twinklePhase + 1.57079632679) * uTwinkleIntensity +
                                            sin(twinklePhase * 1.3 + 3.8) * uTwinkleIntensity * 0.6;
 
-                    float adjustedSpikeLength = uSpikeLength * uDistanceFactor;
-                    float adjustedSpikeWidth = uSpikeWidth * uCenterScale;
+                    if (absCenter.y <= uSpikeWidth && absCenter.x <= uSpikeLength) {
+                        float spikeProgress = absCenter.x / uSpikeLength;
 
-                    float pointinessFactor = 1.0 + (uDistanceFactor - 1.0) * 0.8;
-
-                    if (absCenter.y <= adjustedSpikeWidth && absCenter.x <= adjustedSpikeLength) {
-                        float spikeProgress = absCenter.x / adjustedSpikeLength;
-
-                        float triangleWidth = adjustedSpikeWidth * (1.0 - spikeProgress);
+                        float triangleWidth = uSpikeWidth * (1.0 - spikeProgress);
 
                         if (absCenter.y <= triangleWidth) {
-                            float lengthFade = 1.0 - spikeProgress;
-                            float widthFade = 1.0 - (absCenter.y / triangleWidth);
+                            float lengthFade = pow(1.0 - spikeProgress, 2.0);
+                            float widthFade = pow(1.0 - (absCenter.y / triangleWidth), 0.3);
 
-                            lengthFade = pow(lengthFade, 2.0 * pointinessFactor);
-                            widthFade = pow(widthFade, 0.3);
-
-                            float horizontalAlpha = lengthFade * widthFade * horizontalTwinkle;
-                            alpha = max(alpha, horizontalAlpha);
+                            alpha = max(alpha, lengthFade * widthFade * horizontalTwinkle);
                         }
                     }
 
-                    if (absCenter.x <= adjustedSpikeWidth && absCenter.y <= adjustedSpikeLength) {
-                        float spikeProgress = absCenter.y / adjustedSpikeLength;
+                    if (absCenter.x <= uSpikeWidth && absCenter.y <= uSpikeLength) {
+                        float spikeProgress = absCenter.y / uSpikeLength;
 
-                        float triangleWidth = adjustedSpikeWidth * (1.0 - spikeProgress);
+                        float triangleWidth = uSpikeWidth * (1.0 - spikeProgress);
 
                         if (absCenter.x <= triangleWidth) {
-                            float lengthFade = 1.0 - spikeProgress;
-                            float widthFade = 1.0 - (absCenter.x / triangleWidth);
+                            float lengthFade = pow(1.0 - spikeProgress, 2.0);
+                            float widthFade = pow(1.0 - (absCenter.x / triangleWidth), 0.3);
 
-                            lengthFade = pow(lengthFade, 2.0 * pointinessFactor);
-                            widthFade = pow(widthFade, 0.3);
-
-                            float verticalAlpha = lengthFade * widthFade * verticalTwinkle;
-                            alpha = max(alpha, verticalAlpha);
+                            alpha = max(alpha, lengthFade * widthFade * verticalTwinkle);
                         }
-                    }
-
-                    if (absCenter.x <= adjustedSpikeWidth && absCenter.y <= adjustedSpikeWidth) {
-                        alpha = max(alpha, 0.8);
                     }
 
                     alpha = clamp(alpha, 0.0, 1.0);
@@ -285,82 +304,98 @@ class SunGlare extends SunEffect {
     }
 
     /**
-     * Rescales and rebrightens the glare for this frame's viewing distance.
+     * Resizes and rebrightens the glare for this frame.
      *
-     * Three separate distance responses, which is what makes a star hold its presence
-     * across the whole range: the quad grows, the spikes lengthen and sharpen, and past the
-     * far scaling distance the core is brightened further still. Without that last boost a
-     * genuinely distant star fades out of the frame entirely, because the quad's own growth
-     * cannot keep up with how few pixels it covers.
+     * The quad is scaled to hold a constant fraction of the viewport's height, worked out from
+     * the camera's field of view and the distance to the star. Everything the shader draws is
+     * a fraction of the quad, so the whole pattern is fixed on screen and none of it can
+     * alias, whatever the star's size or distance.
      *
-     * Does not orient or position the mesh; {@link Body#update} does that.
+     * Brightness comes from the apparent flux — the star's luminosity over the square of its
+     * distance in AU — compressed to magnitudes. The Sun from Earth is the unit of that, so it
+     * lands on {@link SOLAR_CORE_INTENSITY} by construction, and a star ten times as far or a
+     * hundred times as luminous is placed relative to it rather than tuned.
+     *
+     * The whole thing is then faded out as the star's disc outgrows the core, per
+     * {@link DISC_FADE_START_CORE_RADII} — including the halo, which is as much of a blob over a
+     * resolved star as the core is. The core additionally loses brightness rather than only
+     * opacity, since at fifty times white it would otherwise still be saturated at half a fade.
+     *
+     * Does not position or orient the mesh, and does not work out the occlusion it is passed;
+     * {@link Body#update} does both.
      *
      * @param {number} deltaTime - Time since the last frame, in scaled seconds.
      * @param {THREE.Camera} camera - Camera the frame is being drawn from.
      * @param {THREE.Vector3} [sunPosition] - The star's world position.
+     * @param {number} [occlusion=1.0] - How much of the glare is unobstructed, 0 to 1.
      * @returns {void}
      */
-    update(deltaTime, camera, sunPosition = new THREE.Vector3(0, 0, 0)) {
+    update(deltaTime, camera, sunPosition = new THREE.Vector3(0, 0, 0), occlusion = 1.0) {
         this.time += deltaTime;
 
-        if (!this.mesh || !this.mesh.material) return;
+        if (!this.mesh || !this.material || !this.material.uniforms) return;
 
         const distance = camera.position.distanceTo(sunPosition);
+        if (!(distance > 0)) return;
 
-        let centerScale = 1.0;
+        const viewportHeight = 2.0 * Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5) * distance;
+        const quadSize = this.screenFraction * viewportHeight;
 
-        if (this.scaleCenterWithDistance && this.scaleWithDistance) {
-            const { ratio: distanceRatio } = MathUtils.clampAndRatio(distance, this.minScaleDistance, this.maxScaleDistance);
-            centerScale = MathUtils.lerp(this.minScale, this.maxScale, distanceRatio);
-        }
+        this.mesh.scale.setScalar(quadSize);
 
-        const spikeParams = this.createSpikeParameters(distance);
+        const discRadius = this.sunRadius / quadSize;
+        const { ratio: discRatio } = MathUtils.clampAndRatio(
+            discRadius,
+            this.coreRadius * DISC_FADE_START_CORE_RADII,
+            this.coreRadius * DISC_FADE_END_CORE_RADII);
 
-        let distanceFactor = 1.0;
-        let emissiveBoost = 1.0;
+        const discFade = 1.0 - discRatio;
 
-        if (distance > this.minScaleDistance) {
-            const { ratio: distanceRatio } = MathUtils.clampAndRatio(distance, this.minScaleDistance, this.maxScaleDistance * 2);
-            distanceFactor = MathUtils.lerp(1.0, 1.8, distanceRatio);
-
-            if (distance > this.maxScaleDistance) {
-                const extremeDistanceRatio = Math.min((distance - this.maxScaleDistance) / this.maxScaleDistance, 2.0);
-                emissiveBoost = 1.0 + extremeDistanceRatio * 1.5;
-            }
-        }
-
-        if (this.material.uniforms) {
-            this.material.uniforms.uTime.value = this.time;
-            this.material.uniforms.uCenterScale.value = centerScale;
-            this.material.uniforms.uOpacity.value = this.glareOpacity;
-            this.material.uniforms.uCoreIntensity.value = this.emissiveIntensity * emissiveBoost;
-            this.material.uniforms.uGlowIntensity.value = this.glowIntensity;
-            this.material.uniforms.uDistanceFactor.value = distanceFactor;
-            this.material.uniforms.uTwinkleIntensity.value = this.twinkleIntensity;
-            this.material.uniforms.uTwinkleSpeed.value = this.twinkleSpeed;
-
-            this.material.uniforms.uSpikeLength.value = spikeParams.spikeLength;
-            this.material.uniforms.uSpikeWidth.value = spikeParams.spikeWidth;
-            this.material.uniforms.uCenterRadius.value = spikeParams.centerRadius;
-        }
-
-        let scaleFactor = 1.0;
-
-        if (this.scaleWithDistance) {
-            const { ratio: distanceRatio } = MathUtils.clampAndRatio(distance, this.minScaleDistance, this.maxScaleDistance);
-
-            scaleFactor = MathUtils.lerp(this.minScale, this.maxScale, distanceRatio);
-        }
-
-        this.mesh.scale.setScalar(scaleFactor);
+        this.material.uniforms.uTime.value = this.time;
+        this.material.uniforms.uOpacity.value = this.glareOpacity * discFade * occlusion;
+        this.material.uniforms.uCoreIntensity.value =
+            this.#coreIntensity(distance) * Math.pow(discFade, CORE_FADE_EXPONENT);
+        this.material.uniforms.uGlowIntensity.value = this.glowIntensity;
+        this.material.uniforms.uTwinkleIntensity.value = this.twinkleIntensity;
+        this.material.uniforms.uTwinkleSpeed.value = this.twinkleSpeed;
     }
 
     /**
-     * Sets the core's brightness.
+     * How bright the core should be, given how much light is actually arriving.
      *
-     * Kept on the instance as well as in the uniform, because
-     * {@link SunGlare#update} recomputes the uniform from it every frame with the distance
-     * boost applied.
+     * The flux is relative to the Sun at one AU, so its logarithm is the number of magnitudes
+     * brighter than that familiar case — positive for brighter, which is the opposite sign to
+     * an astronomical magnitude but reads the right way round here.
+     *
+     * A star whose brightness is pinned in the data skips all of this.
+     *
+     * @private
+     * @param {number} distance - Camera's distance to the star, in scene units.
+     * @returns {number} Core brightness, within
+     *   {@link MIN_CORE_INTENSITY}–{@link MAX_CORE_INTENSITY}.
+     */
+    #coreIntensity(distance) {
+        if (this.emissiveIntensity !== undefined) {
+            return this.emissiveIntensity;
+        }
+
+        const distanceAU = distance / getAUScale();
+        const relativeFlux = this.luminosity / (distanceAU * distanceAU);
+
+        if (!(relativeFlux > 0)) {
+            return MIN_CORE_INTENSITY;
+        }
+
+        const magnitudesBrighter = 2.5 * Math.log10(relativeFlux);
+
+        return MathUtils.clamp(
+            SOLAR_CORE_INTENSITY + INTENSITY_PER_MAGNITUDE * magnitudesBrighter,
+            MIN_CORE_INTENSITY,
+            MAX_CORE_INTENSITY);
+    }
+
+    /**
+     * Pins the core's brightness, overriding the flux response.
      *
      * @param {number} intensity - Core brightness.
      * @returns {void}
@@ -386,12 +421,12 @@ class SunGlare extends SunEffect {
     }
 
     /**
-     * The core's configured brightness, before any distance boost.
+     * The core's current brightness.
      *
-     * @returns {number} Core brightness.
+     * @returns {number} Core brightness, as last written to the shader.
      */
     getEmissiveIntensity() {
-        return this.emissiveIntensity;
+        return this.material?.uniforms?.uCoreIntensity.value ?? SOLAR_CORE_INTENSITY;
     }
 
     /**

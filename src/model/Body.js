@@ -13,7 +13,26 @@ import BodyPhysics from '../physics/BodyPhysics.js';
 import ResourceManager from '../utils/ResourceManager.js';
 import MaterialFactory from '../factories/MaterialFactory.js';
 import SunspotManager from '../effects/SunspotManager.js';
-import { BARYCENTRE } from '../constants.js';
+import MathUtils from '../utils/MathUtils.js';
+import { BARYCENTRE, massToStellarRadius, massToStellarTemperature } from '../constants.js';
+
+/**
+ * How far into a transiting body's disc the star's glare is fully hidden.
+ *
+ * A fraction of the body's angular radius rather than all of it, so the glare fades over the
+ * last tenth of the limb instead of switching off the instant the centres line up.
+ *
+ * @type {number}
+ */
+const TRANSIT_SOFT_EDGE = 0.9;
+
+/**
+ * Scratch vectors for the transit test, reused to avoid per-frame allocation.
+ *
+ * @type {THREE.Vector3}
+ */
+const _toStar = new THREE.Vector3();
+const _toBody = new THREE.Vector3();
 
 /**
  * A celestial body: its scene objects, physics state and children.
@@ -52,12 +71,66 @@ class Body {
     }
 
     /**
+     * Fills in a star's radius and temperature from its mass.
+     *
+     * Both follow from the mass for a main-sequence star, so a star can be given as
+     * a mass alone rather than as three numbers a reader has to trust are mutually
+     * consistent. Whatever the data does state wins: a giant, a white dwarf or a
+     * deliberately unphysical star has left the main sequence, and stating either
+     * value opts that one value out of the relations.
+     *
+     * The derived radius is in solar radii, which is the scale `radiusScale` is
+     * already in for the system's root body.
+     *
+     * Non-stars are returned untouched — a planet's size has nothing to do with its
+     * mass. So is a star that states both, which is why the Sun is unaffected by
+     * this despite the relations reproducing its values exactly.
+     *
+     * @private
+     * @param {Object} bodyData - Body definition, possibly carrying a `star` block.
+     * @returns {Object} `bodyData` unchanged when there is nothing to derive,
+     *   otherwise a shallow copy with the missing values filled in — the catalogue
+     *   literal is left as written.
+     */
+    static #deriveMainSequenceProperties(bodyData) {
+        if (!bodyData.star || typeof bodyData.mass !== 'number') {
+            return bodyData;
+        }
+
+        const needsRadius = bodyData.radiusScale === undefined || bodyData.radiusScale === null;
+        const needsTemperature = bodyData.star.temperature === undefined || bodyData.star.temperature === null;
+
+        if (!needsRadius && !needsTemperature) {
+            return bodyData;
+        }
+
+        const derived = { ...bodyData };
+
+        if (needsRadius) {
+            derived.radiusScale = massToStellarRadius(bodyData.mass);
+        }
+
+        if (needsTemperature) {
+            derived.star = { ...bodyData.star, temperature: massToStellarTemperature(bodyData.mass) };
+        }
+
+        log.info('Body', `${bodyData.name}: derived main-sequence properties from ` +
+            `${bodyData.mass} solar masses — ${derived.radiusScale.toFixed(3)} solar radii, ` +
+            `${Math.round(derived.star.temperature)} K`);
+
+        return derived;
+    }
+
+    /**
      * Builds a body, its scene objects, its orbit and all of its children.
      *
      * Optional features are driven by the presence of fields in `bodyData`: rings,
      * clouds, an atmosphere and star effects are each added only when configured.
      * The body adds itself to the scene, and registers itself for bloom, orbit
      * rendering and trail updates.
+     *
+     * A star that leaves out its radius or temperature has them derived from its
+     * mass first, so everything downstream sees a complete definition either way.
      *
      * @param {Object} bodyData - Body definition from {@link CELESTIAL_DATA};
      *   supplies name, mass, radius scale, rotation, tilt and optional
@@ -67,6 +140,8 @@ class Body {
      * @throws {Error} If the configuration fails {@link ConfigValidator} checks.
      */
     constructor(bodyData, parentBody = null) {
+        bodyData = Body.#deriveMainSequenceProperties(bodyData);
+
         const emittedLight = StarEffects.createLightForBody(bodyData);
 
         const radius = BodyPhysics.calculateBodyRadius(bodyData, parentBody, SceneManager);
@@ -496,6 +571,10 @@ class Body {
      * clock's effects delta rather than simulation time, so the visuals keep a
      * steady pace regardless of the simulation speed multiplier.
      *
+     * The glare additionally needs to know what is in front of the star, which it
+     * cannot work out for itself and the depth buffer cannot be asked — see
+     * {@link Body.#transitOcclusion}.
+     *
      * Note that this method reads `clockManager` as a bare global, which resolves
      * only because `solarSystem.js` assigns `window.clockManager` during startup.
      *
@@ -575,7 +654,12 @@ class Body {
 
                 if (this.mesh) this.mesh.visible = true;
 
-                this.sunGlare.update(effectsDeltaTime, camera, starPosition);
+                _toStar.subVectors(starPosition, camera.position);
+
+                const occlusion = Body.#transitOcclusion(
+                    this.children, camera.position, _toStar, _toStar.length());
+
+                this.sunGlare.update(effectsDeltaTime, camera, starPosition, occlusion);
             }
         }
 
@@ -587,6 +671,63 @@ class Body {
                 }
             });
         }
+    }
+
+    /**
+     * How much of a star's glare survives the bodies passing in front of it.
+     *
+     * The glare draws over everything, with no depth test at all — at the star's centre the
+     * quad is coplanar with the star's own silhouette, and a depth test there is a tie that
+     * floating-point noise settles differently from frame to frame. So occlusion is decided
+     * here instead, geometrically: a body nearer the camera than the star hides the glare when
+     * the star lies within its disc, which is a comparison of the angle between the two
+     * directions against the body's angular radius.
+     *
+     * Only the star's centre is tested, not the glare's whole extent, so a body that covers the
+     * centre takes the glare with it — a body large enough on screen to do that is dominating
+     * the view regardless.
+     *
+     * Recurses, since a moon can transit as readily as its planet, and the whole walk is
+     * distance-tested rather than culled: bodies at or beyond the star's distance are behind it
+     * and cannot hide anything.
+     *
+     * @private
+     * @param {Array<{body: Body}>} children - Hierarchy nodes to test, and theirs in turn.
+     * @param {THREE.Vector3} cameraPosition - Camera's world position.
+     * @param {THREE.Vector3} starDirection - Vector from the camera to the star; read only.
+     * @param {number} starDistance - Its length, in scene units.
+     * @returns {number} How much of the glare is unobstructed, 0 to 1.
+     */
+    static #transitOcclusion(children, cameraPosition, starDirection, starDistance) {
+        let occlusion = 1.0;
+
+        if (!children || children.length === 0) {
+            return occlusion;
+        }
+
+        for (const childHierarchy of children) {
+            const child = childHierarchy.body;
+
+            if (!child || !child.group) continue;
+
+            _toBody.subVectors(child.group.position, cameraPosition);
+            const bodyDistance = _toBody.length();
+
+            if (bodyDistance > 0 && bodyDistance < starDistance) {
+                const angularRadius = child.radius / bodyDistance;
+                const separation = starDirection.angleTo(_toBody);
+
+                const { ratio } = MathUtils.clampAndRatio(
+                    separation, angularRadius * TRANSIT_SOFT_EDGE, angularRadius);
+
+                occlusion = Math.min(occlusion, ratio);
+            }
+
+            occlusion = Math.min(occlusion, Body.#transitOcclusion(
+                child.children, cameraPosition, starDirection, starDistance));
+        }
+
+        return occlusion;
     }
 
     /**

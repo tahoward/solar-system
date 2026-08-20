@@ -3,7 +3,12 @@ import SunCorona from './SunCorona.js';
 import SunRays from './SunRays.js';
 import SunFlares from './SunFlares.js';
 import SunGlare from './SunGlare.js';
-import { temperatureToColor, temperatureToBlackbodyLight, temperatureToGlareBrightness } from '../constants.js';
+import {
+    temperatureToColor,
+    temperatureToBlackbodyLight,
+    temperatureToGlareBrightness,
+    radiusAndTemperatureToLuminosity
+} from '../constants.js';
 import { log } from '../utils/Logger.js';
 
 /**
@@ -198,15 +203,13 @@ class StarEffects {
     /**
      * Adds the glare: the camera-facing flare that stands in for the star at a distance.
      *
-     * The glare is far brighter than the other effects — its default emissive intensity is
-     * twenty-five times the temperature-derived brightness — because it has to survive
-     * being the only thing left of the star once the surface mesh has faded out.
-     *
-     * Its opacity is scaled by temperature and then clamped, so a hot star glares harder
-     * than a cool one without exceeding full opacity.
-     *
-     * The distances at which the glare grows and shrinks are scaled by the star's radius,
-     * so the same configuration works for a red dwarf and a supergiant.
+     * Nothing about its size or brightness is scaled by hand here. The glare holds a fixed
+     * fraction of the screen, and how bright it is follows from the star's luminosity — the
+     * Stefan–Boltzmann law over its radius and temperature — which the effect turns into an
+     * apparent flux against the viewing distance. So a red dwarf, the Sun and a blue giant all
+     * come out at the brightness their own physics asks for, and the same configuration works
+     * for all three. Stating `emissiveIntensity` in the data pins the brightness and bypasses
+     * that.
      *
      * Unlike the other effects this one is not added to the scene graph here.
      * {@link Body#update} parents it to the scene root instead, since it has to be turned
@@ -225,37 +228,18 @@ class StarEffects {
 
         const temperature = bodyData.star.temperature || 5778;
         const stellarRadius = bodyData.radiusScale || 1.0;
-        const temperatureBasedBrightness = temperatureToGlareBrightness(temperature, stellarRadius);
-
-        const emissiveIntensity = starGlare.emissiveIntensity !== undefined ?
-            starGlare.emissiveIntensity : temperatureBasedBrightness * 25.0;
-
-        const baseOpacity = starGlare.opacity || 1.0;
-        const temperatureOpacityMultiplier = Math.min(8.0, temperatureBasedBrightness / 1.5);
-        const adjustedOpacity = Math.min(1.0, baseOpacity * temperatureOpacityMultiplier);
-
-        const radiusScale = stellarRadius;
-        const scaledMinScaleDistance = (starGlare.minScaleDistance || 15.0) * radiusScale;
-        const scaledMaxScaleDistance = (starGlare.maxScaleDistance || 700.0) * radiusScale;
 
         const sunGlare = new SunGlare({
             sunRadius: radius,
-            size: starGlare.size || 90.0,
-            opacity: adjustedOpacity,
+            screenFraction: starGlare.screenFraction,
+            luminosity: radiusAndTemperatureToLuminosity(stellarRadius, temperature),
+            opacity: starGlare.opacity,
             color: glareColor,
-            emissiveIntensity: emissiveIntensity,
+            emissiveIntensity: starGlare.emissiveIntensity,
             glowIntensity: starGlare.glowIntensity,
             haloRadius: starGlare.haloRadius,
             haloFalloff: starGlare.haloFalloff,
             haloStrength: starGlare.haloStrength,
-            scaleWithDistance: starGlare.scaleWithDistance !== undefined ? starGlare.scaleWithDistance : true,
-            minScaleDistance: scaledMinScaleDistance,
-            maxScaleDistance: scaledMaxScaleDistance,
-            minScale: starGlare.minScale || 0.2,
-            maxScale: starGlare.maxScale || 10.0,
-            scaleCenterWithDistance: starGlare.scaleCenterWithDistance !== undefined ? starGlare.scaleCenterWithDistance : false,
-            centerBaseSize: starGlare.centerBaseSize || 0.05,
-            centerFadeSize: starGlare.centerFadeSize || 0.1,
             lowres: false
         });
 

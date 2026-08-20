@@ -329,6 +329,51 @@ const STAR_EMISSIVE = {
 };
 
 /**
+ * The empirical main-sequence relations, in solar units.
+ *
+ * Module-private, since they exist only to feed {@link massToStellarRadius} and
+ * {@link massToStellarTemperature}.
+ *
+ * A main-sequence star's radius and surface temperature both follow from its mass, so these are
+ * what let a star be described by mass alone. All three relations are anchored on the Sun and
+ * return exactly 1 at one solar mass, so the Sun comes out at its measured radius and 5778 K by
+ * construction.
+ *
+ * The radius relation is a power law with a break at the Sun, the two exponents fitted to the
+ * zero-age main sequence either side of it; together they hold to within about ten per cent from
+ * the red dwarfs to the O stars. The luminosity relation needs four segments because it spans ten
+ * orders of magnitude — the coefficients are chosen so the segments meet at the breakpoints
+ * rather than stepping, and the top one goes linear where radiation pressure caps the output of
+ * the most massive stars.
+ *
+ * The mass bounds are the hydrogen-burning limit at the bottom and roughly the largest observed
+ * star at the top. Outside them a body is not a main-sequence star at all, so rather than
+ * extrapolating into nonsense the mass is clamped.
+ *
+ * @type {{SOLAR_TEMPERATURE: number, RADIUS_EXPONENT_BELOW_SOLAR: number,
+ *   RADIUS_EXPONENT_ABOVE_SOLAR: number,
+ *   LUMINOSITY_SEGMENTS: Array<{maxMass: number, coefficient: number, exponent: number}>,
+ *   MIN_MASS: number, MAX_MASS: number}}
+ * @private
+ */
+const MAIN_SEQUENCE = {
+  SOLAR_TEMPERATURE: 5778,
+
+  RADIUS_EXPONENT_BELOW_SOLAR: 0.8,
+  RADIUS_EXPONENT_ABOVE_SOLAR: 0.7,
+
+  LUMINOSITY_SEGMENTS: [
+    { maxMass: 0.43, coefficient: 0.23, exponent: 2.3 },
+    { maxMass: 2, coefficient: 1.0, exponent: 4.0 },
+    { maxMass: 55, coefficient: 1.4, exponent: 3.5 },
+    { maxMass: Infinity, coefficient: 32000, exponent: 1.0 }
+  ],
+
+  MIN_MASS: 0.08,
+  MAX_MASS: 150
+};
+
+/**
  * Inline styles for the debug overlays.
  *
  * Style objects rather than CSS classes so the overlays can be built and styled entirely from
@@ -462,8 +507,20 @@ export const MATH = {
  *
  * Radii are given as `radiusScale`, relative to the Sun for planets but relative to the *parent*
  * for moons — which is why the Moon's 0.274 and Charon's 0.511 look so large next to Mercury's
- * 0.0035. Masses are in solar masses throughout. A negative `rotationPeriod` means retrograde
+ * 0.0035. "Relative to the Sun" means one solar radius, not the star's own radius, so a heavier
+ * star grows without dragging the planets with it — see {@link BodyPhysics.calculateBodyRadius}.
+ * Masses are in solar masses throughout. A negative `rotationPeriod` means retrograde
  * rotation, as for Venus and Uranus.
+ *
+ * On a star both `radiusScale` and the `star` block's `temperature` may be left out, in which
+ * case they are derived from the mass by the main-sequence relations — see
+ * {@link massToStellarRadius} and {@link massToStellarTemperature}. Stating either one skips
+ * deriving that one, which is how a star off the main sequence is described. The Sun states both,
+ * at the values the relations would produce anyway.
+ *
+ * The temperature also colours the photosphere, which is why the Sun pins `shader.surfaceColor`:
+ * 5778 K maps to a near-white cream in {@link temperatureToColor}, and the familiar orange is
+ * worth keeping. Remove it and the Sun takes the colour of whatever temperature it ends up with.
  *
  * Everything past those is optional and additive: `surfaceTexture`, `atmosphere`, `clouds`,
  * `rings`, and on a star a `star` block carrying the temperature and the settings for each of its
@@ -481,13 +538,14 @@ export const MATH = {
 export const CELESTIAL_DATA = [{
   name: 'Sun',
   markerColor: 0xFFD700,
-  radiusScale: 1,
-  mass: 1.0,
+  //radiusScale: 1,
+  mass: 7.5,
   rotationPeriod: 609.12,
   axialTilt: 7.25,
   star: {
-    temperature: 5778,
+    //temperature: 5778,
     shader: {
+      //surfaceColor: 0xff8000,
       glowIntensity: 1,
       noiseScale: 10.0,
       brightness: 1,
@@ -518,21 +576,13 @@ export const CELESTIAL_DATA = [{
       opacity: 0.4,
     },
     glare: {
-      size: 90.0,
+      screenFraction: 0.05,
       opacity: 1,
       color: 0xffaa00,
       glowIntensity: 1.35,
       haloRadius: 0.5,
       haloFalloff: 3.0,
-      haloStrength: 0.55,
-      scaleWithDistance: true,
-      minScaleDistance: 5.0,
-      maxScaleDistance: 2000.0,
-      minScale: .02,
-      maxScale: 20,
-      scaleCenterWithDistance: false,
-      centerBaseSize: 0.05,
-      centerFadeSize: .1
+      haloStrength: 0.55
     }
   },
   parent: null,
@@ -964,6 +1014,92 @@ export const CELESTIAL_DATA = [{
     }
   ]
 }];
+
+/**
+ * The radius a main-sequence star of a given mass has.
+ *
+ * The mass–radius relation from {@link MAIN_SEQUENCE}, which is close to linear on a log–log plot
+ * and so is a power law with the exponent switched at one solar mass.
+ *
+ * Only meaningful for a star still on the main sequence. A giant or a white dwarf has left it and
+ * is nowhere near this radius for its mass, so those have to state their size in the data.
+ *
+ * @param {number} mass - Mass in solar masses; clamped to {@link MAIN_SEQUENCE}'s bounds.
+ * @returns {number} Radius in solar radii — 1 for a solar-mass star.
+ */
+export function massToStellarRadius(mass) {
+  const stellarMass = MathUtils.clamp(mass, MAIN_SEQUENCE.MIN_MASS, MAIN_SEQUENCE.MAX_MASS);
+
+  const exponent = stellarMass < 1 ?
+    MAIN_SEQUENCE.RADIUS_EXPONENT_BELOW_SOLAR :
+    MAIN_SEQUENCE.RADIUS_EXPONENT_ABOVE_SOLAR;
+
+  return Math.pow(stellarMass, exponent);
+}
+
+/**
+ * The luminosity a main-sequence star of a given mass radiates.
+ *
+ * The segmented mass–luminosity relation from {@link MAIN_SEQUENCE}. Module-private, since it
+ * exists only as the intermediate step in {@link massToStellarTemperature} — nothing renders
+ * luminosity directly.
+ *
+ * @param {number} mass - Mass in solar masses; clamped to {@link MAIN_SEQUENCE}'s bounds.
+ * @returns {number} Luminosity in solar luminosities — 1 for a solar-mass star.
+ * @private
+ */
+function massToStellarLuminosity(mass) {
+  const stellarMass = MathUtils.clamp(mass, MAIN_SEQUENCE.MIN_MASS, MAIN_SEQUENCE.MAX_MASS);
+
+  const segment = MAIN_SEQUENCE.LUMINOSITY_SEGMENTS.find(candidate => stellarMass < candidate.maxMass);
+
+  return segment.coefficient * Math.pow(stellarMass, segment.exponent);
+}
+
+/**
+ * The surface temperature a main-sequence star of a given mass has.
+ *
+ * Not a fitted relation of its own: a star radiates its luminosity from its surface area, so
+ * given the mass–luminosity and mass–radius relations the Stefan–Boltzmann law fixes the
+ * temperature. In solar units that is the fourth root of the luminosity over the square root of
+ * the radius, which is what this computes. Doing it that way rather than fitting mass to
+ * temperature directly keeps the three consistent with each other — a star's colour, size and
+ * brightness can never disagree.
+ *
+ * Runs from around 2500 K at the hydrogen-burning limit to around 50000 K at the top, which is
+ * the real range and covers very nearly the whole span {@link temperatureToColor} draws.
+ *
+ * @param {number} mass - Mass in solar masses; clamped to {@link MAIN_SEQUENCE}'s bounds.
+ * @returns {number} Effective surface temperature in kelvin — 5778 for a solar-mass star.
+ */
+export function massToStellarTemperature(mass) {
+  const luminosity = massToStellarLuminosity(mass);
+  const radius = massToStellarRadius(mass);
+
+  return MAIN_SEQUENCE.SOLAR_TEMPERATURE * Math.pow(luminosity, 0.25) / Math.sqrt(radius);
+}
+
+/**
+ * The luminosity of a star of a given size and surface temperature.
+ *
+ * The Stefan–Boltzmann law in solar units: a star radiates over its surface area, which goes as
+ * the square of the radius, at a rate per unit area that goes as the fourth power of the
+ * temperature. Taken from the radius and temperature rather than from the mass, so it holds for a
+ * giant or a white dwarf that has stated its own size and colour and is nowhere near the
+ * main-sequence relations.
+ *
+ * This is what the glare needs to work out how much light is actually arriving from a star, since
+ * that is the luminosity over the square of the distance.
+ *
+ * @param {number} radiusScale - Radius in solar radii.
+ * @param {number} temperature - Effective surface temperature in kelvin.
+ * @returns {number} Luminosity in solar luminosities — 1 for a star of solar size at 5778 K.
+ */
+export function radiusAndTemperatureToLuminosity(radiusScale, temperature) {
+  const temperatureRatio = temperature / MAIN_SEQUENCE.SOLAR_TEMPERATURE;
+
+  return radiusScale * radiusScale * Math.pow(temperatureRatio, 4);
+}
 
 /**
  * The colour of light a star at a given temperature emits.

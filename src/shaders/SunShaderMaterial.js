@@ -37,6 +37,12 @@ void main() {
  * irregular rather than betraying the underlying grid. The cell points themselves drift
  * with time, which makes the granulation churn slowly.
  *
+ * Every colour on the surface is one shade of `uSurfaceColor`: cell interiors take it as
+ * given, cell boundaries and sunspots are it scaled down. So the photosphere follows the
+ * star's temperature — which is where the colour comes from — while the granulation and the
+ * spots keep the same contrast against it whatever that temperature is. A palette written
+ * out in full instead would make every star the same colour no matter how hot it was.
+ *
  * Sunspots are circles around the positions supplied by {@link SunspotManager}, with
  * their own noise warp so the boundary is ragged instead of a perfect circle. Within a
  * spot only cells whose id passes a threshold are darkened, which leaves an uneven
@@ -53,6 +59,7 @@ void main() {
  */
 const fragmentShaderMainCode = `
 uniform float uTime;
+uniform vec3 uSurfaceColor;
 uniform vec3 uGlowColor;
 uniform float uGlowIntensity;
 uniform float uNoiseScale;
@@ -141,13 +148,13 @@ void main() {
     float cellInSunspot = step(0.4, cellId) * sunspotRegion;
     cellInSunspot *= uSunspotIntensity;
 
-    vec3 orangeColor = vec3(1.0, 0.5, 0.0);
-    vec3 darkOrange = vec3(0.6, 0.25, 0.0);
-    vec3 sunspotColor = vec3(0.25, 0.12, 0.03);
-    vec3 sunspotEdge = vec3(0.15, 0.07, 0.01);
+    vec3 granuleCentre = uSurfaceColor;
+    vec3 granuleEdge = uSurfaceColor * 0.6;
+    vec3 sunspotCentre = uSurfaceColor * 0.25;
+    vec3 sunspotEdge = uSurfaceColor * 0.15;
 
-    vec3 normalCell = mix(darkOrange, orangeColor, edgeFade);
-    vec3 spotCell = mix(sunspotEdge, sunspotColor, edgeFade);
+    vec3 normalCell = mix(granuleEdge, granuleCentre, edgeFade);
+    vec3 spotCell = mix(sunspotEdge, sunspotCentre, edgeFade);
 
     vec3 color = mix(normalCell, spotCell, cellInSunspot);
 
@@ -180,6 +187,8 @@ class SunShaderMaterial extends THREE.ShaderMaterial {
      * transparent, so a star with no spots needs no special case.
      *
      * @param {Object} [options={}] - Material options.
+     * @param {number|THREE.Color} [options.surfaceColor=0xff8000] - Colour of the
+     *   photosphere; the granulation and sunspots are shades of it.
      * @param {number|THREE.Color} [options.glowColor=0xffaa00] - Colour of the limb glow.
      * @param {number} [options.glowIntensity=0.3] - Strength of the limb glow.
      * @param {number} [options.noiseScale=5.0] - Granulation cell size; larger means finer
@@ -195,6 +204,7 @@ class SunShaderMaterial extends THREE.ShaderMaterial {
         const defaultPositions = new Array(8).fill(null).map(() => new THREE.Vector3(0, 1, 0));
         const uniforms = {
             uTime: { value: 0.0 },
+            uSurfaceColor: { value: new THREE.Color(options.surfaceColor || 0xff8000) },
             uGlowColor: { value: new THREE.Color(options.glowColor || 0xffaa00) },
             uGlowIntensity: { value: options.glowIntensity || 0.3 },
             uNoiseScale: { value: options.noiseScale || 5.0 },
@@ -217,6 +227,7 @@ class SunShaderMaterial extends THREE.ShaderMaterial {
         });
 
         this.uTime = uniforms.uTime;
+        this.uSurfaceColor = uniforms.uSurfaceColor;
         this.uGlowColor = uniforms.uGlowColor;
         this.uGlowIntensity = uniforms.uGlowIntensity;
         this.uBrightness = uniforms.uBrightness;

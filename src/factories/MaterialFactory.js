@@ -63,7 +63,9 @@ export class MaterialFactory {
      *
      * Colour and brightness are derived from the effective temperature rather than
      * given directly, so a red dwarf and a blue giant look right without either being
-     * tuned by hand. Explicit shader values in the data override the derived ones.
+     * tuned by hand — the temperature colours the photosphere itself, not just the limb
+     * glow. Explicit shader values in the data override the derived ones, which is how
+     * the Sun keeps its familiar orange while still stating its temperature.
      *
      * The noise scale is grown with the stellar radius, but only as its cube root and
      * capped: a giant sized up linearly would show granulation so fine it aliases into
@@ -91,6 +93,7 @@ export class MaterialFactory {
         const scaledNoiseScale = baseNoiseScale * Math.min(50.0, Math.pow(stellarRadius, 0.3));
 
         return new SunShaderMaterial({
+            surfaceColor: starShader.surfaceColor || starColor,
             glowColor: starShader.glowColor || starColor,
             glowIntensity: starShader.glowIntensity || 0.3,
             noiseScale: scaledNoiseScale,

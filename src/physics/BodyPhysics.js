@@ -421,20 +421,30 @@ class BodyPhysics {
     /**
      * Resolves a body's render radius from its configured scale factor.
      *
-     * Radii are authored relative to the parent so a moon stays proportionate to
-     * its planet; top-level bodies scale against the scene instead.
+     * A moon is authored relative to its planet, so it stays proportionate to it
+     * however large the planet is. A planet is authored in solar radii, which is
+     * the scene scale — deliberately not the star's own radius, even though the
+     * star is what it orbits. Sizing a planet off the star would tie the two
+     * together, and since orbits are in AU and do not move, a heavier star would
+     * inflate the Earth while leaving the Moon's orbit where it was: the Moon would
+     * appear to close in, and the Earth–Moon barycentre would cross the surface at
+     * the point where the Earth had shrunk past it. Only the star changes size with
+     * its mass.
      *
      * @param {{radiusScale: number}} bodyData - Body configuration.
      * @param {Body|null} parentBody - Parent body, if the body orbits one.
-     * @param {Object} SceneManager - Scene manager supplying the global `scale`.
+     * @param {Object} SceneManager - Scene manager supplying the global `scale`,
+     *   which is one solar radius in scene units.
      * @returns {number} Radius in scene units.
      */
     static calculateBodyRadius(bodyData, parentBody, SceneManager) {
-        if (parentBody) {
-            return parentBody.radius * bodyData.radiusScale;
-        } else {
+        if (!parentBody) {
             return bodyData.radiusScale * SceneManager.scale;
         }
+
+        const referenceRadius = parentBody.isStar ? SceneManager.scale : parentBody.radius;
+
+        return referenceRadius * bodyData.radiusScale;
     }
 }
 
