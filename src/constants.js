@@ -130,13 +130,27 @@ export const MASS_DROP = {
  * system fits in a range float32 can resolve. Multisampling is on at four samples, which is
  * what keeps the thin orbit lines and body limbs from crawling as the camera moves.
  *
+ * The two layers are the divisions the scene draws itself along, so that `BodyLensPass` can render
+ * the parts separately and move one against the others. The hole's own drawing goes in
+ * `UNLENSED_LAYER`, because it is what does the bending and so cannot be bent. Annotation — orbit
+ * lines, trails, markers — goes in `OVERLAY_LAYER`, because it is drawn along straight lines to
+ * where a body actually is rather than along the paths light actually takes, and a pin bent off its
+ * own body reads as a second body rather than as a lensed one. Everything the hole bends is left in
+ * the default layer, so a body added at runtime needs no bookkeeping to be lensed — it is lensed by
+ * being where everything is. The camera has to be told to see both layers, since a camera watches
+ * only the default one; that is done where the camera is built, so a hole is visible and a marker
+ * is drawn even on a frame nothing is post-processing.
+ *
  * @type {Object<string, number>}
  */
 export const SCENE = {
   SCALE: 0.1,
   DEFAULT_RADIUS_FALLBACK: 1,
 
-  MSAA_SAMPLES: 4
+  MSAA_SAMPLES: 4,
+
+  UNLENSED_LAYER: 1,
+  OVERLAY_LAYER: 2
 };
 
 /**
@@ -523,8 +537,10 @@ export const MATH = {
  * worth keeping. Remove it and the Sun takes the colour of whatever temperature it ends up with.
  *
  * Everything past those is optional and additive: `surfaceTexture`, `atmosphere`, `clouds`,
- * `rings`, and on a star a `star` block carrying the temperature and the settings for each of its
- * effects. `tidallyLocked` turns on the locking model, with `tidalLockTarget` where the body
+ * `rings`, on a star a `star` block carrying the temperature and the settings for each of its
+ * effects, and on a black hole a `blackHole` block doing the same for its disc, photon ring and
+ * lensing — a body carrying either block gets a different material and a different set of effects
+ * entirely. `tidallyLocked` turns on the locking model, with `tidalLockTarget` where the body
  * locks to something other than its parent — Pluto to Charon, since they lock to each other.
  * `equatorialOrbit` states that the orbit follows the parent's equator rather than the reference
  * plane, which is how the major moon systems actually sit. `lightIntensity` is `null` on every
@@ -1011,6 +1027,152 @@ export const CELESTIAL_DATA = [{
           e: 0.0002,
           i: 0.08,
           omega: 223.0, w: 102.0, M0: 180.0,
+          children: []
+        }
+      ]
+    },
+    /*
+     * A primordial black hole on a wide, tilted orbit past Pluto.
+     *
+     * Not a real object, and the only body here that is invented outright. Its mass is
+     * chosen rather than measured: five Earth masses, which is the range the primordial
+     * black hole proposed for "Planet Nine" would sit in, and light enough — a sixtieth of
+     * Jupiter — that dropping it into the system perturbs nothing. A stellar-mass hole
+     * would be a hundred thousand times heavier than everything else here combined and
+     * would tear the system apart within a few frames of n-body integration.
+     *
+     * Which makes it far too small to draw. Five Earth masses gives a Schwarzschild radius
+     * of about four centimetres, so `radiusScale` exaggerates it by a factor of a hundred
+     * million to put it in the size range of the planets. Everything inside the `blackHole`
+     * block is stated as a multiple of that drawn radius, in the same way a ring system is,
+     * and each multiple is a real one where it can be: the accretion disc's inner edge is the
+     * innermost stable circular orbit at three Schwarzschild radii, and its inner and outer
+     * colours are a real temperature gradient. So the *proportions* are right even though the
+     * overall size is not — which is the same bargain every other body here makes.
+     *
+     * The photon ring sits at 2.62 radii because that is just outside the shadow's true edge at
+     * `3√3 / 2` — the hole bends the light of its own silhouette outwards, so the dark disc seen
+     * is over two and a half times the horizon rather than the size of it. {@link AccretionDisk}
+     * traces photon paths and puts the shadow's edge there on its own, without being told to; the
+     * ring is drawn on the boundary it arrives at.
+     *
+     * The `lensing` block bends nothing for *this* hole, and is kept for a hole configured without
+     * a disc. Where a disc is traced the tracer is given the sky as well, so the lensing comes from
+     * the photon paths themselves and the Einstein radius lands where physics puts it at every
+     * distance — which is the one thing a screen-space warp cannot do, since that radius scales as
+     * `√(2 r / r_s)`: five and a half horizon radii at a hundred out, fifty-five at ten thousand. No
+     * constant multiple of the hole's size is right at more than one distance, and the 1.2 here is
+     * such a constant; it is also, at anything past a few tens of radii, inside the shadow. See
+     * {@link AccretionDisk} for the traced lensing and {@link BlackHoleLensPass} for what these
+     * numbers mean where they do apply.
+     *
+     * The axial tilt decides how the disc can be seen. It is the *most* the disc can be tipped
+     * out of the ecliptic, not how it is tipped now — which way it faces depends on where the
+     * camera has come round to. At 78° nearly the whole range is available: from edge-on, where
+     * the disc is a bright line through the hole, to within a few degrees of face-on, where the
+     * ring reads as a ring. The relativistic beaming needs somewhere in between, since it is
+     * driven by the part of the orbital motion that points at the camera and a face-on disc has
+     * none.
+     */
+    {
+      name: 'Black Hole',
+      markerColor: 0x9B6BFF,
+      radiusScale: 0.006,
+      mass: 1.50174e-5,
+      rotationPeriod: 0.05,
+      axialTilt: 78,
+      lightIntensity: null,
+      parent: 'Sun',
+      a: 42.0, e: 0.12, i: 12.0, omega: 205.0, w: 88.0, M0: 320.0,
+      blackHole: {
+        disk: {
+          innerRadius: 3.0,
+          outerRadius: 7.0,
+          innerColor: 0xEAF4FF,
+          outerColor: 0xFF5A14,
+          intensity: 1.4,
+          opacity: 1.0,
+          emissionFalloff: 1.6,
+          noiseScale: 3.5,
+          swirlSpeed: 0.6,
+          turbulence: 0.55,
+          beamingStrength: 0.85
+        },
+        photonRing: {
+          ringRadius: 2.5980762,
+          thickness: 0.014,
+          brightness: 2.2,
+          haloStrength: 0.06,
+          haloFalloff: 6.0,
+          extent: 7.0,
+          color: 0xFFEFD6,
+          opacity: 1.0
+        },
+        lensing: {
+          einsteinRadii: 1.2,
+          strength: 1.0,
+          falloffRadii: 14.0
+        }
+      },
+      children: [
+        /*
+         * A captured rock going round the hole, invented like the hole it belongs to.
+         *
+         * The distance is chosen in *drawn* radii, because that is the only unit in which it can be
+         * chosen: what the hole looks like is a body a hundred million times its own size, so nothing
+         * placed at a true multiple of a four-centimetre Schwarzschild radius would be anywhere near
+         * the picture. Twenty drawn radii is the answer, and it is bounded on both sides. Inside the
+         * disc's outer edge at seven the moon would be ploughing through the gas; much beyond thirty it
+         * is off the screen at any view that has the disc in it, since the whole thing is under a
+         * hundredth of a scene unit across. It follows the same convention the disc's own edges do —
+         * see the hole above — which is that the proportions are real and the overall size is not.
+         *
+         * Everything else then follows from that distance being a real one. Twenty drawn radii is
+         * 5.57e-4 AU, or 83,000 km, and five Earth masses at 83,000 km gives an orbit of 29.7 hours,
+         * which is why the rotation period is that. It is comfortably outside the rigid Roche limit for
+         * a body this size, at 19,700 km, and nowhere near the hole's Hill sphere at 0.63 AU, so it is
+         * neither pulled apart nor taken by the Sun. Being two billion Schwarzschild radii out in
+         * truth, it needs nothing relativistic: a Keplerian orbit is exactly right.
+         *
+         * `equatorialOrbit` puts it in the hole's equator, which is the accretion disc's plane, so it
+         * passes across the disc's arms rather than over the poles.
+         *
+         * Its size is Pluto's. A moon's `radiusScale` is a multiple of its parent's drawn radius rather
+         * than of the Sun's, and 0.2844 of a hole drawn at 0.006 solar radii is 1,185 km — so unlike the
+         * hole it goes round, the moon is drawn at its true size, and takes Pluto's mass to match. That
+         * mass is four ten-thousandths of the hole's, so it perturbs nothing and is perturbed by
+         * everything. The surface is Callisto's, borrowed for being the darkest and most cratered here;
+         * nothing in the catalogue was going spare.
+         *
+         * The moon is lensed like everything else at the hole, and by the tracer rather than by the
+         * screen-space pass the other bodies get, because at twenty radii nothing thinner than the
+         * geodesics is right. Its mesh is hidden for the whole orbit and the surface is marched along
+         * with the gas, which is what gives it a second image round the far side near conjunction, a
+         * silhouette against the near arm, and a deflection of about six degrees where a thin lens would
+         * have given it far more. What that costs is that the surface does not sit on the moon's own
+         * orbit line: the line and the marker are drawn to where the moon is, the surface to where its
+         * light arrives from, and near conjunction those are several of its widths apart. See
+         * {@link AccretionDisk#setCompanion}. It is drawn in every view because it is given a quad of its
+         * own, centred on it rather than on the hole, since a plane through the hole cannot carry a ray
+         * to a body the camera is sitting next to; see {@link AccretionDisk#createCompanionQuad}.
+         */
+        {
+          name: 'Acheron',
+          color: 0x6E6A70,
+          markerColor: 0xA79FB5,
+          radiusScale: 0.2844,
+          mass: 6.58719e-9,
+          rotationPeriod: 29.72,
+          axialTilt: 0.4,
+          tidallyLocked: true,
+          equatorialOrbit: true,
+          lightIntensity: null,
+          surfaceTexture: TEXTURES.callisto,
+          parent: 'Black Hole',
+          a: 0.000557,
+          e: 0.04,
+          i: 1.5,
+          omega: 140.0, w: 60.0, M0: 25.0,
           children: []
         }
       ]

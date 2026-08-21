@@ -219,6 +219,7 @@ class Orbit {
 
         this.orbitLine.renderOrder = -100;
         this.orbitLine.material.userData = { renderBehindMarkers: true };
+        SceneManager.markOverlay(this.orbitLine);
 
         this.barycentreOffset = new THREE.Vector3();
         this.barycentreShare = 1;
@@ -394,6 +395,7 @@ class Orbit {
             this.companionLine.renderOrder = -100;
             this.companionLine.material.userData = { renderBehindMarkers: true };
             this.companionLine.visible = this.orbitLine.visible;
+            SceneManager.markOverlay(this.companionLine);
             SceneManager.registerLineMaterial(material);
 
             log.debug('Orbit', `Drawing ${this.referenceBody.name}'s own loop about its centre of mass with ${this.body.name}`);

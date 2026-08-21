@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import SunShaderMaterial from '../shaders/SunShaderMaterial.js';
 import PlanetShaderMaterial from '../shaders/PlanetShaderMaterial.js';
+import BlackHoleShaderMaterial from '../shaders/BlackHoleShaderMaterial.js';
 import { temperatureToColor, temperatureToGlareBrightness } from '../constants.js';
 import TextureFactory from './TextureFactory.js';
 import { log } from '../utils/Logger.js';
@@ -44,14 +45,17 @@ export class MaterialFactory {
      * Builds the right material for a body.
      *
      * @param {Object} bodyData - Body definition; a `star` property selects the star
-     *   material.
+     *   material, a `blackHole` property the horizon material.
      * @param {number|null} [bodyRadius=null] - Body's radius in scene units, needed to
      *   place ring shadows.
-     * @returns {SunShaderMaterial|PlanetShaderMaterial} The material to use.
+     * @returns {SunShaderMaterial|BlackHoleShaderMaterial|PlanetShaderMaterial} The material
+     *   to use.
      */
     static createBodyMaterial(bodyData, bodyRadius = null) {
 
-        if (bodyData.star) {
+        if (bodyData.blackHole) {
+            return this.createBlackHoleMaterial(bodyData);
+        } else if (bodyData.star) {
             return this.createStarMaterial(bodyData);
         } else {
             return this.createPlanetMaterial(bodyData, bodyRadius);
@@ -101,6 +105,22 @@ export class MaterialFactory {
             sunspotIntensity: starShader.sunspotIntensity || 2.0,
             emissiveIntensity: adjustedEmissiveIntensity
         });
+    }
+
+    /**
+     * Builds a black hole's event horizon material.
+     *
+     * Takes nothing from the body data, and there is nothing missing: a horizon has no colour,
+     * no texture and no temperature to derive any of them from. Everything that makes a black
+     * hole visible is one of the effects around it — see {@link BlackHoleEffects} — and the
+     * surface itself is only there to be a hole in the picture.
+     *
+     * @param {Object} bodyData - Body definition, with a `blackHole` block. Unused; taken for
+     *   symmetry with the other material builders here.
+     * @returns {BlackHoleShaderMaterial} The horizon material.
+     */
+    static createBlackHoleMaterial(bodyData) {
+        return new BlackHoleShaderMaterial();
     }
 
     /**

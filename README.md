@@ -9,6 +9,7 @@ An interactive 3D solar system simulation built with Three.js, featuring realist
 - Real orbital mechanics with two physics modes (N-Body and Kepler)
 - Custom sun shaders with corona, flares, and glow effects
 - All planets from Mercury to Pluto with major moons
+- A ray-traced black hole past Pluto: accretion disc, photon ring, gravitational lensing, and a moon drawn along its own light paths
 - Interactive camera controls and smooth animations
 - Mobile-friendly interface
 

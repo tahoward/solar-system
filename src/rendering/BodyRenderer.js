@@ -181,6 +181,14 @@ class BodyRenderer {
      * Tone mapping and fog are off so the point keeps the body's actual colour rather than
      * being darkened towards the background.
      *
+     * It writes no depth. The point is a stand-in for a body, not the body: it is transparent,
+     * it is drawn at a fixed pixel size that has nothing to do with what the body covers, and
+     * the mesh it stands in for is drawn as well. A pixel of solid depth at the body's centre
+     * therefore claims a surface where there is none, and anything depth tested drawn after it
+     * loses that pixel — which for a black hole is a pinhole punched through the accretion
+     * disc's gas at the exact centre of the shadow. Depth *testing* stays on, so the point is
+     * still hidden by anything genuinely in front of it.
+     *
      * @param {THREE.Material} material - The body's material, to take a colour from.
      * @param {string} name - The body's name, used to name the point.
      * @returns {THREE.Points} The pinpoint object.
@@ -195,6 +203,7 @@ class BodyRenderer {
             color: baseColor,
             size: 1.0,
             transparent: true,
+            depthWrite: false,
             opacity: 1.0,
             sizeAttenuation: false,
             toneMapped: false,

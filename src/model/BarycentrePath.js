@@ -204,6 +204,7 @@ class BarycentrePath {
         this.orbitLine = new LineSegments2(geometry, material);
         this.orbitLine.renderOrder = -100;
         this.orbitLine.material.userData = { renderBehindMarkers: true };
+        SceneManager.markOverlay(this.orbitLine);
         SceneManager.scene.add(this.orbitLine);
         SceneManager.registerLineMaterial(material);
 

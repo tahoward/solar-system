@@ -29,11 +29,18 @@ class ResourceManager {
             log.debug('ResourceManager', `Unregistered ${body.name} from bloom effects`);
         }
 
+        if (body.isBlackHole) {
+            SceneManager.unregisterBlackHole(body);
+            log.debug('ResourceManager', `Unregistered ${body.name} from gravitational lensing`);
+        }
+
         ResourceManager.disposeOrbitTrail(body);
 
         ResourceManager.disposeMarker(body);
 
         ResourceManager.disposeStarEffects(body);
+
+        ResourceManager.disposeBlackHoleEffects(body);
 
         ResourceManager.disposeRenderingElements(body);
 
@@ -109,6 +116,60 @@ class ResourceManager {
             body.sunGlare.dispose();
             body.sunGlare = null;
         }
+    }
+
+    /**
+     * Disposes the black-hole-only visual effects: shadow occluder and solid, accretion disc,
+     * photon ring.
+     *
+     * Safe to call for anything that is not a black hole, which simply has none of these. The
+     * lensing needs nothing released — it owns no geometry, only a slot in a shared pass, and
+     * the unregistration in {@link ResourceManager.dispose} is all there is to undo.
+     *
+     * The occluder and the solid are bare meshes rather than effect objects with their own
+     * `dispose`, so they are unparented and released here.
+     *
+     * @param {Body} body - Body whose effect objects are released and nulled.
+     * @returns {void}
+     */
+    static disposeBlackHoleEffects(body) {
+        if (body.shadowOccluder) {
+            log.info('ResourceManager', `Disposing shadow occluder for ${body.name}`);
+
+            if (body.shadowOccluder.geometry) body.shadowOccluder.geometry.dispose();
+            if (body.shadowOccluder.material) body.shadowOccluder.material.dispose();
+            if (body.shadowOccluder.parent) {
+                body.shadowOccluder.parent.remove(body.shadowOccluder);
+            }
+
+            body.shadowOccluder = null;
+        }
+
+        if (body.shadowSolid) {
+            log.info('ResourceManager', `Disposing shadow solid for ${body.name}`);
+
+            if (body.shadowSolid.geometry) body.shadowSolid.geometry.dispose();
+            if (body.shadowSolid.material) body.shadowSolid.material.dispose();
+            if (body.shadowSolid.parent) {
+                body.shadowSolid.parent.remove(body.shadowSolid);
+            }
+
+            body.shadowSolid = null;
+        }
+
+        if (body.accretionDisk && typeof body.accretionDisk.dispose === 'function') {
+            log.info('ResourceManager', `Disposing accretion disc for ${body.name}`);
+            body.accretionDisk.dispose();
+            body.accretionDisk = null;
+        }
+
+        if (body.photonRing && typeof body.photonRing.dispose === 'function') {
+            log.info('ResourceManager', `Disposing photon ring for ${body.name}`);
+            body.photonRing.dispose();
+            body.photonRing = null;
+        }
+
+        body.blackHoleLens = null;
     }
 
     /**

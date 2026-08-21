@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import BlackHoleLensPass from './BlackHoleLensPass.js';
+import BodyLensPass from './BodyLensPass.js';
+import ShadowMaskedBloomPass from './ShadowMaskedBloomPass.js';
 import { BLOOM, SCENE, STAR_VISIBILITY } from '../constants.js';
 import { log } from '../utils/Logger.js';
 
@@ -26,6 +28,15 @@ const _bloomResolution = new THREE.Vector2();
  *
  * Off by default on mobile, where the cost is not affordable, unless the user turns it
  * on explicitly.
+ *
+ * It also owns {@link BlackHoleLensPass}, which is not bloom but shares the composer with it
+ * — and has to sit inside it, before the bloom, so that light gravitational lensing has
+ * concentrated blooms like any other bright light. Sharing the chain means the two effects also
+ * have to share the decision to use it at all: whether the composer runs is whether *either* has
+ * something to do.
+ *
+ * The two are coupled the other way round as well, since a black hole's shadow is the one thing
+ * bloom must not reach; see {@link ShadowMaskedBloomPass}.
  */
 export class BloomManager {
     /**
@@ -63,6 +74,7 @@ export class BloomManager {
         };
 
         this.starObjects = new Map();
+        this.blackHoles = new Set();
 
         this.initializePostProcessing();
     }
@@ -119,11 +131,35 @@ export class BloomManager {
     }
 
     /**
-     * Builds the composer: render, then bloom, then output.
+     * Builds the composer: render, then lensing, then bloom, then output.
      *
      * MSAA is set on the composer's own targets. Post-processing bypasses the canvas's
      * antialiasing entirely, and without this every orbit line and planet limb would go
      * jagged the moment bloom is switched on.
+     *
+     * Both targets are given a depth texture, so that whichever one the scene was rendered into
+     * carries the depth of that render. {@link BlackHoleLensPass} needs it to tell what is in
+     * front of a black hole from what is behind it, and it takes it from the buffer it is handed;
+     * which of the two that is varies with how many enabled passes swapped on the frames before,
+     * so both have to be able to answer. One texture shared between them would not do: a pass
+     * rendering into a target clears that target's depth, so the pass would wipe the depth it was
+     * about to read. The resolve of the multisampled depth into the texture is the renderer's own
+     * doing, and only happens because the texture is there to receive it.
+     *
+     * The lens pass goes between the render and the bloom, since what it does is move light
+     * around and the bloom should see where it ended up. It starts disabled and stays that way
+     * until a frame actually has a black hole in it.
+     *
+     * {@link BodyLensPass} goes before it, and it is the render pass's alternative rather than an
+     * addition to it: on the frames it runs it draws the scene itself, in two layers, so that the
+     * bodies can be bent without the sky going with them. Which of the two is doing the rendering is
+     * decided per frame in {@link BloomManager#updateLensing}. It is built after the lens pass and
+     * handed it for the same reason bloom is — the hole geometry is worked out once, there.
+     *
+     * Bloom is built after it and handed it, because {@link ShadowMaskedBloomPass} masks its glow
+     * by the shadows the lens pass has already located. The order of construction is therefore not
+     * incidental, and it is not the order in the chain either: the lens pass is built before both of
+     * the passes that read from it, and added between them.
      *
      * The output pass does tone mapping and the colour-space conversion the renderer would
      * otherwise have done itself; it must come last.
@@ -136,14 +172,28 @@ export class BloomManager {
         this.composer.renderTarget1.samples = SCENE.MSAA_SAMPLES;
         this.composer.renderTarget2.samples = SCENE.MSAA_SAMPLES;
 
-        const renderPass = new RenderPass(this.scene, this.camera);
-        this.composer.addPass(renderPass);
+        const bufferSize = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+        this.composer.renderTarget1.depthTexture =
+            new THREE.DepthTexture(bufferSize.x, bufferSize.y);
+        this.composer.renderTarget2.depthTexture =
+            new THREE.DepthTexture(bufferSize.x, bufferSize.y);
 
-        const bloomPass = new UnrealBloomPass(
+        this.renderPass = new RenderPass(this.scene, this.camera);
+        this.composer.addPass(this.renderPass);
+
+        this.lensPass = new BlackHoleLensPass();
+
+        this.bodyLensPass = new BodyLensPass(this.scene, this.camera, this.lensPass);
+        this.composer.addPass(this.bodyLensPass);
+
+        this.composer.addPass(this.lensPass);
+
+        const bloomPass = new ShadowMaskedBloomPass(
             this.#getBloomResolution(new THREE.Vector2()),
             this.bloomConfig.strength,
             this.bloomConfig.radius,
-            this.bloomConfig.threshold
+            this.bloomConfig.threshold,
+            this.lensPass
         );
         this.bloomPass = bloomPass;
         this.composer.addPass(bloomPass);
@@ -247,6 +297,53 @@ export class BloomManager {
     }
 
     /**
+     * Records a black hole so it bends light.
+     *
+     * The {@link Body} itself is kept rather than its group, because the pass needs the drawn
+     * radius and the resolved lensing settings as well as the world position, and nothing about
+     * it has to be cached: unlike a star, a hole has no material for this to drive.
+     *
+     * @param {Body} body - The hole's body.
+     * @returns {void}
+     */
+    registerBlackHole(body) {
+        this.blackHoles.add(body);
+    }
+
+    /**
+     * Stops a black hole bending light, so a removed one is not held alive.
+     *
+     * @param {Body} body - The hole's body.
+     * @returns {void}
+     */
+    unregisterBlackHole(body) {
+        this.blackHoles.delete(body);
+    }
+
+    /**
+     * Aims the lens pass at this frame's black holes, and switches it off if there are none.
+     *
+     * The pass does the culling and reports back, since it is the only thing that knows what
+     * counts as too small or too far off screen to bother with. Disabling it rather than letting
+     * it run with an empty lens list matters, because an enabled pass costs a full-screen copy
+     * even when its shader returns its input unchanged.
+     *
+     * The same measurement decides whether the bodies are being bent, and that answer is a choice
+     * between two ways of rendering the frame rather than an effect to switch on: where
+     * {@link BodyLensPass} runs it draws the scene in two layers itself, so the ordinary render pass
+     * has to go off in the same frame or the bodies would be drawn twice — once unbent, once bent
+     * over the top. The pair is set here and nowhere else.
+     *
+     * @returns {void}
+     */
+    updateLensing() {
+        this.lensPass.enabled = this.lensPass.update(this.blackHoles, this.camera, this.renderer);
+
+        this.bodyLensPass.enabled = this.lensPass.bendsBodies;
+        this.renderPass.enabled = !this.bodyLensPass.enabled;
+    }
+
+    /**
      * Sets this frame's bloom strength from the camera's distance to the nearest star.
      *
      * Three bands, all scaled by the star's radius so they mean the same thing for any
@@ -257,7 +354,10 @@ export class BloomManager {
      * star's glow leaves nothing else visible.
      *
      * Inside the disable distance the pass is switched off entirely rather than merely
-     * set to zero, since a zero-strength bloom still costs a full blur.
+     * set to zero, since a zero-strength bloom still costs a full blur. The pass's own
+     * `enabled` flag is what does that, not the composer bypass in {@link BloomManager#render}
+     * — the composer may still be running for the sake of the lens pass, and bloom must not
+     * come back on when it is.
      *
      * @param {THREE.Vector3} cameraPosition - Camera's world position.
      * @returns {void}
@@ -312,6 +412,8 @@ export class BloomManager {
                 this.enabled = !this.mobileDevice;
             }
         }
+
+        this.bloomPass.enabled = this.enabled;
 
         if (this.enabled) {
             this.bloomPass.strength = bloomStrength;
@@ -411,13 +513,15 @@ export class BloomManager {
     /**
      * Draws the frame, through the composer or straight to the canvas.
      *
-     * Bypassing the composer when bloom is off avoids paying for the extra render targets
-     * and the copy through them.
+     * Bypassing the composer when nothing needs it avoids paying for the extra render targets
+     * and the copy through them. Lensing counts as needing it just as much as bloom does, which
+     * is what keeps a black hole distorting on a device where bloom is off — and each pass
+     * carries its own `enabled` flag, so running the chain for one does not turn on the other.
      *
      * @returns {void}
      */
     render() {
-        if (this.enabled) {
+        if (this.enabled || this.lensPass.enabled) {
             this.composer.render();
         } else {
             this.renderer.render(this.scene, this.camera);
@@ -490,11 +594,15 @@ export class BloomManager {
     }
 
     /**
-     * Releases the composer's render targets.
+     * Releases the composer's render targets, and the body layer's.
+     *
+     * The composer frees its own two targets and nothing belonging to the passes in it, so the one
+     * pass here that owns a target of its own is disposed by name.
      *
      * @returns {void}
      */
     dispose() {
+        this.bodyLensPass.dispose();
         this.composer.dispose();
     }
 }

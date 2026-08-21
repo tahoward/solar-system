@@ -52,10 +52,11 @@ const MAX_CORE_INTENSITY = 150.0;
  * changing the core's size moves the handover with it.
  *
  * A ratio rather than a distance, so it happens at the same apparent size for a red dwarf and
- * for a supergiant. The depth buffer cannot be left to hide the glare behind the disc instead:
- * the near plane is a hundred-thousandth of a scene unit against a far plane of 1200, so the
- * buffer's resolution at a distance z is around z² ⁄ 170 scene units — coarser than a star's
- * whole radius at any distance a star is actually looked at from.
+ * for a supergiant. The depth buffer cannot be left to do this instead, even though the glare is
+ * depth tested and a star's own surface is nearer the camera than a quad at its centre: nearer by
+ * the star's radius, which against a near plane of a hundred-thousandth of a scene unit is four
+ * hundredths of one buffer step at an AU's distance. The star loses that comparison by design —
+ * see {@link GLARE_DEPTH_OFFSET_UNITS} — so the handover has to be made here by hand.
  *
  * @type {number}
  */
@@ -76,6 +77,32 @@ const DISC_FADE_END_CORE_RADII = 3.6;
 const CORE_FADE_EXPONENT = 3.0;
 
 /**
+ * How far the quad is pushed towards the viewer, in depth-buffer steps.
+ *
+ * The glare belongs at the star's centre, which puts the star's own surface in front of it by the
+ * star's radius. That is a real gap, but far too small a one for the buffer to hold: the near
+ * plane is a hundred-thousandth of a scene unit against a far plane of 1200, so two depths that
+ * close come out as the same stored value, and the test is a tie that rounding settles differently
+ * from frame to frame. Which is a flicker on the brightest part of the glare, not an occlusion.
+ *
+ * So the quad is offset past its own star outright. The offset is in buffer steps rather than in
+ * world units, which is what makes it hold at every distance — the tie is always sub-step, and
+ * anything the camera is genuinely near is thousands of steps clear and still wins: a planet a few
+ * radii away with its star an AU behind separates by a hundred thousand of them. The smallest gap
+ * worth keeping is one planet transiting the star seen from another's orbit, around twenty steps
+ * at twenty-four bits, so four leaves that intact while being a hundred times the tie it has to
+ * beat.
+ *
+ * The factor scales with the polygon's depth slope, which is next to nothing for a quad turned to
+ * face the camera. It is set regardless, for the off-centre parts where the perspective divide
+ * gives it some.
+ *
+ * @type {number}
+ */
+const GLARE_DEPTH_OFFSET_UNITS = -4.0;
+const GLARE_DEPTH_OFFSET_FACTOR = -1.0;
+
+/**
  * The camera-facing flare that stands in for a star at a distance.
  *
  * Once a star is far enough away its disc is smaller than a pixel, and a rendered sphere
@@ -91,8 +118,8 @@ const CORE_FADE_EXPONENT = 3.0;
  * apparent flux, and whether it is drawn at all, from how large the star's disc has become.
  *
  * Orientation and placement are not done here: {@link Body#update} parents the quad to the
- * scene root, moves it to the star, turns it to face the camera and works out whether
- * anything is in front of it.
+ * scene root, moves it to the star and turns it to face the camera. What is in front of the
+ * star is not worked out at all — the depth buffer settles it, as it does for a {@link Marker}.
  */
 class SunGlare extends SunEffect {
     /**
@@ -172,14 +199,18 @@ class SunGlare extends SunEffect {
      * The colour is the halo plus a core term squared, which concentrates the white saturation
      * tightly in the middle.
      *
-     * Three material choices matter. Additive blending, so the glare adds light rather than
+     * Four material choices matter. Additive blending, so the glare adds light rather than
      * masking what is behind it. Frustum culling off, because the mesh is repositioned every
      * frame from outside and Three.js would otherwise cull it against a stale bounding sphere.
-     * And a very high render order with both depth writing and depth testing off, so the glare
-     * draws last over everything: at the star's centre the quad is coplanar with the star's own
-     * silhouette, so a depth test there is a tie that floating-point noise settles differently
-     * from frame to frame, which is a flicker rather than an occlusion. Whether something is in
-     * front of the star is decided on the CPU instead, by {@link Body#update}.
+     * Depth writing off behind a very high render order, so the glare is drawn after everything
+     * and occludes nothing itself — it is light arriving at the lens, not a surface.
+     *
+     * And depth testing on, which is what makes a body passing in front of the star hide the
+     * glare, for free and without anything having to be told about it. A {@link Marker} gets the
+     * same occlusion the same way, and escapes the one hard case — its own body — by sitting
+     * above it rather than on it, so the two never overlap on screen. The glare has nowhere to
+     * go, since it belongs at the star's centre, so it takes the offset instead; see
+     * {@link GLARE_DEPTH_OFFSET_UNITS} for why that is enough and why it costs nothing else.
      *
      * @returns {THREE.Mesh} The billboard mesh.
      */
@@ -189,7 +220,10 @@ class SunGlare extends SunEffect {
         const material = new THREE.ShaderMaterial({
             transparent: true,
             depthWrite: false,
-            depthTest: false,
+            depthTest: true,
+            polygonOffset: true,
+            polygonOffsetFactor: GLARE_DEPTH_OFFSET_FACTOR,
+            polygonOffsetUnits: GLARE_DEPTH_OFFSET_UNITS,
             blending: THREE.AdditiveBlending,
             side: THREE.DoubleSide,
             uniforms: {
@@ -321,16 +355,16 @@ class SunGlare extends SunEffect {
      * resolved star as the core is. The core additionally loses brightness rather than only
      * opacity, since at fifty times white it would otherwise still be saturated at half a fade.
      *
-     * Does not position or orient the mesh, and does not work out the occlusion it is passed;
-     * {@link Body#update} does both.
+     * Does not position or orient the mesh; {@link Body#update} does that. Nor does it know what
+     * is in front of the star: that is the depth buffer's answer, given per pixel at draw time,
+     * and nothing here could improve on it.
      *
      * @param {number} deltaTime - Time since the last frame, in scaled seconds.
      * @param {THREE.Camera} camera - Camera the frame is being drawn from.
      * @param {THREE.Vector3} [sunPosition] - The star's world position.
-     * @param {number} [occlusion=1.0] - How much of the glare is unobstructed, 0 to 1.
      * @returns {void}
      */
-    update(deltaTime, camera, sunPosition = new THREE.Vector3(0, 0, 0), occlusion = 1.0) {
+    update(deltaTime, camera, sunPosition = new THREE.Vector3(0, 0, 0)) {
         this.time += deltaTime;
 
         if (!this.mesh || !this.material || !this.material.uniforms) return;
@@ -352,7 +386,7 @@ class SunGlare extends SunEffect {
         const discFade = 1.0 - discRatio;
 
         this.material.uniforms.uTime.value = this.time;
-        this.material.uniforms.uOpacity.value = this.glareOpacity * discFade * occlusion;
+        this.material.uniforms.uOpacity.value = this.glareOpacity * discFade;
         this.material.uniforms.uCoreIntensity.value =
             this.#coreIntensity(distance) * Math.pow(discFade, CORE_FADE_EXPONENT);
         this.material.uniforms.uGlowIntensity.value = this.glowIntensity;

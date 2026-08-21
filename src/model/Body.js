@@ -8,31 +8,13 @@ import { log } from '../utils/Logger.js';
 import VectorUtils from '../utils/VectorUtils.js';
 import OrbitTrail from './OrbitTrail.js';
 import StarEffects from '../effects/StarEffects.js';
+import BlackHoleEffects from '../effects/BlackHoleEffects.js';
 import BodyRenderer from '../rendering/BodyRenderer.js';
 import BodyPhysics from '../physics/BodyPhysics.js';
 import ResourceManager from '../utils/ResourceManager.js';
 import MaterialFactory from '../factories/MaterialFactory.js';
 import SunspotManager from '../effects/SunspotManager.js';
-import MathUtils from '../utils/MathUtils.js';
 import { BARYCENTRE, massToStellarRadius, massToStellarTemperature } from '../constants.js';
-
-/**
- * How far into a transiting body's disc the star's glare is fully hidden.
- *
- * A fraction of the body's angular radius rather than all of it, so the glare fades over the
- * last tenth of the limb instead of switching off the instant the centres line up.
- *
- * @type {number}
- */
-const TRANSIT_SOFT_EDGE = 0.9;
-
-/**
- * Scratch vectors for the transit test, reused to avoid per-frame allocation.
- *
- * @type {THREE.Vector3}
- */
-const _toStar = new THREE.Vector3();
-const _toBody = new THREE.Vector3();
 
 /**
  * A celestial body: its scene objects, physics state and children.
@@ -41,8 +23,8 @@ const _toBody = new THREE.Vector3();
  * builds the planets, which build their moons — so the whole system comes from a
  * single `new Body(CELESTIAL_DATA)`. The heavy lifting is delegated out:
  * {@link BodyRenderer} builds geometry, {@link BodyPhysics} handles motion and
- * spin, {@link StarEffects} adds the star-only visuals and
- * {@link ResourceManager} tears it all down.
+ * spin, {@link StarEffects} adds the star-only visuals, {@link BlackHoleEffects}
+ * the black-hole-only ones and {@link ResourceManager} tears it all down.
  *
  * The scene graph is layered as `group` → `tiltContainer` → `mesh`. The group
  * carries orbital position, while the tilt container applies axial tilt, so the
@@ -171,6 +153,7 @@ class Body {
         this.radiusScale = bodyData.radiusScale || 1.0;
 
         this.isStar = !!bodyData.star;
+        this.isBlackHole = !!bodyData.blackHole;
 
         this.position = VectorUtils.temp(0, 0, 0);
         this.velocity = VectorUtils.temp(0, 0, 0);
@@ -260,11 +243,20 @@ class Body {
             StarEffects.addStarEffects(this, bodyData, radius);
         }
 
+        if (bodyData.blackHole) {
+            BlackHoleEffects.addBlackHoleEffects(this, bodyData, radius);
+        }
+
         SceneManager.scene.add(this.group);
 
         if (this.isStar) {
             SceneManager.registerStar(this.group);
             log.info('Body', `Auto-registered ${this.name} for bloom effects`);
+        }
+
+        if (this.isBlackHole) {
+            SceneManager.registerBlackHole(this);
+            log.info('Body', `Auto-registered ${this.name} for gravitational lensing`);
         }
 
         this.createOrbit();
@@ -571,9 +563,22 @@ class Body {
      * clock's effects delta rather than simulation time, so the visuals keep a
      * steady pace regardless of the simulation speed multiplier.
      *
-     * The glare additionally needs to know what is in front of the star, which it
-     * cannot work out for itself and the depth buffer cannot be asked — see
-     * {@link Body.#transitOcclusion}.
+     * A black hole's shadow occluder needs resizing rather than re-aiming, since how much of the
+     * sky the shadow covers depends on how far out the camera is and a sphere standing in for it
+     * has to be shrunk to match; see {@link BlackHoleEffects.updateShadowOccluder}. Its photon ring
+     * only needs re-aiming, but its accretion disc needs the camera
+     * and the tilt container as well as the clock, because the disc is traced rather than modelled
+     * — the billboard it is drawn on has to face the viewer while the gas stays in the body's
+     * equatorial plane, so the shader is told about both frames separately. The lensing of
+     * everything *behind* the hole is not touched here at all: it is a post-processing pass,
+     * driven once per frame from {@link SceneManager#render} after the camera has settled.
+     *
+     * The hole's own effects are advanced after its moons rather than before, which for a hole with
+     * a disc is required and not tidy: the disc is handed the first of them to draw itself, since a
+     * body orbiting this close cannot be drawn as a mesh and be right, and hiding the mesh is part
+     * of how {@link AccretionDisk#setCompanion} takes it over. Run first, that would happen before
+     * the moon's own {@link Body#updateLOD} had run and be undone by it, and the position traced
+     * would be a frame stale besides. Every other body is unaffected either way.
      *
      * Note that this method reads `clockManager` as a bare global, which resolves
      * only because `solarSystem.js` assigns `window.clockManager` during startup.
@@ -654,12 +659,7 @@ class Body {
 
                 if (this.mesh) this.mesh.visible = true;
 
-                _toStar.subVectors(starPosition, camera.position);
-
-                const occlusion = Body.#transitOcclusion(
-                    this.children, camera.position, _toStar, _toStar.length());
-
-                this.sunGlare.update(effectsDeltaTime, camera, starPosition, occlusion);
+                this.sunGlare.update(effectsDeltaTime, camera, starPosition);
             }
         }
 
@@ -671,63 +671,20 @@ class Body {
                 }
             });
         }
-    }
 
-    /**
-     * How much of a star's glare survives the bodies passing in front of it.
-     *
-     * The glare draws over everything, with no depth test at all — at the star's centre the
-     * quad is coplanar with the star's own silhouette, and a depth test there is a tie that
-     * floating-point noise settles differently from frame to frame. So occlusion is decided
-     * here instead, geometrically: a body nearer the camera than the star hides the glare when
-     * the star lies within its disc, which is a comparison of the angle between the two
-     * directions against the body's angular radius.
-     *
-     * Only the star's centre is tested, not the glare's whole extent, so a body that covers the
-     * centre takes the glare with it — a body large enough on screen to do that is dominating
-     * the view regardless.
-     *
-     * Recurses, since a moon can transit as readily as its planet, and the whole walk is
-     * distance-tested rather than culled: bodies at or beyond the star's distance are behind it
-     * and cannot hide anything.
-     *
-     * @private
-     * @param {Array<{body: Body}>} children - Hierarchy nodes to test, and theirs in turn.
-     * @param {THREE.Vector3} cameraPosition - Camera's world position.
-     * @param {THREE.Vector3} starDirection - Vector from the camera to the star; read only.
-     * @param {number} starDistance - Its length, in scene units.
-     * @returns {number} How much of the glare is unobstructed, 0 to 1.
-     */
-    static #transitOcclusion(children, cameraPosition, starDirection, starDistance) {
-        let occlusion = 1.0;
+        if (this.isBlackHole) {
+            BlackHoleEffects.updateShadowOccluder(this, SceneManager.camera);
 
-        if (!children || children.length === 0) {
-            return occlusion;
-        }
-
-        for (const childHierarchy of children) {
-            const child = childHierarchy.body;
-
-            if (!child || !child.group) continue;
-
-            _toBody.subVectors(child.group.position, cameraPosition);
-            const bodyDistance = _toBody.length();
-
-            if (bodyDistance > 0 && bodyDistance < starDistance) {
-                const angularRadius = child.radius / bodyDistance;
-                const separation = starDirection.angleTo(_toBody);
-
-                const { ratio } = MathUtils.clampAndRatio(
-                    separation, angularRadius * TRANSIT_SOFT_EDGE, angularRadius);
-
-                occlusion = Math.min(occlusion, ratio);
+            if (this.accretionDisk) {
+                this.accretionDisk.update(
+                    clockManager.getEffectsDeltaTime(), SceneManager.camera, this.tiltContainer,
+                    this.children?.[0]?.body ?? null);
             }
 
-            occlusion = Math.min(occlusion, Body.#transitOcclusion(
-                child.children, cameraPosition, starDirection, starDistance));
+            if (this.photonRing) {
+                this.photonRing.update(SceneManager.camera);
+            }
         }
-
-        return occlusion;
     }
 
     /**

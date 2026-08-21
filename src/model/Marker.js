@@ -262,6 +262,7 @@ class Marker {
 
         positionGroup.add(markerContainer);
         orientationGroup.add(positionGroup);
+        SceneManager.markOverlay(orientationGroup);
         this.body.group.add(orientationGroup);
 
         const markerHeight = boundingBox.max.y - boundingBox.min.y;

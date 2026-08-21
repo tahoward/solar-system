@@ -72,6 +72,13 @@ export class OrbitTrail {
      * scene manager, which owns keeping its resolution uniform in step with the
      * canvas size.
      *
+     * It writes no depth, matching {@link Orbit} and {@link BarycentrePath}. A trail is a
+     * transparent marker rather than a surface, and a fat line is drawn as a strip of
+     * screen-space quads — so writing depth would lay a two-pixel-wide slab of solid depth
+     * along the whole path, at the path's own distance, and occlude anything depth tested
+     * drawn after it. The accretion disc's gas is exactly that: a trail crossing between the
+     * camera and a black hole would cut rounded-rectangular bites out of the disc, one per segment.
+     *
      * @returns {void}
      */
     initializeRendering() {
@@ -87,12 +94,14 @@ export class OrbitTrail {
         this.material = new LineMaterial({
             vertexColors: true,
             transparent: true,
+            depthWrite: false,
             linewidth: this.lineWidth,
             resolution: new THREE.Vector2(window.innerWidth, window.innerHeight)
         });
 
         this.line = new LineSegments2(this.geometry, this.material);
         this.line.visible = false;
+        SceneManager.markOverlay(this.line);
 
         SceneManager.scene.add(this.line);
 

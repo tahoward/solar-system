@@ -58,6 +58,15 @@ class SceneManager {
       CAMERA_CONFIG.NEAR_PLANE_SCALE * this.scale,
       CAMERA_CONFIG.FAR_PLANE_SCALE * this.scale
     );
+    // A camera sees only the default layer, and both a black hole's own drawing and the scene's
+    // annotation are kept out of it so that the lensing can render the bodies separately from what
+    // bends them and from what must not be bent with them; see {@link SCENE.UNLENSED_LAYER} and
+    // {@link SCENE.OVERLAY_LAYER}. Enabled here rather than in {@link BloomManager} because this is
+    // what makes a hole visible and a marker drawn at all, which cannot be allowed to depend on
+    // post-processing.
+    this.camera.layers.enable(SCENE.UNLENSED_LAYER);
+    this.camera.layers.enable(SCENE.OVERLAY_LAYER);
+
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
       powerPreference: "high-performance"
@@ -70,6 +79,10 @@ class SceneManager {
       this.camera,
       this.renderer.domElement
     );
+    // The markers are what anything clicks on, and they are on the annotation layer. A
+    // `THREE.Raycaster` tests the default layer only, so without this a marker would be drawn and
+    // could not be hit.
+    this.interactionManager.raycaster.layers.enable(SCENE.OVERLAY_LAYER);
 
     document.body.appendChild(this.renderer.domElement);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -140,11 +153,16 @@ class SceneManager {
    * Bloom intensity is set from the camera position first, so the glow falls off with
    * distance from the star instead of blowing out the view when close to it.
    *
+   * Lensing is aimed here too, rather than in a body's own update, because where a black hole
+   * lands on screen depends on where the camera ended up this frame — and the camera is moved
+   * after the bodies are.
+   *
    * @returns {void}
    */
   render() {
      if (this.bloomManager) {
        this.bloomManager.updateBloomIntensity(this.camera.position);
+       this.bloomManager.updateLensing();
        this.bloomManager.render();
      } else {
        this.renderer.render(this.scene, this.camera);
@@ -174,6 +192,23 @@ class SceneManager {
    */
   registerLineMaterial(material) {
     this.lineMaterials.add(material);
+  }
+
+  /**
+   * Moves an object and everything under it onto the annotation layer.
+   *
+   * Annotation is anything drawn to say where a body is rather than to show it: orbit lines,
+   * trails, markers. It is drawn along straight lines, so a black hole must not bend it — see
+   * {@link SCENE.OVERLAY_LAYER} for why, and {@link BodyLensPass#render} for where the layer is
+   * drawn. Everything in the subtree is set rather than just the root, because a layer mask in
+   * three is per object and is not inherited.
+   *
+   * @param {THREE.Object3D} object - Root of the subtree to mark.
+   * @returns {void}
+   */
+  markOverlay(object) {
+    if (!object) return;
+    object.traverse((child) => child.layers.set(SCENE.OVERLAY_LAYER));
   }
 
   /**
@@ -228,12 +263,24 @@ class SceneManager {
    * moved body, and only then are the controls updated so damping acts on the final
    * position.
    *
+   * The camera's matrices are then brought up to date, which is not merely tidiness.
+   * `matrixWorld` and `matrixWorldInverse` are refreshed nowhere but inside the render
+   * call — and only there because this camera has no parent — so anything between here
+   * and the render that projects a world position through the camera gets the position
+   * it had last frame. That is a lag proportional to how fast the view is turning:
+   * {@link BlackHoleLensPass} aims by projection, and at a brisk drag the shadow's mask
+   * lands tens of pixels from the shadow, which reads as a black hole sliding out of its
+   * own photon ring. Doing it here rather than in the pass keeps one place where the
+   * camera is finished for the frame, and it is the work the renderer would do anyway.
+   *
    * @returns {void}
    */
   updateCamera() {
     this.updateAnimations();
     this.cameraController.updateFollowing();
     this.controls.update();
+
+    this.camera.updateMatrixWorld();
   }
 
   /**
@@ -490,6 +537,33 @@ class SceneManager {
   unregisterStar(starObject) {
     if (this.bloomManager) {
       this.bloomManager.unregisterStar(starObject);
+    }
+  }
+
+  /**
+   * Marks a body as a black hole so light is bent around it.
+   *
+   * Handled by the bloom manager because the distortion is a pass in the same composer, not
+   * because it has anything to do with bloom.
+   *
+   * @param {Body} body - The hole's body.
+   * @returns {void}
+   */
+  registerBlackHole(body) {
+    if (this.bloomManager) {
+      this.bloomManager.registerBlackHole(body);
+    }
+  }
+
+  /**
+   * Stops bending light around a body.
+   *
+   * @param {Body} body - The hole's body.
+   * @returns {void}
+   */
+  unregisterBlackHole(body) {
+    if (this.bloomManager) {
+      this.bloomManager.unregisterBlackHole(body);
     }
   }
 
