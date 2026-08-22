@@ -483,17 +483,29 @@ class Body {
      * radius. Bodies lacking a position or radius are filtered out, and an empty
      * set clears the shaders' shadow state.
      *
+     * The two lists handed to the shaders are held on the body and refilled rather
+     * than rebuilt, and the positions in them are the casters' live vectors rather
+     * than copies. This runs for every body on every frame, so a fresh pair of
+     * arrays and a `clone` per caster is a steady stream of garbage for no purpose:
+     * {@link BaseCelestialShaderMaterial#updateMoons} differences each position
+     * into a uniform and keeps nothing, and both consumers are called before this
+     * returns, so there is no window in which a caster could move between filling
+     * the list and reading it.
+     *
      * @param {Array<Body>} shadowBodies - Candidate shadow casters.
      * @returns {void}
      */
     updateMoonShadows(shadowBodies) {
-        const positions = [];
-        const radii = [];
+        const positions = this._shadowPositions ??= [];
+        const radii = this._shadowRadii ??= [];
+
+        positions.length = 0;
+        radii.length = 0;
 
         if (shadowBodies && shadowBodies.length > 0) {
             shadowBodies.forEach(body => {
                 if (body && body.group && body.group.position && body.radius) {
-                    positions.push(body.group.position.clone());
+                    positions.push(body.group.position);
                     radii.push(body.radius);
                 }
             });
@@ -523,10 +535,20 @@ class Body {
      * since anything further away cannot produce a visible eclipse. Light sources
      * are excluded, as a star does not cast a shadow.
      *
+     * The list is held on the body and refilled rather than allocated per frame, for
+     * the reason given at {@link Body#updateMoonShadows}. Refilled rather than built
+     * once and kept, because what it is derived from moves: a collision merge hands
+     * an absorbed body's moons to its adopter and drops the body itself, so a parent
+     * can lose one child and gain another on the same frame and be left with the
+     * count it started with — which is the only signal cheap enough to test per frame
+     * and so is no signal at all. Walking a handful of children costs nothing next to
+     * the allocation that was the point of removing.
+     *
      * @returns {void}
      */
     updateDirectShadows() {
-        const shadowCasters = [];
+        const shadowCasters = this._shadowCasters ??= [];
+        shadowCasters.length = 0;
 
         if (this.children && this.children.length > 0) {
             this.children.forEach(childHierarchy => {

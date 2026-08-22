@@ -36,8 +36,9 @@ class SceneManager {
    * the scene spans from a moon's surface to the outer planets and a fixed depth
    * range at that ratio would z-fight badly.
    *
-   * The pixel ratio is capped at 2: beyond that the cost grows with no visible
-   * benefit on the displays that report it.
+   * The pixel ratio is capped rather than taken as the display reports it, because beyond a point
+   * the cost grows with no visible benefit; see {@link SCENE.MAX_PIXEL_RATIO} for where the line is
+   * drawn and why.
    *
    * @returns {SceneManager} The existing instance if one has already been created.
    */
@@ -72,7 +73,7 @@ class SceneManager {
       powerPreference: "high-performance"
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, SCENE.MAX_PIXEL_RATIO));
 
     this.interactionManager = new InteractionManager(
       this.renderer,

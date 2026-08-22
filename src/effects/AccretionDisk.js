@@ -114,6 +114,11 @@ const DISC_FLARE = 0.05;
  * two right, going from no cap at all to this one leaves the ripple through the disc below the
  * converged answer's own either way.
  *
+ * Because it is the trade to reach for first, it reaches the shader as a uniform rather than as a
+ * compiled-in constant, and this is the value it starts at; see {@link AccretionDisk#setSlabStep}
+ * for changing it live. The step limits either side of it are still compiled in, since those are
+ * about not *missing* the disc and a picture that has missed it is not a cheaper picture of it.
+ *
  * @type {number}
  */
 const SLAB_STEP = 0.75;
@@ -641,7 +646,6 @@ const fragmentShaderMainCode = `
 #define ANGLE_STEP ${ANGLE_STEP.toFixed(4)}
 #define RADIAL_STEP_LIMIT ${RADIAL_STEP_LIMIT.toFixed(4)}
 #define DISC_FLARE ${DISC_FLARE.toFixed(4)}
-#define SLAB_STEP ${SLAB_STEP.toFixed(4)}
 #define STRAIGHT_PATH_SINE ${STRAIGHT_PATH_SINE.toFixed(4)}
 #define ESCAPE_OUTER_FACTOR ${ESCAPE_OUTER_FACTOR.toFixed(2)}
 #define MIN_TRANSMITTANCE ${MIN_TRANSMITTANCE.toFixed(4)}
@@ -656,6 +660,7 @@ const fragmentShaderMainCode = `
 uniform float uTime;
 uniform vec3 uCameraOffset;
 uniform mat3 uToDisc;
+uniform float uSlabStep;
 uniform float uHorizonRadius;
 uniform float uInnerRadius;
 uniform float uOuterRadius;
@@ -1139,7 +1144,7 @@ void main() {
         if (previousRadius >= uInnerRadius && previousRadius <= uOuterRadius
                 && abs(previousHeight) < 2.0 * DISC_FLARE * previousRadius) {
             float pathRate = sqrt(radialRate * radialRate + previousRadius * previousRadius);
-            h = min(h, SLAB_STEP * DISC_FLARE * previousRadius / max(pathRate, 1e-6));
+            h = min(h, uSlabStep * DISC_FLARE * previousRadius / max(pathRate, 1e-6));
         }
 
         // Shorten it a third time to close on a companion's surface, which is not something either
@@ -1699,6 +1704,9 @@ class AccretionDisk {
      * @param {number} [options.beamingStrength=0.85] - How much of the full relativistic
      *   beaming to apply, 0 to 1. Below 1 only to tame it: the true factor clips to white over
      *   a good fraction of the disc.
+     * @param {number} [options.slabStep=SLAB_STEP] - How finely the march samples the gas, and so
+     *   what the disc costs; see {@link AccretionDisk#setSlabStep}, which is the better way to
+     *   reach it since it can be changed while watching.
      */
     constructor(options = {}) {
         this.horizonRadius = options.horizonRadius || 1.0;
@@ -1798,6 +1806,12 @@ class AccretionDisk {
             uQuadOffset: { value: new THREE.Vector3() },
 
             uToDisc: { value: new THREE.Matrix3() },
+
+            // A uniform rather than a compiled-in constant so the march's cost can be traded against
+            // its accuracy without a shader rebuild; see {@link SLAB_STEP} and
+            // {@link AccretionDisk#setSlabStep}.
+            uSlabStep: { value: options.slabStep !== undefined ? options.slabStep : SLAB_STEP },
+
             uHorizonRadius: { value: this.horizonRadius },
             uInnerRadius: { value: this.innerRadius },
             uOuterRadius: { value: this.outerRadius },
@@ -2519,6 +2533,49 @@ class AccretionDisk {
      */
     getMeshes() {
         return [this.mesh, this.companionQuad];
+    }
+
+    /**
+     * Sets how finely the march samples the gas, trading the disc's cost against its accuracy.
+     *
+     * This is the disc's cost dial, and the one to reach for first, because the gas samples are what
+     * the march actually spends its time on rather than the steps that carry it between them; see
+     * {@link SLAB_STEP} for the measured trade and for why nothing else here is worth turning down.
+     * Larger is cheaper and coarser. Against a converged march the error runs about a thirty-third at
+     * the default of 0.75, a twenty-fourth at 1.0 and a seventeenth with the cap lifted entirely, so
+     * there is little left to win much beyond 1.0 and the way back down gets expensive quickly.
+     *
+     * Takes effect on the next frame and needs no rebuild, which is the point of it being a uniform:
+     * it is meant to be turned while watching the disc. Both quads see it, since the companion's
+     * material shares this one's uniform objects; see {@link AccretionDisk#createCompanionMaterial}.
+     *
+     * Non-finite and non-positive values are refused rather than clamped. A step of zero does not
+     * make a very accurate disc, it makes a march that cannot advance while it is anywhere near the
+     * gas, which is a frozen tab rather than a slow one.
+     *
+     * @param {number} slabStep - The new cap, as a fraction of the slab's half-thickness. Must be
+     *   finite and greater than zero.
+     * @returns {number} The value now in force, unchanged if the argument was refused.
+     */
+    setSlabStep(slabStep) {
+        if (!Number.isFinite(slabStep) || slabStep <= 0) {
+            log.warn('AccretionDisk', `Ignoring invalid slab step ${slabStep}; must be finite and > 0`);
+            return this.uniforms.uSlabStep.value;
+        }
+
+        this.uniforms.uSlabStep.value = slabStep;
+        log.debug('AccretionDisk', `Slab step set to ${slabStep}`);
+
+        return slabStep;
+    }
+
+    /**
+     * How finely the march is currently sampling the gas.
+     *
+     * @returns {number} The slab step in force; see {@link AccretionDisk#setSlabStep}.
+     */
+    getSlabStep() {
+        return this.uniforms.uSlabStep.value;
     }
 
     /**

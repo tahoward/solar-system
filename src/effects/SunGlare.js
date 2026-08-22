@@ -478,10 +478,24 @@ class SunGlare extends SunEffect {
      * A list, so callers that position and orient the glare do not have to know it is
      * currently a single quad.
      *
+     * The list is held and refilled rather than built fresh, since this is called per
+     * frame from {@link Body#update} to aim the glare and a list of one does not
+     * warrant an array and a closure every time. It is refilled rather than built
+     * once because the mesh is dropped on disposal, and the caller is handed the
+     * live array — which is what lets it stay one allocation, and means nothing may
+     * hold onto it past the call.
+     *
      * @returns {THREE.Mesh[]} The effect's meshes.
      */
     getAllMeshes() {
-        return [this.mesh].filter(mesh => mesh !== null);
+        const meshes = this._allMeshes ??= [];
+        meshes.length = 0;
+
+        if (this.mesh) {
+            meshes.push(this.mesh);
+        }
+
+        return meshes;
     }
 
     /**

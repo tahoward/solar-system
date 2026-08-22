@@ -130,6 +130,14 @@ export const MASS_DROP = {
  * system fits in a range float32 can resolve. Multisampling is on at four samples, which is
  * what keeps the thin orbit lines and body limbs from crawling as the camera moves.
  *
+ * `MAX_PIXEL_RATIO` is where a dense display's own ratio is cut off, and it is the scene's coarsest
+ * dial: every fragment drawn is paid for at this density, and by more than one pass — the composer's
+ * two targets, the body layer's, and the disc's per-pixel march. Squared, too, so the step from 1.5
+ * to 2 is nearly twice the work. What buys the cut is that the reason to draw at a display's full
+ * density is edges, and multisampling above is already dealing with those; what is left is the
+ * interior of a smooth gradient, where there is nothing at that density to resolve. Raise it if a
+ * machine has the fragments to spare.
+ *
  * The two layers are the divisions the scene draws itself along, so that `BodyLensPass` can render
  * the parts separately and move one against the others. The hole's own drawing goes in
  * `UNLENSED_LAYER`, because it is what does the bending and so cannot be bent. Annotation — orbit
@@ -148,6 +156,7 @@ export const SCENE = {
   DEFAULT_RADIUS_FALLBACK: 1,
 
   MSAA_SAMPLES: 4,
+  MAX_PIXEL_RATIO: 1.5,
 
   UNLENSED_LAYER: 1,
   OVERLAY_LAYER: 2
@@ -278,10 +287,16 @@ export const ANIMATION = {
  * the camera approaches and switched off entirely very close in. The fade start being larger than
  * the fade end is not a mistake — these are distances, and the effect fades as they decrease.
  *
+ * `RESOLUTION_MULTIPLIER` is the fraction of the drawing buffer the blur pyramid is built at, and a
+ * half rather than the whole of it. What the pass produces is a wide, smooth glow, and it is added
+ * to the frame rather than being the frame: there is nothing in it at the resolution being given up,
+ * so building it at full size costs four times the fragments to arrive at very nearly the same
+ * image. See {@link BloomManager#getBloomResolution}.
+ *
  * @type {Object<string, number>}
  */
 export const BLOOM = {
-  RESOLUTION_MULTIPLIER: 1.0,
+  RESOLUTION_MULTIPLIER: 0.5,
 
   STRENGTH: .5,
   RADIUS: 0.8,

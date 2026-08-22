@@ -108,6 +108,9 @@ class DevConsole {
 
         this.register('perf', () => this._getPerformanceInfo(), 'Show performance information');
 
+        this.register('discStep', (value = null) => this._setDiscStep(value),
+            'Show or set the accretion disc march step (higher is cheaper and coarser)');
+
         this.register('scene', () => this._getSceneInfo(), 'Show scene information');
 
         this.register('help', () => this._getHelpInfo(), 'Show available commands');
@@ -130,6 +133,7 @@ class DevConsole {
                 config: (category) => this.run('config', category),
                 logs: (count) => this.run('logs', count),
                 perf: () => this.run('perf'),
+                discStep: (value) => this.run('discStep', value),
                 scene: () => this.run('scene'),
                 cleanup: () => this.run('cleanup'),
                 register: (name, handler, description) => this.register(name, handler, description)
@@ -290,6 +294,50 @@ class DevConsole {
                 domContentLoaded: performance.timing?.domContentLoadedEventEnd - performance.timing?.navigationStart,
                 loadComplete: performance.timing?.loadEventEnd - performance.timing?.navigationStart
             } : 'Not available'
+        };
+    }
+
+    /**
+     * Shows or sets how finely every accretion disc's march samples its gas.
+     *
+     * The disc is the most expensive thing in the scene when a hole is on screen — a per-pixel
+     * geodesic march — and this is its cost dial; see {@link AccretionDisk#setSlabStep} for the
+     * trade and the values worth trying. It is here rather than in the configuration because it
+     * is a thing to turn while watching the disc, and a reload loses the view it was being
+     * judged from.
+     *
+     * The holes are reached through the bloom manager's register rather than by walking the
+     * scene, since that is the list of what is lensing this frame and a disc without a hole is
+     * not a case that arises.
+     *
+     * @private
+     * @param {number|string|null} [value=null] - The new step, or null to only report. Strings
+     *   are accepted, since a console argument often arrives as one.
+     * @returns {{discs: Array<{body: string, slabStep: number}>, changed: boolean,
+     *   message: string}} The step now in force for each disc found.
+     */
+    _setDiscStep(value = null) {
+        const holes = window?.SceneManager?.bloomManager?.blackHoles;
+        const discs = [];
+
+        for (const body of holes || []) {
+            if (!body?.accretionDisk) continue;
+
+            if (value !== null && value !== undefined && value !== '') {
+                body.accretionDisk.setSlabStep(Number(value));
+            }
+
+            discs.push({ body: body.name, slabStep: body.accretionDisk.getSlabStep() });
+        }
+
+        const changed = discs.length > 0 && value !== null && value !== undefined && value !== '';
+
+        return {
+            discs,
+            changed,
+            message: discs.length === 0
+                ? 'No accretion disc in the scene'
+                : `${changed ? 'Set' : 'Current'} march step for ${discs.length} disc(s); higher is cheaper and coarser`
         };
     }
 
