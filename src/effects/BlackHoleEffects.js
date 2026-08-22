@@ -602,10 +602,10 @@ class BlackHoleEffects {
 
         accretionDisk.addToScene(body.group);
 
-        // Both quads, and the companion's for the same reason as the disc's: it is drawn from the same
-        // traced paths, so it is already lensed, and it is what the space a body was moved out of has to
-        // show through. A companion is the one body whose surface is in this half of the frame rather
-        // than in the bent half; see {@link AccretionDisk#createCompanionQuad}.
+        // Every quad, and the companions' for the same reason as the disc's: they are drawn from the same
+        // traced paths, so they are already lensed, and they are what the space a body was moved out of
+        // has to show through. The companions are the only bodies whose surfaces are in this half of the
+        // frame rather than in the bent half; see {@link AccretionDisk#createCompanionQuad}.
         accretionDisk.getMeshes().forEach((mesh) => BlackHoleEffects.markUnlensed(mesh));
 
         body.accretionDisk = accretionDisk;

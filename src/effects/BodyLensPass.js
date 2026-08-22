@@ -157,12 +157,14 @@ void main() {
  * so a body just behind the hole should barely bend. It is taken as one, meaning every source
  * infinitely far behind the hole, because in this system that is what every source is: the hole sits
  * the better part of a thousand scene units out and is worth looking at from thousandths of one, so
- * every other body in the catalogue is at a fraction of one to within a rounding error. The single
- * exception is the hole's own moon, twenty horizon radii out, and the moon is the one body that never
- * needs it: its mesh is hidden for the whole of its orbit and {@link AccretionDisk} traces the surface
- * from the geodesics themselves, `d_ls / d_s` and all. What is left of the moon in this pass is its
+ * every other body in the catalogue is at a fraction of one to within a rounding error. The exceptions
+ * are the hole's own moons, a few dozen horizon radii out, and those are the bodies that never need it:
+ * their meshes are hidden for the whole of their orbits and {@link AccretionDisk} traces the surfaces
+ * from the geodesics themselves, `d_ls / d_s` and all. What is left of such a moon in this pass is its
  * marker, its label and its orbit line, which are annotation and drawn on the overlay layer this pass
- * does not touch. See {@link AccretionDisk#setCompanion}.
+ * does not touch. See {@link AccretionDisk#setCompanions} — including for what a moon past that
+ * tracer's ceiling looks like here, which is the deflection being wrong by the better part of a
+ * factor of ten and visibly so.
  *
  * Reading the fraction per pixel instead cannot be done, and it is worth recording why rather than
  * leaving it as merely unnecessary. The depth it needs is the depth of the *source*,
@@ -329,11 +331,11 @@ void main() {
         // since a body wandering across the plane a pixel at a time would otherwise be picked up and
         // dropped between frames.
         //
-        // And nothing is being given away in practice. The only body that ever reaches this band is
-        // the hole's own moon, and its mesh is hidden for the whole of its orbit while
-        // {@link AccretionDisk} traces the surface along the actual geodesics; see
-        // {@link AccretionDisk#setCompanion}. There is no mesh in this layer for the band to fail to
-        // bend.
+        // And nothing is being given away in practice. The only bodies that ever reach this band are
+        // the hole's own moons, and their meshes are hidden for the whole of their orbits while
+        // {@link AccretionDisk} traces the surfaces along the actual geodesics; see
+        // {@link AccretionDisk#setCompanions}. There is no mesh in this layer for the band to fail to
+        // bend — unless a hole has more moons than that tracer has slots, which it warns about.
         if (destDepth < uDepth[i] * (1.0 + NEAR_DEPTH_MARGIN)) continue;
 
         // How far round from the hole this pixel is, and which way on the sky the hole lies from it.
@@ -504,8 +506,8 @@ void main() {
  * next to a mesh that is bent correctly or not at all. Where both are visible at once they separate.
  *
  * Which normally they are not, a pinpoint sitting at its body's own centre and so behind its near
- * surface. The exception is the one body whose mesh is deliberately hidden — the hole's moon, traced
- * rather than drawn for the whole of its orbit — where hiding the mesh uncovers the pinpoint, bent as
+ * surface. The exceptions are the bodies whose meshes are deliberately hidden — the hole's moons, traced
+ * rather than drawn for the whole of their orbits — where hiding a mesh uncovers its pinpoint, bent as
  * though at infinity a long way from the surface being traced along the real geodesics. So
  * {@link AccretionDisk#setCompanion} hides the pinpoint along with the mesh, which is the honest
  * reading of what it is doing: it has taken over drawing that body, stand-in and all.

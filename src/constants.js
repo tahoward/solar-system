@@ -1130,47 +1130,6 @@ export const CELESTIAL_DATA = [{
         }
       },
       children: [
-        /*
-         * A captured rock going round the hole, invented like the hole it belongs to.
-         *
-         * The distance is chosen in *drawn* radii, because that is the only unit in which it can be
-         * chosen: what the hole looks like is a body a hundred million times its own size, so nothing
-         * placed at a true multiple of a four-centimetre Schwarzschild radius would be anywhere near
-         * the picture. Twenty drawn radii is the answer, and it is bounded on both sides. Inside the
-         * disc's outer edge at seven the moon would be ploughing through the gas; much beyond thirty it
-         * is off the screen at any view that has the disc in it, since the whole thing is under a
-         * hundredth of a scene unit across. It follows the same convention the disc's own edges do —
-         * see the hole above — which is that the proportions are real and the overall size is not.
-         *
-         * Everything else then follows from that distance being a real one. Twenty drawn radii is
-         * 5.57e-4 AU, or 83,000 km, and five Earth masses at 83,000 km gives an orbit of 29.7 hours,
-         * which is why the rotation period is that. It is comfortably outside the rigid Roche limit for
-         * a body this size, at 19,700 km, and nowhere near the hole's Hill sphere at 0.63 AU, so it is
-         * neither pulled apart nor taken by the Sun. Being two billion Schwarzschild radii out in
-         * truth, it needs nothing relativistic: a Keplerian orbit is exactly right.
-         *
-         * `equatorialOrbit` puts it in the hole's equator, which is the accretion disc's plane, so it
-         * passes across the disc's arms rather than over the poles.
-         *
-         * Its size is Pluto's. A moon's `radiusScale` is a multiple of its parent's drawn radius rather
-         * than of the Sun's, and 0.2844 of a hole drawn at 0.006 solar radii is 1,185 km — so unlike the
-         * hole it goes round, the moon is drawn at its true size, and takes Pluto's mass to match. That
-         * mass is four ten-thousandths of the hole's, so it perturbs nothing and is perturbed by
-         * everything. The surface is Callisto's, borrowed for being the darkest and most cratered here;
-         * nothing in the catalogue was going spare.
-         *
-         * The moon is lensed like everything else at the hole, and by the tracer rather than by the
-         * screen-space pass the other bodies get, because at twenty radii nothing thinner than the
-         * geodesics is right. Its mesh is hidden for the whole orbit and the surface is marched along
-         * with the gas, which is what gives it a second image round the far side near conjunction, a
-         * silhouette against the near arm, and a deflection of about six degrees where a thin lens would
-         * have given it far more. What that costs is that the surface does not sit on the moon's own
-         * orbit line: the line and the marker are drawn to where the moon is, the surface to where its
-         * light arrives from, and near conjunction those are several of its widths apart. See
-         * {@link AccretionDisk#setCompanion}. It is drawn in every view because it is given a quad of its
-         * own, centred on it rather than on the hole, since a plane through the hole cannot carry a ray
-         * to a body the camera is sitting next to; see {@link AccretionDisk#createCompanionQuad}.
-         */
         {
           name: 'Acheron',
           color: 0x6E6A70,
@@ -1185,6 +1144,25 @@ export const CELESTIAL_DATA = [{
           surfaceTexture: TEXTURES.callisto,
           parent: 'Black Hole',
           a: 0.000557,
+          e: 0.04,
+          i: 1.5,
+          omega: 140.0, w: 60.0, M0: 25.0,
+          children: []
+        },
+        {
+          name: 'Bable',
+          color: 0x6E6A70,
+          markerColor: 0xA79FB5,
+          radiusScale: 0.2844,
+          mass: 6.58719e-9,
+          rotationPeriod: 71.52,
+          axialTilt: 0.4,
+          tidallyLocked: true,
+          equatorialOrbit: true,
+          lightIntensity: null,
+          surfaceTexture: TEXTURES.titan,
+          parent: 'Black Hole',
+          a: 0.001,
           e: 0.04,
           i: 1.5,
           omega: 140.0, w: 60.0, M0: 25.0,

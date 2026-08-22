@@ -184,7 +184,7 @@ void main() {
  * What is in front of the hole is left exactly where it is, and that needs the frame's depth
  * rather than the frame alone. A hole bends the light of what is *behind* it and nothing else, so
  * a body between the camera and the hole has no business being displaced — and displacing it is
- * not a subtle error: the hole's own moon, crossing the shadow, would have its terminator dragged
+ * not a subtle error: one of the hole's own moons, crossing the shadow, would have its terminator dragged
  * round the rim, which reads as the shadow eating into a body that should be hiding it. So each pixel's
  * own depth is compared against the depth of each hole's centre, and a pixel nearer than that
  * skips the lens; see {@link NEAR_DEPTH_MARGIN}. An empty pixel reads as the far plane and is

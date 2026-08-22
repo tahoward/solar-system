@@ -184,6 +184,10 @@ class Body {
         this.orbit = null;
         this.bodyData = bodyData;
 
+        // The children a traced accretion disc is handed, in a form it can take, built on first use
+        // because at construction there are none; see {@link Body#update}.
+        this.companionBodies = null;
+
         this.geometry = BodyRenderer.createGeometry(this.radius);
 
         this.mesh = BodyRenderer.createMesh(this.geometry, this.material);
@@ -596,11 +600,15 @@ class Body {
      * driven once per frame from {@link SceneManager#render} after the camera has settled.
      *
      * The hole's own effects are advanced after its moons rather than before, which for a hole with
-     * a disc is required and not tidy: the disc is handed the first of them to draw itself, since a
+     * a disc is required and not tidy: the disc is handed all of them to draw itself, since a
      * body orbiting this close cannot be drawn as a mesh and be right, and hiding the mesh is part
-     * of how {@link AccretionDisk#setCompanion} takes it over. Run first, that would happen before
-     * the moon's own {@link Body#updateLOD} had run and be undone by it, and the position traced
+     * of how {@link AccretionDisk#setCompanions} takes it over. Run first, that would happen before
+     * the moons' own {@link Body#updateLOD} had run and be undone by it, and the positions traced
      * would be a frame stale besides. Every other body is unaffected either way.
+     *
+     * All of them, and in the order they were built, because which slot of the tracer a moon lands in
+     * has to be the same slot every frame; see {@link AccretionDisk#setCompanions}. The list is mapped
+     * once and kept, `children` being built by {@link Body#createChildren} and not touched afterwards.
      *
      * Note that this method reads `clockManager` as a bare global, which resolves
      * only because `solarSystem.js` assigns `window.clockManager` during startup.
@@ -698,9 +706,15 @@ class Body {
             BlackHoleEffects.updateShadowOccluder(this, SceneManager.camera);
 
             if (this.accretionDisk) {
+                if (!this.companionBodies) {
+                    this.companionBodies = (this.children || [])
+                        .map(childHierarchy => childHierarchy.body)
+                        .filter(Boolean);
+                }
+
                 this.accretionDisk.update(
                     clockManager.getEffectsDeltaTime(), SceneManager.camera, this.tiltContainer,
-                    this.children?.[0]?.body ?? null);
+                    this.companionBodies);
             }
 
             if (this.photonRing) {

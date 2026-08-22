@@ -124,6 +124,35 @@ const DISC_FLARE = 0.05;
 const SLAB_STEP = 0.75;
 
 /**
+ * How many bodies the tracer can draw along with the gas at once.
+ *
+ * A ceiling on the uniform arrays and on the loops that read them, and not a cost. What a companion
+ * costs is paid per ray that could reach it, and nearly no ray can: the plane test main() opens with
+ * throws out every pixel whose own path plane misses the sphere, which is all of the screen but a
+ * stripe through the hole and that companion's image. An empty slot is a comparison against a radius
+ * of zero, and a companion no ray is aimed near is the same comparison. What the ceiling itself costs
+ * is a few uniform slots apiece and a quad, and an empty quad is not submitted at all; see
+ * {@link AccretionDisk#releaseCompanion}.
+ *
+ * It has to be compiled in rather than counted at run time, because the arrays are sized with it and
+ * the loops over them are bounded by it, and GLSL requires both to be constant. Raising it is this
+ * line and a shader rebuild.
+ *
+ * A hole with more moons than this does not fail quietly, and what happens to the ones past the
+ * ceiling is worth stating because it is the whole reason the tracer takes them in the first place.
+ * They keep their own meshes, and a mesh at the hole is bent by {@link BodyLensPass}, whose
+ * deflection is scaled for a source infinitely far behind the hole — a fair approximation for every
+ * other body in the catalogue and a poor one for a moon a few dozen horizon radii out. So such a moon
+ * is left exactly on its orbit line while it is in front of the hole's centre plane, and displaced by
+ * several times the right amount from the moment it crosses it: the body appears to snap off its own
+ * line as it goes round the back. {@link AccretionDisk#setCompanions} logs when that is about to
+ * happen rather than leaving it to be found by looking.
+ *
+ * @type {number}
+ */
+const MAX_COMPANIONS = 4;
+
+/**
  * The most a step may travel towards a traced companion, as a fraction of its distance from it.
  *
  * A companion is a solid surface a few tenths of a radius across, twenty radii out, and the rays that
@@ -519,6 +548,13 @@ const _frameNormal = new THREE.Vector3();
 const _frameCorner = new THREE.Vector3();
 
 /**
+ * Stands in for a missing companion list, so that no companion is a frame with no allocation in it.
+ *
+ * @type {Body[]}
+ */
+const EMPTY_COMPANIONS = [];
+
+/**
  * Vertex shader for the accretion disc: a plain billboard.
  *
  * What is handed on is a point on the quad, which the fragment stage turns into a viewing ray —
@@ -656,6 +692,7 @@ const fragmentShaderMainCode = `
 #define COMPANION_STEP ${COMPANION_STEP.toFixed(4)}
 #define COMPANION_MIN_PATH ${COMPANION_MIN_PATH.toFixed(4)}
 #define COMPANION_AMBIENT ${COMPANION_AMBIENT.toFixed(4)}
+#define MAX_COMPANIONS ${MAX_COMPANIONS}
 
 uniform float uTime;
 uniform vec3 uCameraOffset;
@@ -676,12 +713,18 @@ uniform float uBeamingStrength;
 uniform samplerCube uSky;
 uniform float uSkyIntensity;
 uniform float uSkyFadeImpact;
-uniform vec3 uCompanionCentre;
-uniform float uCompanionRadius;
-uniform mat3 uCompanionToLocal;
-uniform vec3 uCompanionLight;
-uniform vec3 uCompanionLightColor;
-uniform sampler2D uCompanionTexture;
+uniform vec3 uCompanionCentre[MAX_COMPANIONS];
+uniform float uCompanionRadius[MAX_COMPANIONS];
+uniform mat3 uCompanionToLocal[MAX_COMPANIONS];
+uniform vec3 uCompanionLight[MAX_COMPANIONS];
+uniform vec3 uCompanionLightColor[MAX_COMPANIONS];
+uniform sampler2D uCompanionTexture[MAX_COMPANIONS];
+
+// Which of the companions this quad is the carrier for, and so the only one it draws. Only the
+// companion quads have one; see {@link AccretionDisk#createCompanionQuad}.
+#ifdef COMPANION_ONLY
+uniform int uQuadCompanion;
+#endif
 
 varying vec3 vDiscOffset;
 
@@ -715,6 +758,30 @@ float pathCurvature(in float w) {
 }
 
 /**
+ * Whether this ray's own path plane comes within a companion's radius of its centre.
+ *
+ * True where the ray could reach that companion and false where nothing it does can. A Schwarzschild
+ * path stays in the plane through the camera, the direction of travel and the hole's centre, so a
+ * sphere further from that plane than its own radius is unreachable however the path bends — one dot
+ * product, exact, and it is the whole of the cost control for the companions; see
+ * {@link AccretionDisk#createCompanionQuad}.
+ *
+ * An empty slot answers false without being asked separately, its radius being zero, which is why
+ * nothing else in the shader tests for one.
+ *
+ * Handed the sphere rather than an index into the uniform arrays, for the reason given at
+ * {@link companionSurface}: the caller reads the arrays at a loop index, where indexing them is
+ * something GLSL ES promises to support.
+ *
+ * @param radius The companion's radius, in horizon radii.
+ * @param centre Its centre, as an offset from the hole in the disc's frame.
+ * @param planeNormal Unit normal of the ray's path plane, in the disc's frame.
+ */
+bool companionReachable(in float radius, in vec3 centre, in vec3 planeNormal) {
+    return radius > abs(dot(centre, planeNormal));
+}
+
+/**
  * The colour of a traced companion's surface, at the point a ray struck it.
  *
  * The same surface {@link PlanetShaderMaterial} draws, computed the same way — an equirectangular
@@ -736,23 +803,53 @@ float pathCurvature(in float w) {
  * neighbours in the same branch and choose the level correctly.
  *
  * What is *not* here is any of the shadowing {@link PlanetShaderMaterial} does: no rings, and no
- * eclipses by other bodies. The one body in a position to eclipse this surface is the hole itself, and
- * the light reaching it is bent — a shadow the straight-line test could not find and this shader does
- * not follow the Sun's rays far enough to trace.
+ * eclipses by other bodies. The bodies in a position to eclipse this surface are the hole itself and the
+ * other companions, and the light reaching all of them is bent — a shadow the straight-line test could
+ * not find and this shader does not follow the Sun's rays far enough to trace. Blocking the *view* of a
+ * surface is a different question and is answered, since the march takes the first sphere the ray
+ * crosses whichever slot it belongs to; it is being lit that ignores the neighbours.
  *
+ * @param surface The companion's texture.
+ * @param toLocal Rotation from the disc's frame to the body's own.
+ * @param light Unit direction to the star, in the disc's frame.
+ * @param lightColor The star's colour.
  * @param normal Outward unit normal at the point struck, in the disc's frame.
  */
-vec3 companionSurface(in vec3 normal) {
-    vec3 local = uCompanionToLocal * normal;
+vec3 companionShade(in sampler2D surface, in mat3 toLocal, in vec3 light, in vec3 lightColor,
+        in vec3 normal) {
+    vec3 local = toLocal * normal;
 
     vec2 uv = vec2(
         fract(atan(local.z, -local.x) * 0.15915494),
         0.5 + asin(clamp(local.y, -1.0, 1.0)) * 0.31830989);
 
-    vec3 base = texture2D(uCompanionTexture, uv).rgb;
-    float hemisphere = max(dot(normal, uCompanionLight), 0.0);
+    vec3 base = texture2D(surface, uv).rgb;
+    float hemisphere = max(dot(normal, light), 0.0);
 
-    return base * uCompanionLightColor * (hemisphere + COMPANION_AMBIENT);
+    return base * lightColor * (hemisphere + COMPANION_AMBIENT);
+}
+
+/**
+ * Shades whichever companion the march found, chosen by a slot the march worked out.
+ *
+ * Written out once per slot against a literal index rather than indexing the uniform arrays with the
+ * value, because that value is not a constant-index-expression and GLSL ES 1.00 only *optionally*
+ * supports indexing a uniform array with one — mandatorily for a constant or a loop index, and for
+ * samplers not even then. So the array reads all happen here against literals and everything past this
+ * point is handed the values instead; see {@link companionShade} and {@link companionReachable}. What it
+ * costs is a comparison per slot on the one fragment in a frame that struck a surface, and the
+ * unwritable alternative is a lookup the driver is allowed to refuse to compile.
+ *
+ * @param index Which companion was struck; nothing is drawn for a slot outside the array.
+ * @param normal Outward unit normal at the point struck, in the disc's frame.
+ */
+vec3 companionSurface(in int index, in vec3 normal) {
+${Array.from({ length: MAX_COMPANIONS }, (unused, index) => `    if (index == ${index}) {
+        return companionShade(uCompanionTexture[${index}], uCompanionToLocal[${index}],
+            uCompanionLight[${index}], uCompanionLightColor[${index}], normal);
+    }`).join('\n')}
+
+    return vec3(0.0);
 }
 
 /**
@@ -988,28 +1085,37 @@ void main() {
     vec3 planeNormal = axis / axisLength;
     vec3 along = normalize(cross(planeNormal, outward));
 
-    // Whether this ray could reach the companion at all, which is worth settling before anything else
-    // because for all but a few of them it cannot. A Schwarzschild path stays in the plane it started
-    // in, and that plane passes through the hole's centre, so a companion further from the plane than
-    // its own radius is unreachable no matter how the path bends — one dot product, exact, and it
-    // rejects every pixel whose plane misses the sphere. What survives is a stripe of the screen
-    // running through the hole and the companion, since those are the planes that cut it.
+    // Whether this ray could reach any companion at all, which is worth settling before anything else
+    // because for all but a few of them it cannot; see {@link companionReachable}. What survives is a
+    // stripe of the screen running through the hole and each companion's image, since those are the
+    // planes that cut them.
     //
-    // Everything the companion costs is inside this flag: the sphere tracing that finds the surface,
-    // and the two limits below that stop the analytic shortcuts from jumping over it.
-    bool hasCompanion = uCompanionRadius > 0.0
-            && abs(dot(uCompanionCentre, planeNormal)) < uCompanionRadius;
+    // Everything the companions cost is inside this flag: the sphere tracing that finds a surface, and
+    // the two limits below that stop the analytic shortcuts from jumping over one. The loop itself is
+    // a dot product apiece over a fixed handful of slots, most of them usually empty; see
+    // {@link MAX_COMPANIONS}.
+    bool hasCompanion = false;
 
-// On the companion's own quad this same flag is the whole cost control, and it is why that quad can
-// be scaled generously: it draws nothing but the companion, so every pixel whose plane misses the
-// sphere has no reason to be traced at all and leaves here. What is left to march is the stripe;
-// see {@link AccretionDisk#createCompanionQuad}.
+    // How far out the reachable surfaces reach. The shortcuts have to stay outside all of them, so it
+    // is the furthest that binds — and only of the ones this ray can reach, since a companion whose
+    // plane this ray misses is not something the march has to stay short of.
+    float companionOuter = 0.0;
+
+    for (int i = 0; i < MAX_COMPANIONS; i++) {
+        if (!companionReachable(uCompanionRadius[i], uCompanionCentre[i], planeNormal)) continue;
+
+        hasCompanion = true;
+        companionOuter = max(companionOuter,
+            length(uCompanionCentre[i]) + uCompanionRadius[i]);
+    }
+
+// On a companion's own quad this same flag is the whole cost control, and it is why those quads can
+// be scaled generously: they draw nothing but a companion, so every pixel whose plane misses all of
+// them has no reason to be traced at all and leaves here. What is left to march is the stripe; see
+// {@link AccretionDisk#createCompanionQuad}.
 #ifdef COMPANION_ONLY
     if (!hasCompanion) discard;
 #endif
-
-    // How far out the companion's surface reaches. The shortcuts have to stay outside it.
-    float companionOuter = length(uCompanionCentre) + uCompanionRadius;
 
     // The disc's normal is (0, 1, 0) in this frame, so the height of the path above the disc is
     // just the y component of its position, and these two are all that is needed to find it.
@@ -1052,8 +1158,8 @@ void main() {
     bool skyOnly = cameraDistance > uOuterRadius
             && (wSlope < 0.0 || impact * impact > outerTurning);
 
-    // Kept when it could reach the companion, whatever the sky is doing. Without that this would throw
-    // away the companion outright wherever there is no sky to trace, since a ray that reaches a body
+    // Kept when it could reach a companion, whatever the sky is doing. Without that this would throw
+    // away the companions outright wherever there is no sky to trace, since a ray that reaches a body
     // orbiting outside the gas is a ray that cannot reach the gas — which is the whole of what this
     // test asks.
     if (skyOnly && !hasCompanion && (uSkyFadeImpact <= 0.0 || impact > uSkyFadeImpact)) {
@@ -1064,10 +1170,10 @@ void main() {
     // {@link STRAIGHT_PATH_SINE} and {@link ESCAPE_OUTER_FACTOR}.
     float escapeW = min(STRAIGHT_PATH_SINE / impact, 1.0 / (uOuterRadius * ESCAPE_OUTER_FACTOR));
 
-    // Not clear of the companion, though, and that is a separate radius. A ray on its way out is
+    // Not clear of the companions, though, and that is a separate radius. A ray on its way out is
     // finished only in the sense that nothing more will bend it; a solid surface further out still
     // stops it. Left alone this ends the march at ten radii and loses every hit on the outbound leg —
-    // the companion seen past the far side of the hole, which is half of the orbit it is traced through.
+    // a companion seen past the far side of the hole, which is half of the orbit it is traced through.
     if (hasCompanion) {
         escapeW = min(escapeW, 1.0 / companionOuter);
     }
@@ -1076,8 +1182,9 @@ void main() {
     float transmittance = 1.0;
     bool escaped = false;
 
-    // Whether this ray ended on the companion's surface, which is all the companion's own quad draws.
-    bool hitCompanion = false;
+    // Which companion's surface this ray ended on, and -1 for none. A companion quad draws nothing
+    // else, and nothing but its own; see {@link AccretionDisk#createCompanionQuad}.
+    int struckCompanion = -1;
 
     // The swept angle's sine and cosine, carried from one step to the next. Each step needs them at
     // both of its ends, and its start is the previous step's end, so computing them once where the
@@ -1097,12 +1204,12 @@ void main() {
     // path consistent to the last digit. Rays through the gas are left alone: they are few, they
     // matter most, and the straight run is the cheap part of them.
     //
-    // Stopped short of the companion where there is one in the way, because the run being skipped is a
-    // run the companion may be standing in. It is the same closed form evaluated at a nearer radius, so
+    // Stopped short of the companions where there is one in the way, because the run being skipped is a
+    // run one of them may be standing in. It is the same closed form evaluated at a nearer radius, so
     // nothing is approximated by moving the endpoint — but {@link straightSweep} diverges as the path
     // approaches its turning point, and the endpoint may only be moved while it is still safely short
     // of one. It is: this binds only for impact parameters between the outer turning point and about
-    // half the companion's distance, and across that whole band the sine at the new endpoint stays
+    // half the nearest companion's distance, and across that whole band the sine at the new endpoint stays
     // under a half, which is the value the closed form is stated for.
     float wStraight = STRAIGHT_PATH_SINE / impact;
 
@@ -1151,17 +1258,29 @@ void main() {
         // limit above would find: both are stated in the radius, and a small solid twenty radii out is
         // no distance at all in radius while being several steps long in path. So the step is held to a
         // fraction of the distance remaining to the surface and the march walks itself in; see
-        // {@link COMPANION_STEP}. Costs nothing on the rays whose plane misses it, which is nearly all
-        // of them, and where it does bind the limit relaxes again as the path draws away.
+        // {@link COMPANION_STEP}. Costs nothing on the rays whose plane misses them, which is nearly
+        // all of them, and where it does bind the limit relaxes again as the path draws away.
+        //
+        // The nearest surface is the one that sets the step, since a step short enough for that one is
+        // short enough for all of them, and a companion the path is still far from cannot lengthen a
+        // step the near one has shortened.
         vec3 previousPoint = vec3(0.0);
 
         if (hasCompanion) {
             previousPoint = previousRadius * (outward * cosAngle + along * sinAngle);
 
-            float gap = length(previousPoint - uCompanionCentre) - uCompanionRadius;
             float pathRate = sqrt(radialRate * radialRate + previousRadius * previousRadius);
 
-            h = min(h, max(COMPANION_STEP * gap, COMPANION_MIN_PATH) / max(pathRate, 1e-6));
+            // Taken against the step rather than against each other, which needs no starting value to
+            // beat: the limit is a rising function of the gap, so holding the step to the shortest of
+            // them one at a time leaves it where the nearest surface put it.
+            for (int i = 0; i < MAX_COMPANIONS; i++) {
+                if (!companionReachable(uCompanionRadius[i], uCompanionCentre[i], planeNormal)) continue;
+
+                float gap = length(previousPoint - uCompanionCentre[i]) - uCompanionRadius[i];
+
+                h = min(h, max(COMPANION_STEP * gap, COMPANION_MIN_PATH) / max(pathRate, 1e-6));
+            }
         }
 
         float k1w = wSlope;
@@ -1184,7 +1303,7 @@ void main() {
 
         float radius = 1.0 / w;
 
-        // Did the step run into the companion? The step's own chord against the sphere, which cannot
+        // Did the step run into a companion? The step's own chord against each sphere, which cannot
         // miss it the way a point sample can, and which the limit above has already made short enough
         // for the chord to stand for the arc.
         //
@@ -1201,36 +1320,62 @@ void main() {
         if (hasCompanion) {
             vec3 point = radius * (outward * cosAngle + along * sinAngle);
             vec3 leg = point - previousPoint;
-            vec3 offset = previousPoint - uCompanionCentre;
 
-            float legLength = dot(leg, leg);
-            float projection = dot(offset, leg);
-            float outside = dot(offset, offset) - uCompanionRadius * uCompanionRadius;
-            float determinant = projection * projection - legLength * outside;
+            // Floored because every solve below divides by it, and a step of no length is one the chord
+            // cannot describe in any case. What the floor leaves is the answer that step deserves: a
+            // sphere it is outside of misses, and a sphere it is already inside is struck at its start.
+            float legLength = max(dot(leg, leg), 1e-20);
 
-            if (determinant >= 0.0 && legLength > 1e-20) {
+            // The earliest crossing of the step, over every companion the ray could reach, since the
+            // first surface met is the one that stops the ray and the others are behind it. Held as a
+            // fraction of the step, past the far end of it until something is found.
+            float nearest = 1.0;
+            int found = -1;
+
+            // The winner's centre, kept as the loop goes rather than looked up by the winning slot
+            // afterwards, for the reason given at {@link companionSurface}: here the array is read at
+            // the loop's own index, which is the form of indexing GLSL ES promises to compile.
+            vec3 hitCentre = vec3(0.0);
+
+            for (int i = 0; i < MAX_COMPANIONS; i++) {
+                if (!companionReachable(uCompanionRadius[i], uCompanionCentre[i], planeNormal)) continue;
+
+                vec3 offset = previousPoint - uCompanionCentre[i];
+
+                float projection = dot(offset, leg);
+                float outside = dot(offset, offset) - uCompanionRadius[i] * uCompanionRadius[i];
+                float determinant = projection * projection - legLength * outside;
+
+                if (determinant < 0.0) continue;
+
                 // The nearer of the two crossings, as a fraction of the step. A step that begins inside
                 // the sphere is struck where it begins, which is the floor above having overstepped.
                 float hit = outside < 0.0
                     ? 0.0
                     : (-projection - sqrt(determinant)) / legLength;
 
-                if (hit >= 0.0 && hit <= 1.0) {
-                    // Put the crossing back on the path. It was solved against the chord, so what is
-                    // exact about it is the fraction rather than the position, and the fraction is
-                    // therefore what is kept — the point itself read from the arc at that fraction,
-                    // the same way the gas sample is positioned and for the same reason.
-                    float hitAngle = angle - h * (1.0 - hit);
-                    float hitRadius = mix(previousRadius, radius, hit);
-                    vec3 struck = hitRadius * (outward * cos(hitAngle) + along * sin(hitAngle));
+                if (hit < 0.0 || hit > nearest) continue;
 
-                    accumulated += transmittance
-                        * companionSurface(normalize(struck - uCompanionCentre));
-                    transmittance = 0.0;
-                    hitCompanion = true;
+                nearest = hit;
+                found = i;
+                hitCentre = uCompanionCentre[i];
+            }
 
-                    break;
-                }
+            if (found >= 0) {
+                // Put the crossing back on the path. It was solved against the chord, so what is
+                // exact about it is the fraction rather than the position, and the fraction is
+                // therefore what is kept — the point itself read from the arc at that fraction,
+                // the same way the gas sample is positioned and for the same reason.
+                float hitAngle = angle - h * (1.0 - nearest);
+                float hitRadius = mix(previousRadius, radius, nearest);
+                vec3 struck = hitRadius * (outward * cos(hitAngle) + along * sin(hitAngle));
+
+                accumulated += transmittance * companionSurface(found,
+                    normalize(struck - hitCentre));
+                transmittance = 0.0;
+                struckCompanion = found;
+
+                break;
             }
         }
 
@@ -1367,7 +1512,7 @@ void main() {
     // thousandth of one. None of that is anywhere in the frame to be moved there. Following the path
     // is the only way to have it, and it comes out agreeing with the silhouette by construction,
     // because the silhouette is where these same paths stop coming back.
-// The companion's quad has no sky to add and no business adding one. Everything it draws ended on a
+// A companion's quad has no sky to add and no business adding one. Everything it draws ended on a
 // surface, so no ray of its escaped, so every one of these would be multiplied by zero — and the fetch
 // itself is worth skipping, being a cube map sampled through a derivative on a quad whose neighbours
 // are mostly discarded.
@@ -1420,8 +1565,14 @@ void main() {
 // it never escaped, and the alpha above reads that as an opaque fragment. The gas it crossed on the way
 // is in the colour, which is the whole point of drawing the body from a marched path rather than as a
 // mesh; see {@link AccretionDisk#setCompanion}.
+//
+// And nothing but this quad's own body, which is what keeps a quad's depth honest: every quad traces
+// every companion, so a ray that ends on a nearer one is correctly stopped there, but the depth this
+// quad writes is its own body's plane and would be wrong for anybody else's. The pixel is not lost by
+// being dropped here — the body it belongs to has a quad of its own covering it, and the hole's quad
+// traces all of them; see {@link AccretionDisk#createCompanionQuad}.
 #ifdef COMPANION_ONLY
-    if (!hitCompanion) discard;
+    if (struckCompanion != uQuadCompanion) discard;
 #endif
 
     if (alpha < 0.002) discard;
@@ -1664,10 +1815,12 @@ function frustumExtent(camera, centre) {
  *
  * A body orbiting inside the lensing is drawn by the same argument taken one step further: its surface
  * is marched along with the gas rather than left to its own mesh, so it is bent, doubled and eclipsed
- * by the same paths and not by a second set of rules; see {@link AccretionDisk#setCompanion}. That is
- * the reason there are two billboards here rather than one. A quad is only a supply of pixels to trace
- * from — the ray depends on the pixel and not on the quad — and a quad at the hole cannot supply the
- * pixels a body has when the camera is beside it; see {@link AccretionDisk#createCompanionQuad}.
+ * by the same paths and not by a second set of rules; see {@link AccretionDisk#setCompanion}. Each such
+ * body brings a billboard of its own, which is why there are several here rather than one. A quad is
+ * only a supply of pixels to trace from — the ray depends on the pixel and not on the quad — and a quad
+ * at the hole cannot supply the pixels a body has when the camera is beside it; see
+ * {@link AccretionDisk#createCompanionQuad}. How many there can be is {@link MAX_COMPANIONS}, and the
+ * ones a scene does not use cost it a hidden mesh apiece.
  *
  * Follows {@link SunCorona}'s shape — a mesh, a material and an `update` — rather than extending
  * {@link SunEffect}, which is built around a star's radius and colour temperature.
@@ -1715,9 +1868,10 @@ class AccretionDisk {
 
         this.mesh = this.createDiskMesh(options);
 
-        // Second carrier of the same trace, for the companion's own corner of the screen; built here
-        // because it shares the disc's uniforms and so cannot exist before them.
-        this.companionQuad = this.createCompanionQuad();
+        // Further carriers of the same trace, one for each companion's own corner of the screen; built
+        // here because they share the disc's uniforms and so cannot exist before them.
+        this.companionQuads = Array.from({ length: MAX_COMPANIONS },
+            (unused, index) => this.createCompanionQuad(index));
 
         this.time = 0;
 
@@ -1725,10 +1879,13 @@ class AccretionDisk {
         // the disc is built before it is parented and there is nothing to look at yet.
         this.tracesSky = false;
 
-        // The mesh {@link AccretionDisk#setCompanion} has hidden and the pinpoint hidden with it, so
-        // that only those are shown again; null when there is no companion.
-        this.companionMesh = null;
-        this.companionPinpoint = null;
+        // Per companion, the mesh {@link AccretionDisk#setCompanion} has hidden and the pinpoint
+        // hidden with it, so that only those are shown again; null in a slot with nothing traced in it.
+        this.companionMeshes = new Array(MAX_COMPANIONS).fill(null);
+        this.companionPinpoints = new Array(MAX_COMPANIONS).fill(null);
+
+        // Whether the overflow warning has been given; see {@link AccretionDisk#setCompanions}.
+        this.warnedOverflow = false;
     }
 
     /**
@@ -1801,7 +1958,7 @@ class AccretionDisk {
             uTime: { value: 0.0 },
             uCameraOffset: { value: new THREE.Vector3() },
 
-            // Zero for the disc's own quad, and left zero: the companion's quad overrides this one
+            // Zero for the disc's own quad, and left zero: each companion quad overrides this one
             // uniform with a copy of its own; see {@link AccretionDisk#createCompanionMaterial}.
             uQuadOffset: { value: new THREE.Vector3() },
 
@@ -1829,12 +1986,24 @@ class AccretionDisk {
             uSky: { value: null },
             uSkyIntensity: { value: 0.0 },
             uSkyFadeImpact: { value: 0.0 },
-            uCompanionCentre: { value: new THREE.Vector3() },
-            uCompanionRadius: { value: 0.0 },
-            uCompanionToLocal: { value: new THREE.Matrix3() },
-            uCompanionLight: { value: new THREE.Vector3(1.0, 0.0, 0.0) },
-            uCompanionLightColor: { value: new THREE.Color(0xffffff) },
-            uCompanionTexture: { value: null }
+            // One entry per slot the tracer has, empty until something is put in it; see
+            // {@link MAX_COMPANIONS}. A radius of zero is what an empty slot is recognised by, in the
+            // shader and here alike.
+            uCompanionCentre: {
+                value: Array.from({ length: MAX_COMPANIONS }, () => new THREE.Vector3())
+            },
+            uCompanionRadius: { value: new Array(MAX_COMPANIONS).fill(0.0) },
+            uCompanionToLocal: {
+                value: Array.from({ length: MAX_COMPANIONS }, () => new THREE.Matrix3())
+            },
+            uCompanionLight: {
+                value: Array.from({ length: MAX_COMPANIONS },
+                    () => new THREE.Vector3(1.0, 0.0, 0.0))
+            },
+            uCompanionLightColor: {
+                value: Array.from({ length: MAX_COMPANIONS }, () => new THREE.Color(0xffffff))
+            },
+            uCompanionTexture: { value: new Array(MAX_COMPANIONS).fill(null) }
         };
 
         this.uniforms = uniforms;
@@ -1855,15 +2024,15 @@ class AccretionDisk {
     /**
      * Builds the quad that carries a traced companion.
      *
-     * A second billboard, centred on the companion instead of on the hole, running the same shader with
-     * {@link COMPANION_ONLY} defined. It exists because of one property of the tracer that took a while
-     * to see: the ray a fragment follows is `normalize(target - origin)`, where `target` is the quad
-     * point and `origin` the camera, so it is the ray *through that pixel* and nothing about it depends
-     * on which quad supplied the fragment. Two quads that overlap therefore produce identical pixels —
-     * identical colour and an alpha of one, which composites idempotently — and the only thing a quad
-     * decides is which pixels get a ray at all.
+     * A further billboard, centred on that companion instead of on the hole, running the same shader
+     * with {@link COMPANION_ONLY} defined. It exists because of one property of the tracer that took a
+     * while to see: the ray a fragment follows is `normalize(target - origin)`, where `target` is the
+     * quad point and `origin` the camera, so it is the ray *through that pixel* and nothing about it
+     * depends on which quad supplied the fragment. Quads that overlap therefore produce identical
+     * pixels — identical colour and an alpha of one, which composites idempotently — and the only thing
+     * a quad decides is which pixels get a ray at all.
      *
-     * Which is what makes a second quad the answer. The disc's quad is a plane through the hole's centre
+     * Which is what makes a quad apiece the answer. The disc's quad is a plane through the hole's centre
      * facing the camera, and however large it is made, the directions it carries all lie within a right
      * angle of the line from the camera to the hole; sized to the viewport, within about forty degrees
      * of it. A camera near the companion sees the hole far off to one side, so the companion's own image
@@ -1878,7 +2047,17 @@ class AccretionDisk {
      * it however the path bends, and on this quad there is nothing else to draw: it leaves on a dot
      * product, before any marching. What survives is a stripe through the hole and the companion. The
      * same holds for a ray whose plane cuts the sphere but which ends somewhere else, discarded at the
-     * far end of the shader on `hitCompanion`.
+     * far end of the shader on `struckCompanion`.
+     *
+     * Every quad traces every companion, and each draws only its own — which is `uQuadCompanion`, the
+     * one uniform besides the offset that a quad owns rather than shares. Both halves of that are
+     * needed. Tracing all of them is what makes one body correctly hide another: the march stops at the
+     * first surface the ray meets, so a nearer companion ends the ray and the further one is simply
+     * never reached, which no arrangement of depths between two quads could arrange for two bodies at
+     * the same depth on opposite sides of the hole. Drawing only its own is what keeps the depth honest,
+     * since the depth a quad writes is its own body's plane and would be wrong under anybody else's
+     * surface. Nothing is lost to the discard: the body that *was* struck has a quad of its own covering
+     * where its image can be, and the hole's quad traces all of them without any such restriction.
      *
      * Depth tested, and the test does no harm where it bites. The shadow's occluder writes depth a hair
      * behind the hole's centre, so where this quad is beyond the hole its fragments inside the
@@ -1908,12 +2087,13 @@ class AccretionDisk {
      * higher render order still, so it is drawn after this and against the depth this wrote — over the
      * body where the body is behind the hole, and behind it where it is in front.
      *
-     * @returns {THREE.Mesh} The companion's quad, hidden until there is a companion to trace.
+     * @param {number} index - Which companion slot this quad carries; see {@link MAX_COMPANIONS}.
+     * @returns {THREE.Mesh} The quad, hidden until there is a companion in that slot to trace.
      */
-    createCompanionQuad() {
+    createCompanionQuad(index) {
         const geometry = new THREE.PlaneGeometry(1, 1);
 
-        const mesh = new THREE.Mesh(geometry, this.createCompanionMaterial());
+        const mesh = new THREE.Mesh(geometry, this.createCompanionMaterial(index));
         mesh.renderOrder = OVERLAY_RENDER_ORDER;
         mesh.frustumCulled = false;
         mesh.visible = false;
@@ -1922,12 +2102,16 @@ class AccretionDisk {
     }
 
     /**
-     * Builds the companion quad's material.
+     * Builds a companion quad's material.
      *
      * The disc's uniforms, shared rather than copied — the same uniform objects in a new outer record —
-     * so that everything {@link AccretionDisk#update} writes once is seen by both materials and the two
-     * cannot describe different photon paths. The one exception is `uQuadOffset`, which is where the two
-     * quads differ and so is the one uniform this material owns; see {@link vertexShader}.
+     * so that everything {@link AccretionDisk#update} writes once is seen by every material and no two
+     * of them can describe different photon paths. The exceptions are the two uniforms a quad owns
+     * rather than shares: `uQuadOffset`, which is where it is, and `uQuadCompanion`, which is whose it
+     * is; see {@link vertexShader} and {@link AccretionDisk#createCompanionQuad}.
+     *
+     * All of the companion quads therefore compile to one program, the index being a uniform rather
+     * than a define, which is what keeps the ceiling on their number free of anything but memory.
      *
      * Transparent with premultiplied alpha, like the disc without a sky, although every fragment that
      * survives here has an alpha of exactly one and would composite the same way unblended. It is set
@@ -1940,11 +2124,16 @@ class AccretionDisk {
      * not an opaque surface. Every fragment that would have been the gas, the sky or empty space has
      * already been discarded; see {@link AccretionDisk#createCompanionQuad}.
      *
-     * @returns {THREE.ShaderMaterial} The companion's material.
+     * @param {number} index - Which companion slot the quad carries; see {@link MAX_COMPANIONS}.
+     * @returns {THREE.ShaderMaterial} The quad's material.
      */
-    createCompanionMaterial() {
+    createCompanionMaterial(index) {
         return new THREE.ShaderMaterial({
-            uniforms: { ...this.uniforms, uQuadOffset: { value: new THREE.Vector3() } },
+            uniforms: {
+                ...this.uniforms,
+                uQuadOffset: { value: new THREE.Vector3() },
+                uQuadCompanion: { value: index }
+            },
             defines: { COMPANION_ONLY: '' },
             vertexShader,
             fragmentShader: ShaderLoader.createFragmentShader(fragmentShaderMainCode),
@@ -1989,12 +2178,12 @@ class AccretionDisk {
      * @param {THREE.Object3D} discFrame - Object whose local `xz` plane is the disc's plane and
      *   whose origin is the hole's centre, normally the body's tilt container. The origin has to be
      *   the billboard's as well, since that is what the quad's corners are offsets from.
-     * @param {Body|null} [companion=null] - A body orbiting the hole closely enough to be drawn by the
-     *   tracer rather than by its own mesh, throughout its orbit; see
-     *   {@link AccretionDisk#setCompanion}.
+     * @param {Body[]|null} [companions=null] - The bodies orbiting the hole closely enough to be drawn
+     *   by the tracer rather than by their own meshes, throughout their orbits; see
+     *   {@link AccretionDisk#setCompanions}. Order matters and must be stable from frame to frame.
      * @returns {void}
      */
-    update(deltaTime, camera, discFrame, companion = null) {
+    update(deltaTime, camera, discFrame, companions = null) {
         this.time += deltaTime;
         this.uniforms.uTime.value = this.time;
 
@@ -2024,7 +2213,7 @@ class AccretionDisk {
             _basisZ.x, _basisZ.y, _basisZ.z
         );
 
-        this.setCompanion(companion, camera);
+        this.setCompanions(companions, camera);
         this.bindSky();
 
         // Sizes, positions and aims the quad together, because in the views where no plane through the
@@ -2033,7 +2222,50 @@ class AccretionDisk {
     }
 
     /**
-     * Hands the tracer a body to draw along with the gas.
+     * Hands the tracer every body that orbits inside the lensing.
+     *
+     * The whole list, in one call, rather than a body at a time, because what the slots hold has to be
+     * decided against the list as a whole: a slot left alone is a slot still tracing last frame's body,
+     * and the mesh of a body dropped from the list stays hidden until something tells it otherwise. So
+     * the slots are walked to the ceiling and each is given the body at its own index or nothing, which
+     * makes a shortened list release exactly the slots it no longer fills.
+     *
+     * Order matters, and the caller's order is used as it stands rather than sorted into one of this
+     * class's choosing. Which slot a body lands in decides which quad is aimed at it, and a body that
+     * changes slot between frames is a body whose hysteresis state — kept per slot, as the hidden mesh —
+     * is read from a slot that was tracing something else, which is the flicker
+     * {@link COMPANION_SWITCH_MARGIN} exists to prevent. A caller handing over a parent's children in
+     * array order gets that stability for free, which is why nothing more is asked of it.
+     *
+     * Past the ceiling the extra bodies are dropped, and loudly: silence there looks exactly like the
+     * bug described at {@link MAX_COMPANIONS}, a moon snapping off its own orbit line as it passes behind
+     * the hole, and that is not a thing to leave to be found by looking. Once per disc, because it is a
+     * property of the scene's data rather than of the frame and every frame would say the same.
+     *
+     * @param {Body[]|null} companions - The bodies to trace, or null or empty to trace none. Each needs
+     *   what {@link AccretionDisk#setCompanion} asks of it; ones that do not qualify are dropped
+     *   individually and do not shift the others along.
+     * @param {THREE.PerspectiveCamera} camera - Camera the disc is drawn for, passed through.
+     * @returns {void}
+     */
+    setCompanions(companions, camera) {
+        const list = companions || EMPTY_COMPANIONS;
+
+        if (list.length > MAX_COMPANIONS && !this.warnedOverflow) {
+            this.warnedOverflow = true;
+            log.warn('AccretionDisk',
+                `${list.length} bodies orbit inside the lensing and only ${MAX_COMPANIONS} can be `
+                + 'traced; the rest will snap off their orbit lines behind the hole. '
+                + 'Raise MAX_COMPANIONS.');
+        }
+
+        for (let index = 0; index < MAX_COMPANIONS; index++) {
+            this.setCompanion(index, list[index] || null, camera);
+        }
+    }
+
+    /**
+     * Hands one of the tracer's slots a body to draw along with the gas.
      *
      * A body orbiting this close cannot be drawn as a mesh and be right. The quad is composited under
      * the scene and writes no depth, so its own mesh draws over the gas and over the lensing whatever
@@ -2114,6 +2346,14 @@ class AccretionDisk {
      * a world position that has been through a float32 uniform is quantised to a tenth of a radius, and
      * the tracer is being asked to place a body a third of a radius across.
      *
+     * A slot rather than a list, because everything above is per body: the quad is aimed at one body, the
+     * pixel test asks after one body's apparent size, and the hysteresis that test carries is the memory
+     * of what this slot was tracing last frame. The shader is the only place the companions meet, and it
+     * meets them all in every ray — which is what gives them the right occlusion of each other, since the
+     * nearest surface a ray crosses wins whichever slot it came from. Slots are independent here and only
+     * there; see {@link AccretionDisk#setCompanions} for why the caller's ordering must be stable.
+     *
+     * @param {number} index - Which slot to fill; see {@link MAX_COMPANIONS}.
      * @param {Body|null} companion - The body to trace, or null to trace none. Needs a `mesh`, a
      *   `radius` in scene units and a `material` carrying the surface texture and lighting.
      * @param {THREE.PerspectiveCamera} camera - Camera the disc is drawn for, to aim and size the
@@ -2121,7 +2361,7 @@ class AccretionDisk {
      *   frame's, which {@link AccretionDisk#update} sees to before calling.
      * @returns {void}
      */
-    setCompanion(companion, camera) {
+    setCompanion(index, companion, camera) {
         const mesh = companion ? companion.mesh : null;
         const material = companion ? companion.material : null;
         const texture = material && material.uniforms && material.uniforms.surfaceTexture
@@ -2129,7 +2369,7 @@ class AccretionDisk {
             : null;
 
         if (!mesh || !companion.radius || !texture || !camera) {
-            this.releaseCompanion();
+            this.releaseCompanion(index);
             return;
         }
 
@@ -2149,14 +2389,14 @@ class AccretionDisk {
         // Stiffer to enter than to leave, which is what keeps a camera flying along the threshold from
         // switching every few frames; see {@link COMPANION_SWITCH_MARGIN}. Already tracing *this* body is
         // the state, and the hidden mesh is where it is kept.
-        const margin = this.companionMesh === mesh ? 1.0 : COMPANION_SWITCH_MARGIN;
+        const margin = this.companionMeshes[index] === mesh ? 1.0 : COMPANION_SWITCH_MARGIN;
 
         // Is the surface worth having, or is this a view the pinpoint should keep? The body's apparent
         // diameter against the angle one pixel covers, both in radians; see {@link COMPANION_MIN_PIXELS}.
         const pixelAngle = THREE.MathUtils.degToRad(camera.fov) / Math.max(window.innerHeight, 1);
 
         if (2.0 * companion.radius < COMPANION_MIN_PIXELS * margin * pixelAngle * range) {
-            this.releaseCompanion();
+            this.releaseCompanion(index);
             return;
         }
 
@@ -2187,28 +2427,30 @@ class AccretionDisk {
         // shader does not read it.
         _quadCentre.copy(_viewAxis).multiplyScalar(shift / Math.max(range, 1e-12)).add(_companionOffset);
 
-        this.companionQuad.material.uniforms.uQuadOffset.value.copy(_quadCentre);
+        const quad = this.companionQuads[index];
 
-        this.companionQuad.updateWorldMatrix(true, false);
+        quad.material.uniforms.uQuadOffset.value.copy(_quadCentre);
+
+        quad.updateWorldMatrix(true, false);
 
         _quadCentre.add(_centre);
-        if (this.companionQuad.parent) {
-            this.companionQuad.parent.worldToLocal(_quadCentre);
+        if (quad.parent) {
+            quad.parent.worldToLocal(_quadCentre);
         }
-        this.companionQuad.position.copy(_quadCentre);
-        this.companionQuad.lookAt(camera.position);
+        quad.position.copy(_quadCentre);
+        quad.lookAt(camera.position);
 
-        this.companionQuad.scale.set(2.0 * width * scale, 2.0 * width * scale, 1.0);
-        this.companionQuad.visible = true;
+        quad.scale.set(2.0 * width * scale, 2.0 * width * scale, 1.0);
+        quad.visible = true;
 
         const toDisc = this.uniforms.uToDisc.value;
 
-        this.uniforms.uCompanionCentre.value
+        this.uniforms.uCompanionCentre.value[index]
             .copy(_companionOffset)
             .applyMatrix3(toDisc)
             .divideScalar(this.horizonRadius);
 
-        this.uniforms.uCompanionRadius.value = companion.radius / this.horizonRadius;
+        this.uniforms.uCompanionRadius.value[index] = companion.radius / this.horizonRadius;
 
         // The body's own axes, each expressed in the disc's frame, as the rows of the matrix — which
         // makes it the rotation from the frame the tracer works in to the frame the texture is wrapped
@@ -2220,19 +2462,19 @@ class AccretionDisk {
         _companionY.normalize().applyMatrix3(toDisc);
         _companionZ.normalize().applyMatrix3(toDisc);
 
-        this.uniforms.uCompanionToLocal.value.set(
+        this.uniforms.uCompanionToLocal.value[index].set(
             _companionX.x, _companionX.y, _companionX.z,
             _companionY.x, _companionY.y, _companionY.z,
             _companionZ.x, _companionZ.y, _companionZ.z
         );
 
-        this.uniforms.uCompanionLight.value
+        this.uniforms.uCompanionLight.value[index]
             .copy(material.lightDirection)
             .applyMatrix3(toDisc)
             .normalize();
 
-        this.uniforms.uCompanionLightColor.value.copy(material.lightColor);
-        this.uniforms.uCompanionTexture.value = texture;
+        this.uniforms.uCompanionLightColor.value[index].copy(material.lightColor);
+        this.uniforms.uCompanionTexture.value[index] = texture;
 
         // And its pinpoint with it, which is not a detail. The pinpoint stands in for a body too far
         // off to draw, and it is only ever invisible because it sits at the body's own centre with the
@@ -2242,10 +2484,11 @@ class AccretionDisk {
         // the hole, while the surface beside it is being traced along the actual geodesics — which
         // draws the moon's pinpoint outside the moon.
         mesh.visible = false;
-        this.companionMesh = mesh;
+        this.companionMeshes[index] = mesh;
 
-        this.companionPinpoint = companion.pinpointMesh || null;
-        if (this.companionPinpoint) this.companionPinpoint.visible = false;
+        const pinpoint = companion.pinpointMesh || null;
+        this.companionPinpoints[index] = pinpoint;
+        if (pinpoint) pinpoint.visible = false;
     }
 
     /**
@@ -2257,25 +2500,47 @@ class AccretionDisk {
      * every frame there is no companion to trace, or the view will not let it be traced, so it has to be
      * cheap and idempotent, and is.
      *
-     * The companion's quad is hidden as well as being told there is no companion. Either alone would do —
+     * The slot's quad is hidden as well as being told there is no companion. Either alone would do —
      * with `uCompanionRadius` at zero every fragment of that quad discards on the plane test — and doing
      * both means the geometry is not submitted at all in the ordinary case, which is every frame of the
      * scene in which nothing is orbiting inside the lensing.
      *
+     * The texture is dropped along with the radius, which is worth the line it costs even though the
+     * shader will not sample a sphere it cannot reach: a slot holding a texture holds the body's whole
+     * surface, and a disc that outlives the body it was tracing would keep it from being freed.
+     *
+     * @param {number} index - Which slot to empty; see {@link MAX_COMPANIONS}.
      * @returns {void}
      */
-    releaseCompanion() {
-        this.uniforms.uCompanionRadius.value = 0.0;
-        this.companionQuad.visible = false;
+    releaseCompanion(index) {
+        this.uniforms.uCompanionRadius.value[index] = 0.0;
+        this.uniforms.uCompanionTexture.value[index] = null;
+        this.companionQuads[index].visible = false;
 
-        if (this.companionMesh) {
-            this.companionMesh.visible = true;
-            this.companionMesh = null;
+        const mesh = this.companionMeshes[index];
+        if (mesh) {
+            mesh.visible = true;
+            this.companionMeshes[index] = null;
         }
 
-        if (this.companionPinpoint) {
-            this.companionPinpoint.visible = true;
-            this.companionPinpoint = null;
+        const pinpoint = this.companionPinpoints[index];
+        if (pinpoint) {
+            pinpoint.visible = true;
+            this.companionPinpoints[index] = null;
+        }
+    }
+
+    /**
+     * Empties every slot, giving all of the traced bodies back to their own meshes.
+     *
+     * For the cases that are about the disc rather than about a body: being disposed of, or being handed
+     * no companions at all. Slot by slot, so that each body is given back exactly what was taken from it.
+     *
+     * @returns {void}
+     */
+    releaseCompanions() {
+        for (let index = 0; index < MAX_COMPANIONS; index++) {
+            this.releaseCompanion(index);
         }
     }
 
@@ -2399,10 +2664,10 @@ class AccretionDisk {
         const skyExtent = planeExtent(this.uniforms.uSkyFadeImpact.value * this.horizonRadius,
             distance);
 
-        // A traced companion asks nothing of this quad, which is worth a line since it is the one thing
-        // traced here that this quad does not carry. It orbits well outside the gas, so no plane through
-        // the hole's centre is a reliable way to reach it — stretching this one to try is expensive and,
-        // for a camera near the companion, impossible. It has a quad of its own; see
+        // The traced companions ask nothing of this quad, which is worth a line since they are the one
+        // thing traced here that this quad is not sized for. They orbit well outside the gas, so no plane
+        // through the hole's centre is a reliable way to reach them — stretching this one to try is
+        // expensive and, for a camera near one of them, impossible. Each has a quad of its own; see
         // {@link AccretionDisk#createCompanionQuad}.
         const extent = Math.max(discExtent, skyExtent);
 
@@ -2501,16 +2766,19 @@ class AccretionDisk {
     /**
      * Parents the disc to another object.
      *
-     * The companion's quad goes to the same parent, and has to: its corners are handed to the shader as
-     * offsets from that parent's origin, which is the hole's centre; see {@link vertexShader}. It is
-     * hidden until there is something to trace.
+     * The companions' quads go to the same parent, and have to: their corners are handed to the shader as
+     * offsets from that parent's origin, which is the hole's centre; see {@link vertexShader}. Each is
+     * hidden until there is something for its slot to trace, which for most scenes is all of them for
+     * ever — an added-but-hidden mesh costs the renderer a visibility test.
      *
      * @param {THREE.Object3D} parent - Object to add the meshes to.
      * @returns {void}
      */
     addToScene(parent) {
         parent.add(this.mesh);
-        parent.add(this.companionQuad);
+        for (const quad of this.companionQuads) {
+            parent.add(quad);
+        }
         log.debug('AccretionDisk', 'Accretion disc added to scene');
     }
 
@@ -2526,13 +2794,13 @@ class AccretionDisk {
     /**
      * Every mesh the disc draws with, for a caller that has to treat all of them alike.
      *
-     * Which is what the layers are: both quads run the same tracer, so both are already lensed and
-     * neither may be lensed again; see {@link BlackHoleEffects.markUnlensed}.
+     * Which is what the layers are: every quad runs the same tracer, so every one of them is already
+     * lensed and none may be lensed again; see {@link BlackHoleEffects.markUnlensed}.
      *
-     * @returns {THREE.Mesh[]} The disc's quad and the companion's.
+     * @returns {THREE.Mesh[]} The disc's quad and the companions'.
      */
     getMeshes() {
-        return [this.mesh, this.companionQuad];
+        return [this.mesh, ...this.companionQuads];
     }
 
     /**
@@ -2546,8 +2814,8 @@ class AccretionDisk {
      * there is little left to win much beyond 1.0 and the way back down gets expensive quickly.
      *
      * Takes effect on the next frame and needs no rebuild, which is the point of it being a uniform:
-     * it is meant to be turned while watching the disc. Both quads see it, since the companion's
-     * material shares this one's uniform objects; see {@link AccretionDisk#createCompanionMaterial}.
+     * it is meant to be turned while watching the disc. Every quad sees it, since the companions'
+     * materials share this one's uniform objects; see {@link AccretionDisk#createCompanionMaterial}.
      *
      * Non-finite and non-positive values are refused rather than clamped. A step of zero does not
      * make a very accurate disc, it makes a march that cannot advance while it is anywhere near the
@@ -2579,18 +2847,20 @@ class AccretionDisk {
     }
 
     /**
-     * Releases both quads' geometry and materials and unparents them.
+     * Releases every quad's geometry and material and unparents them.
      *
-     * The two materials share their uniforms, so the textures the uniforms hold are not this class's to
-     * free from either — they belong to the skybox and to the companion's own material — and disposing a
-     * `ShaderMaterial` does not touch them.
+     * The materials share their uniforms, so the textures the uniforms hold are not this class's to free
+     * from any of them — they belong to the skybox and to the companions' own materials — and disposing a
+     * `ShaderMaterial` does not touch them. What is given back rather than freed is the traced bodies'
+     * own meshes, which are hidden while traced and would stay hidden after the disc that hid them is
+     * gone.
      *
      * @returns {void}
      */
     dispose() {
-        this.releaseCompanion();
+        this.releaseCompanions();
 
-        for (const mesh of [this.mesh, this.companionQuad]) {
+        for (const mesh of [this.mesh, ...this.companionQuads]) {
             if (mesh.geometry) {
                 mesh.geometry.dispose();
             }
