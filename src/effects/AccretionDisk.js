@@ -124,6 +124,42 @@ const DISC_FLARE = 0.05;
 const SLAB_STEP = 0.75;
 
 /**
+ * Radial distance, in horizon radii, over which the gas pattern makes one pass through the noise.
+ *
+ * The size of a filament is set by the gas, not by where the disc has been cut off, so this is an
+ * absolute distance rather than a fraction of the disc's span. Keying it to the span instead — which
+ * is what the shader did while the span was the only radial parameter it had — ties the pattern's
+ * scale to `uOuterRadius`, so moving the outer edge out stretches every filament radially along with
+ * it and a wider disc is a coarser one. Anchored here, widening the disc adds filaments instead of
+ * enlarging them.
+ *
+ * The value is the span the numbers were tuned at, an ISCO at 3 radii out to an edge at 7, so the
+ * gas reads exactly as it did before the two were separated. It is also what the band limit divides
+ * a sample's footprint by; the two have to agree or the filter is filtering the wrong frequency.
+ *
+ * @type {number}
+ */
+const GAS_RADIAL_SCALE = 4.0;
+
+/**
+ * Where the temperature gradient reaches the outer colour, as a multiple of the inner edge.
+ *
+ * Temperature falls as `r^(-3/4)` from the inner edge, so what colour the gas is depends on how far
+ * out it is *relative to that edge* and not on how much disc there happens to be. Stating it as a
+ * ratio is what makes the gradient survive a change to either radius: the inner edge stays at the
+ * inner colour, {@link CELESTIAL_DATA}'s `outerColor` is reached at this multiple of it, and anything
+ * further out is gas past the end of the gradient rather than a reason to restretch it.
+ *
+ * That distinction is the whole point. Normalised across the disc's span — again, what the shader did
+ * when the span was all it had — pushing the outer edge from 7 radii to 12 does not add cool gas at
+ * the rim, it drags the gradient outwards and reheats everything inside it, turning the inner disc
+ * white. The ratio here, 7/3, is the span the colours were picked at.
+ *
+ * @type {number}
+ */
+const COLOR_OUTER_RATIO = 7.0 / 3.0;
+
+/**
  * How many bodies the tracer can draw along with the gas at once.
  *
  * A ceiling on the uniform arrays and on the loops that read them, and not a cost. What a companion
@@ -682,6 +718,8 @@ const fragmentShaderMainCode = `
 #define ANGLE_STEP ${ANGLE_STEP.toFixed(4)}
 #define RADIAL_STEP_LIMIT ${RADIAL_STEP_LIMIT.toFixed(4)}
 #define DISC_FLARE ${DISC_FLARE.toFixed(4)}
+#define GAS_RADIAL_SCALE ${GAS_RADIAL_SCALE.toFixed(4)}
+#define COLOR_OUTER_RATIO ${COLOR_OUTER_RATIO.toFixed(4)}
 #define STRAIGHT_PATH_SINE ${STRAIGHT_PATH_SINE.toFixed(4)}
 #define ESCAPE_OUTER_FACTOR ${ESCAPE_OUTER_FACTOR.toFixed(2)}
 #define MIN_TRANSMITTANCE ${MIN_TRANSMITTANCE.toFixed(4)}
@@ -920,29 +958,32 @@ float noiseDetail(in float cellSpan) {
  * different one is an unrelated pattern rather than a shifted view of the same one.
  *
  * @param phase - Angle in the disc, already sheared by this copy's winding.
+ * @param radialCoord - How far out the sample is, in units of {@link GAS_RADIAL_SCALE} from the
+ *   inner edge. This is the noise's third axis, and it is an absolute distance rather than a position
+ *   between the two edges, so the pattern does not rescale when the disc's extent changes. Named at
+ *   length because the march in main() has a vec3 named radial, a basis vector, and unrelated.
  * @param wind - How far this copy has wound, in radians, which is what tightens it in radius.
  * @param footprint - The extent of the disc, in Schwarzschild radii, this sample stands for.
  * @param seed - Where in the noise this copy of the gas is read from.
  */
-float gasDensity(in float phase, in float edge, in float wind, in float radius,
+float gasDensity(in float phase, in float radialCoord, in float wind, in float radius,
                  in float footprint, in vec3 seed) {
     // How much of the noise the footprint covers, in cells, for a layer of unit frequency. The
     // sampling angle moves with the footprint two ways - the shear carries it 1.5 * wind / radius
     // radians per unit radius, and going round the disc carries it 1 / radius - and the radial
     // profile moves it along the noise's third axis. Each layer scales all of that by its own
     // frequency below.
-    float span = max(uOuterRadius - uInnerRadius, 1e-6);
     float phaseSpan = (1.5 * abs(wind) + 1.0) * footprint / radius;
-    float edgeSpan = footprint / span;
+    float edgeSpan = footprint / GAS_RADIAL_SCALE;
 
     float bandSpan = uNoiseScale * (phaseSpan + 2.0 * edgeSpan);
     float filamentSpan = uNoiseScale * 0.6 * (phaseSpan + 9.0 * edgeSpan);
 
-    vec3 bandCoord = vec3(cos(phase), sin(phase), edge * 2.0) * uNoiseScale + seed;
+    vec3 bandCoord = vec3(cos(phase), sin(phase), radialCoord * 2.0) * uNoiseScale + seed;
     float density = mix(0.5, discNoise(bandCoord), noiseDetail(bandSpan)) * 0.65
                   + mix(0.5, discNoise(bandCoord * 2.7), noiseDetail(bandSpan * 2.7)) * 0.35;
 
-    vec3 filamentCoord = vec3(cos(phase), sin(phase), edge * 9.0) * uNoiseScale * 0.6 + seed;
+    vec3 filamentCoord = vec3(cos(phase), sin(phase), radialCoord * 9.0) * uNoiseScale * 0.6 + seed;
     float filament = mix(1.0, discNoise(filamentCoord) * 2.0, noiseDetail(filamentSpan));
     return mix(density, density * filament, uTurbulence);
 }
@@ -982,7 +1023,14 @@ float gasDensity(in float phase, in float edge, in float wind, in float radius,
 vec4 sampleDisc(in vec3 point, in vec3 travel, in float radius, in float verticalFade,
                 in float footprint) {
     float span = max(uOuterRadius - uInnerRadius, 1e-6);
+
+    // Two radial coordinates, and they answer different questions. The first is where the sample
+    // sits between the two rims, which is what the fades at each end need — they are fades *of the
+    // rims* and have to follow them. The second is how far out it is full stop, which is what the gas
+    // pattern and the temperature need, since neither is a property of where the disc was cut off; see
+    // {@link GAS_RADIAL_SCALE} and {@link COLOR_OUTER_RATIO}.
     float edge = clamp((radius - uInnerRadius) / span, 0.0, 1.0);
+    float radialCoord = (radius - uInnerRadius) / GAS_RADIAL_SCALE;
 
     // Orbital rate as r^(-3/2), written as a square root rather than a power because this runs
     // once per sample and a power is a logarithm and an exponential where this is neither.
@@ -1022,13 +1070,13 @@ vec4 sampleDisc(in vec3 point, in vec3 travel, in float radius, in float vertica
 
     float density;
     if (blend <= 0.0) {
-        density = gasDensity(angle - wind0, edge, wind0, radius, footprint, seed0);
+        density = gasDensity(angle - wind0, radialCoord, wind0, radius, footprint, seed0);
     } else if (blend >= 1.0) {
-        density = gasDensity(angle - wind1, edge, wind1, radius, footprint, seed1);
+        density = gasDensity(angle - wind1, radialCoord, wind1, radius, footprint, seed1);
     } else {
         density = mix(
-            gasDensity(angle - wind0, edge, wind0, radius, footprint, seed0),
-            gasDensity(angle - wind1, edge, wind1, radius, footprint, seed1),
+            gasDensity(angle - wind0, radialCoord, wind0, radius, footprint, seed0),
+            gasDensity(angle - wind1, radialCoord, wind1, radius, footprint, seed1),
             blend);
     }
     density = clamp(density, 0.0, 1.5);
@@ -1046,7 +1094,10 @@ vec4 sampleDisc(in vec3 point, in vec3 travel, in float radius, in float vertica
     float doppler = 1.0 / max(1.0 - beta * approach, 0.05);
     float beaming = mix(1.0, doppler * doppler * doppler, uBeamingStrength);
 
-    float inward = 1.0 - edge;
+    // The temperature gradient, keyed to the inner edge rather than to the span; see
+    // {@link COLOR_OUTER_RATIO}. Squared because the colours are the two ends of an r^(-3/4) fall
+    // and a straight ramp between them spends far too much of the disc in the middle of it.
+    float inward = 1.0 - clamp((radius / uInnerRadius - 1.0) / (COLOR_OUTER_RATIO - 1.0), 0.0, 1.0);
     vec3 color = mix(uOuterColor, uInnerColor, inward * inward);
     color = mix(color, vec3(0.80, 0.88, 1.00), clamp(approach * beta * 1.6, 0.0, 0.7));
     color = mix(color, vec3(1.00, 0.42, 0.12), clamp(-approach * beta * 1.6, 0.0, 0.7));

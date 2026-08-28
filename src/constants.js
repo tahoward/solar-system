@@ -1065,6 +1065,28 @@ export const CELESTIAL_DATA = [{
      * colours are a real temperature gradient. So the *proportions* are right even though the
      * overall size is not — which is the same bargain every other body here makes.
      *
+     * The outer edge is the one number here with no physics behind it. A real disc has no outer edge
+     * to speak of — it thins out to whatever is feeding it, hundreds of radii or more — so what this
+     * is is where drawing it stops being worth the rays, and 12 is chosen for the picture rather than
+     * derived. Brightness does the arguing: emission falls as `(r_in / r)^emissionFalloff`, so the
+     * rim is already down to a tenth of the inner edge and the gas there is a dim skirt whatever
+     * radius it is cut at. What the number does cost is fill: the tracer can only skip a ray once its
+     * impact parameter puts the turning point outside the gas, at `√(R³ / (R - 1))`, which is 7.6
+     * radii at an outer edge of 7 and 12.5 at 12 — nearly three times the screen area taking the full
+     * march. Lower it first if the hole is slow.
+     *
+     * Neither the gas pattern nor the colours are tied to this, which is what makes it safe to move:
+     * see {@link GAS_RADIAL_SCALE} and {@link COLOR_OUTER_RATIO} for why they are anchored to the
+     * inner edge instead, and what widening the disc used to do before they were.
+     *
+     * What widening *does* change is how solid the gas reads, which is why `opacity` is above 1. It
+     * is not a fraction but a multiplier on optical depth, and the depth a ray accumulates is what
+     * decides both how much of the sky behind the disc survives and how bright the gas comes out —
+     * the march takes `1 - exp(-depth)` for both. Anchoring the noise to an absolute scale puts more
+     * radial structure across a wider disc, so the arms break into more filaments and more sky comes
+     * through between them; doubling the depth is what holds them together. Past about 3 the gas
+     * saturates into a flat sheet and the filaments stop reading at all, so this is the range.
+     *
      * The photon ring sits at 2.62 radii because that is just outside the shadow's true edge at
      * `3√3 / 2` — the hole bends the light of its own silhouette outwards, so the dark disc seen
      * is over two and a half times the horizon rather than the size of it. {@link AccretionDisk}
@@ -1102,11 +1124,11 @@ export const CELESTIAL_DATA = [{
       blackHole: {
         disk: {
           innerRadius: 3.0,
-          outerRadius: 7.0,
+          outerRadius: 12.0,
           innerColor: 0xEAF4FF,
           outerColor: 0xFF5A14,
           intensity: 1.4,
-          opacity: 1.0,
+          opacity: 5.0,
           emissionFalloff: 1.6,
           noiseScale: 3.5,
           swirlSpeed: 0.6,
